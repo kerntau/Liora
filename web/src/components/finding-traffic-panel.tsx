@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Alert, Button, Card, Chip, ListBox, Modal, Select, Skeleton, TextArea } from "@heroui/react";
+import { Alert, Button, Card, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, Select, Skeleton, TextField } from "@mui/material";
 import { ArrowDownIcon, ArrowUpIcon, PlusIcon } from "lucide-react";
 import { toast } from "sonner";
 import { TrafficEvidenceViewer } from "@/components/traffic-evidence-viewer";
@@ -70,33 +70,29 @@ export function FindingTrafficPanel({ findingId, contextTask, readOnly, onChange
         void mutate(() => api.orderFindingTraffic(findingId, ids, data.version, contextTask));
     }
     return (<>
-      <Card className="border border-border">
-        <Card.Header className="flex flex-row flex-wrap items-center justify-between gap-2 p-4 border-b border-border">
+      <Card variant="outlined" className="border border-border">
+        <div className="flex flex-row flex-wrap items-center justify-between gap-2 p-4 border-b border-border">
           <div className="flex flex-col gap-1">
-            <Card.Title className="text-base font-semibold">
+            <div className="text-base font-semibold">
               关联流量 {data ? `(${data.bindings.length})` : ""}
-            </Card.Title>
-            <Card.Description className="text-xs text-muted">
+            </div>
+            <div className="text-xs text-muted">
               按复现顺序组织请求与响应。清理原始流量后，已绑定证据仍然保留。
-            </Card.Description>
+            </div>
           </div>
           <div>
-            {!readOnly ? (<Button size="sm" isDisabled={!data || busy} onPress={() => setAdding(true)} className="gap-1.5" variant={"outline"}>
+            {!readOnly ? (<Button size="small" disabled={!data || busy} onClick={() => setAdding(true)} className="gap-1.5" variant="outlined">
                 <PlusIcon className="size-4"/>
                 绑定流量
-              </Button>) : (<Chip size="sm" color="default" variant={"soft"}>
-                继承证据 · 只读
-              </Chip>)}
+              </Button>) : (<Chip size="small" label="继承证据 · 只读" />)}
           </div>
-        </Card.Header>
-        <Card.Content className="flex flex-col gap-3 p-4">
-          {error ? (<Alert status="danger">
-              <Alert.Description className="flex items-center justify-between gap-2">
+        </div>
+        <div className="flex flex-col gap-3 p-4">
+          {error ? (<Alert severity="error" className="flex items-center justify-between gap-2">
                 <span>{error}</span>
-                <Button size="sm" onPress={() => setReload((n) => n + 1)} variant={"outline"}>
+                <Button size="small" onClick={() => setReload((n) => n + 1)} variant="outlined">
                   重试
                 </Button>
-              </Alert.Description>
             </Alert>) : null}
           {!data ? (<Skeleton className="h-28 w-full rounded-md"/>) : data.bindings.length === 0 ? (<div className="flex flex-col items-center justify-center p-8 text-center text-muted">
               <p className="font-medium text-foreground">暂无关联流量</p>
@@ -105,15 +101,11 @@ export function FindingTrafficPanel({ findingId, contextTask, readOnly, onChange
             const statusColor = b.snapshot.status >= 400 ? "warning" : "success";
             return (<div key={b.id} className="flex min-w-0 flex-col gap-2 rounded-md border border-border bg-surface-secondary/30 p-3">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Chip size="sm" color="default" variant={"soft"}>
-                      {index + 1}. {ROLES[b.role]}
-                    </Chip>
-                    <Chip size="sm" color={statusColor} variant={"soft"}>
-                      {b.snapshot.method} · {b.snapshot.status}
-                    </Chip>
+                    <Chip size="small" label={`${index + 1}. ${ROLES[b.role]}`} />
+                    <Chip size="small" color={statusColor === "warning" ? "warning" : "success"} label={`${b.snapshot.method} · ${b.snapshot.status}`} />
                     <span className="text-xs text-muted">证据 #{b.id}</span>
                   </div>
-                  <Button type="button" className="text-left text-accent hover:underline cursor-pointer" onClick={() => setPreview(b.id)} variant="ghost" size="sm">
+                  <Button type="button" className="text-left text-accent hover:underline cursor-pointer" onClick={() => setPreview(b.id)} variant="text" size="small">
                     <span className="break-all font-mono text-xs">{b.snapshot.url}</span>
                   </Button>
                   {b.note ? <p className="text-sm whitespace-pre-wrap">{b.note}</p> : null}
@@ -122,24 +114,24 @@ export function FindingTrafficPanel({ findingId, contextTask, readOnly, onChange
                       {new Date(b.snapshot.captured_at * 1000).toLocaleString("zh-CN")}
                     </span>
                     <div className="flex flex-wrap items-center gap-1">
-                      <Button size="sm" onPress={() => setPreview(b.id)} variant={"outline"}>
+                      <Button size="small" onClick={() => setPreview(b.id)} variant="outlined">
                         查看报文
                       </Button>
                       {!readOnly ? (<>
-                          <Button size="sm" isDisabled={busy} onPress={() => {
+                          <Button size="small" disabled={busy} onClick={() => {
                         setEditing(b);
                         setRole(b.role);
                         setNote(b.note);
-                    }} variant={"ghost"}>
+                    }} variant="text">
                             编辑说明
                           </Button>
-                          <Button size="sm" isIconOnly className="size-7" aria-label={`上移证据 ${b.id}`} isDisabled={busy || index === 0} onPress={() => move(index, -1)} variant={"ghost"}>
+                          <IconButton size="small" aria-label={`上移证据 ${b.id}`} disabled={busy || index === 0} onClick={() => move(index, -1)}>
                             <ArrowUpIcon className="size-4"/>
-                          </Button>
-                          <Button size="sm" isIconOnly className="size-7" aria-label={`下移证据 ${b.id}`} isDisabled={busy || index === data.bindings.length - 1} onPress={() => move(index, 1)} variant={"ghost"}>
+                          </IconButton>
+                          <IconButton size="small" aria-label={`下移证据 ${b.id}`} disabled={busy || index === data.bindings.length - 1} onClick={() => move(index, 1)}>
                             <ArrowDownIcon className="size-4"/>
-                          </Button>
-                          <Button size="sm" isDisabled={busy} onPress={() => void mutate(() => api.removeFindingTraffic(findingId, b.id, data.version, contextTask))} className="text-danger hover:bg-danger/10" variant={"ghost"}>
+                          </IconButton>
+                          <Button size="small" disabled={busy} onClick={() => void mutate(() => api.removeFindingTraffic(findingId, b.id, data.version, contextTask))} className="text-danger hover:bg-danger/10" variant="text">
                             解除绑定
                           </Button>
                         </>) : null}
@@ -147,7 +139,7 @@ export function FindingTrafficPanel({ findingId, contextTask, readOnly, onChange
                   </div>
                 </div>);
         }))}
-        </Card.Content>
+        </div>
       </Card>
 
       {adding && data ? (<TrafficPickerDialog findingId={findingId} contextTask={contextTask} bound={data.bindings} onClose={() => setAdding(false)} onBound={() => {
@@ -158,54 +150,33 @@ export function FindingTrafficPanel({ findingId, contextTask, readOnly, onChange
       <TrafficEvidenceViewer findingId={findingId} bindingId={preview} contextTask={contextTask} onClose={() => setPreview(null)}/>
 
       
-        <Modal.Backdrop isOpen={editing !== null} onOpenChange={(open) => {
-            if (!open && !busy)
-                setEditing(null);
-        }}>
-          <Modal.Container>
-            <Modal.Dialog className="sm:max-w-md">
-              <Modal.Header>
-                <Modal.Heading>编辑流量证据</Modal.Heading>
-              </Modal.Header>
-              <Modal.Body className="space-y-4">
+        <Dialog open={editing !== null} onClose={() => { if (!busy) setEditing(null); }} fullWidth maxWidth="sm">
+              <DialogTitle>编辑流量证据</DialogTitle>
+              <DialogContent className="space-y-4">
                 <p className="text-xs text-muted">说明这组请求/响应如何支持漏洞结论。</p>
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-foreground">用途</label>
-                  <Select aria-label="用途" selectedKey={role} onSelectionChange={(key) => {
-            if (key !== null)
-                ((k) => setRole(String(k) as TrafficEvidenceRole))(String(key));
-        }}>
-                    <Select.Trigger>
-                      <Select.Value />
-                    </Select.Trigger>
-                    <Select.Popover>
-                      <ListBox>
-                        {Object.entries(ROLES).map(([val, lbl]) => (<ListBox.Item key={val} id={val}>
-                            {lbl}
-                          </ListBox.Item>))}
-                      </ListBox>
-                    </Select.Popover>
+                  <Select fullWidth size="small" value={role} aria-label="用途" onChange={(event) => setRole(event.target.value as TrafficEvidenceRole)}>
+                    {Object.entries(ROLES).map(([val, lbl]) => <MenuItem key={val} value={val}>{lbl}</MenuItem>)}
                   </Select>
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-foreground">证据说明</label>
-                  <TextArea value={note} onChange={(e) => setNote(e.target.value)} rows={3} className="w-full text-xs"/>
+                  <TextField value={note} onChange={(e) => setNote(e.target.value)} multiline minRows={3} fullWidth size="small" />
                 </div>
-              </Modal.Body>
-              <Modal.Footer>
-                <Button isDisabled={busy} onPress={() => setEditing(null)} variant={"outline"}>
+              </DialogContent>
+              <DialogActions>
+                <Button disabled={busy} onClick={() => setEditing(null)} variant="outlined">
                   取消
                 </Button>
-                <Button isDisabled={busy || !editing || !data} onPress={() => {
+                <Button disabled={busy || !editing || !data} onClick={() => {
             if (editing && data)
                 void mutate(() => api.editFindingTraffic(findingId, editing.id, data.version, { role, note }, contextTask));
-        }} variant={"primary"}>
+        }} variant="contained">
                   保存说明
                 </Button>
-              </Modal.Footer>
-            </Modal.Dialog>
-          </Modal.Container>
-        </Modal.Backdrop>
+              </DialogActions>
+        </Dialog>
       
     </>);
 }
