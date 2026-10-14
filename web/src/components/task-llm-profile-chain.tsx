@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Button, Chip, ComboBox, Input, ListBox, Select } from "@heroui/react";
+import { Autocomplete, Chip, IconButton, MenuItem, Select, TextField } from "@mui/material";
 import { ArrowDownIcon, ArrowUpIcon, XIcon } from "lucide-react";
 import type { LLMProfile } from "@/lib/types";
 interface TaskLLMProfileChainProps {
@@ -17,18 +17,12 @@ function ProfileRoleBadge({ index, currentIndex }: {
     currentIndex: number;
 }) {
     if (index === currentIndex) {
-        return (<Chip size="sm" color="accent" variant={"primary"}>
-        <Chip.Label>当前</Chip.Label>
-      </Chip>);
+        return <Chip size="small" color="primary" label="当前" />;
     }
     if (index < currentIndex) {
-        return (<Chip size="sm" color="default" title="当前游标之前的配置不会被自动故障转移选中" variant={"soft"}>
-        <Chip.Label>已跳过</Chip.Label>
-      </Chip>);
+        return <Chip size="small" title="当前游标之前的配置不会被自动故障转移选中" label="已跳过" />;
     }
-    return (<Chip size="sm" color="default" variant={"soft"}>
-      <Chip.Label>备用 {index - currentIndex}</Chip.Label>
-    </Chip>);
+    return (<Chip size="small" label={`备用 ${index - currentIndex}`} />);
 }
 export function TaskLLMProfileChain({ profiles, value, onValueChange, activeProfileId, onActiveProfileChange, disabled = false, }: TaskLLMProfileChainProps) {
     const profilesByID = React.useMemo(() => new Map(profiles.map((profile) => [profile.id, profile])), [profiles]);
@@ -50,29 +44,26 @@ export function TaskLLMProfileChain({ profiles, value, onValueChange, activeProf
     };
     return (<div className="flex flex-col gap-3">
       <div className="space-y-1.5">
-        <ComboBox selectionMode="multiple" value={value} isDisabled={disabled || profiles.length === 0} aria-label="选择并添加 LLM 配置" onChange={(keys) => {
-            const chosen = Array.from(keys).map(String);
+        <Autocomplete
+          multiple
+          disableCloseOnSelect
+          options={profiles}
+          value={value.map((id) => profilesByID.get(id)).filter((profile): profile is LLMProfile => Boolean(profile))}
+          disabled={disabled || profiles.length === 0}
+          getOptionLabel={(profile) => `${profile.name} ${profile.model}`}
+          isOptionEqualToValue={(option, selected) => option.id === selected.id}
+          onChange={(_, selected) => {
+            const chosen = selected.map((profile) => String(profile.id));
             const next = [...value.filter((id) => chosen.includes(id)), ...chosen.filter((id) => !value.includes(id))];
             onValueChange(next);
             if (activeProfileId && !next.includes(activeProfileId))
                 onActiveProfileChange?.(next[0] ?? "");
             else if (!activeProfileId && next.length)
                 onActiveProfileChange?.(next[0]);
-        }}>
-          <ComboBox.InputGroup>
-            <ComboBox.Value />
-            <Input placeholder={profiles.length ? "搜索并选择 LLM 配置" : "暂无可用 LLM 配置"}/>
-            <ComboBox.Trigger />
-          </ComboBox.InputGroup>
-          <ComboBox.Popover>
-            <ListBox items={profiles}>
-              {(profile) => (<ListBox.Item id={profile.id} textValue={profile.name + " " + profile.model}>
-                  <span className="font-medium">{profile.name}</span>
-                  <span className="ml-2 text-muted text-xs">{profile.model}</span>
-                </ListBox.Item>)}
-            </ListBox>
-          </ComboBox.Popover>
-        </ComboBox>
+          }}
+          renderInput={(params) => <TextField {...params} size="small" label="LLM 配置" placeholder={profiles.length ? "搜索并选择 LLM 配置" : "暂无可用 LLM 配置"} />}
+          renderOption={(props, profile) => <li {...props} key={profile.id}><span className="font-medium">{profile.name}</span><span className="ml-2 text-muted text-xs">{profile.model}</span></li>}
+        />
       </div>
 
       {value.length === 0 ? (<p className="text-muted text-xs">未指定配置时，任务跟随 Agent 或全局激活配置。</p>) : (<div className="flex flex-col divide-y divide-border rounded-lg border border-border bg-surface-secondary/40">
@@ -86,15 +77,15 @@ export function TaskLLMProfileChain({ profiles, value, onValueChange, activeProf
                 </div>
                 <ProfileRoleBadge index={index} currentIndex={currentIndex}/>
                 <div className="col-span-2 col-start-2 flex shrink-0 items-center gap-1 justify-self-end sm:col-auto sm:justify-self-auto">
-                  <Button type="button" size="sm" isIconOnly aria-label="上移配置" onPress={() => move(index, -1)} isDisabled={disabled || index === 0} variant={"ghost"}>
+                  <IconButton type="button" size="small" aria-label="上移配置" onClick={() => move(index, -1)} disabled={disabled || index === 0}>
                     <ArrowUpIcon className="size-3.5"/>
-                  </Button>
-                  <Button type="button" size="sm" isIconOnly aria-label="下移配置" onPress={() => move(index, 1)} isDisabled={disabled || index === value.length - 1} variant={"ghost"}>
+                  </IconButton>
+                  <IconButton type="button" size="small" aria-label="下移配置" onClick={() => move(index, 1)} disabled={disabled || index === value.length - 1}>
                     <ArrowDownIcon className="size-3.5"/>
-                  </Button>
-                  <Button type="button" size="sm" isIconOnly aria-label="移除配置" onPress={() => remove(id)} isDisabled={disabled} variant={"ghost"}>
+                  </IconButton>
+                  <IconButton type="button" size="small" aria-label="移除配置" onClick={() => remove(id)} disabled={disabled}>
                     <XIcon className="size-3.5"/>
-                  </Button>
+                  </IconButton>
                 </div>
               </div>);
             })}
@@ -102,23 +93,8 @@ export function TaskLLMProfileChain({ profiles, value, onValueChange, activeProf
 
       {onActiveProfileChange && value.length > 0 && (<div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3 pt-1">
           <span className="font-medium text-sm text-foreground">当前配置</span>
-          <Select selectedKey={activeProfileId && value.includes(activeProfileId) ? activeProfileId : value[0]} isDisabled={disabled} className="w-full sm:min-w-48 sm:max-w-64" aria-label="切换当前激活配置" onSelectionChange={(key) => {
-                if (key !== null)
-                    ((key) => key && onActiveProfileChange(String(key)))(String(key));
-            }}>
-            <Select.Trigger className="h-8 text-xs">
-              <Select.Value />
-            </Select.Trigger>
-            <Select.Popover>
-              <ListBox>
-                {value.map((id) => {
-                const profile = profilesByID.get(id);
-                return (<ListBox.Item key={id} id={id} textValue={profile?.name ?? `配置 #${id}`}>
-                      {profile?.name ?? `配置 #${id}`}
-                    </ListBox.Item>);
-            })}
-              </ListBox>
-            </Select.Popover>
+          <Select value={activeProfileId && value.includes(activeProfileId) ? activeProfileId : value[0]} disabled={disabled} aria-label="切换当前激活配置" onChange={(event) => onActiveProfileChange(String(event.target.value))} size="small" sx={{ minWidth: 192, maxWidth: 256 }}>
+            {value.map((id) => { const profile = profilesByID.get(id); return <MenuItem key={id} value={id}>{profile?.name ?? `配置 #${id}`}</MenuItem>; })}
           </Select>
         </div>)}
     </div>);

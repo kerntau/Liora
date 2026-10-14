@@ -1,6 +1,6 @@
 import * as React from "react";
-import { ListBox, Popover, SearchField } from "@heroui/react";
-import { cn } from "@/lib/utils";
+import { IconButton, InputAdornment, List, ListItemButton, Popover, TextField } from "@mui/material";
+import { Search, X } from "lucide-react";
 const DSL_FIELDS: {
     name: string;
     desc: string;
@@ -303,32 +303,33 @@ export function AssetDslSearch({ query, onChange, loading, error, count, }: {
     const cursorPos = () => inputRef.current?.selectionStart ?? query.length;
     return (<div className="flex flex-col gap-1">
       <div className="relative max-w-lg">
-        <SearchField value={query} onChange={handleChange} aria-label="DSL 资产搜索" className="w-full">
-          <SearchField.Group className="flex items-center gap-2 border border-border rounded-lg px-2.5 py-1.5 bg-surface-secondary focus-within:border-accent">
-            <SearchField.SearchIcon className="size-3.5 text-muted shrink-0"/>
-            <SearchField.Input ref={inputRef} placeholder="DSL 搜索：domain=example AND status_code>=400" onKeyDown={handleKeyDown} onFocus={() => refresh(query, cursorPos())} onClick={() => refresh(query, cursorPos())} onBlur={() => setTimeout(() => setOpen(false), 120)} className="w-full bg-transparent font-mono text-xs outline-none placeholder:text-muted"/>
-            <SearchField.ClearButton className="text-xs text-muted hover:text-foreground"/>
-          </SearchField.Group>
-        </SearchField>
+        <TextField
+          fullWidth
+          size="small"
+          value={query}
+          onChange={(event) => handleChange(event.target.value)}
+          aria-label="DSL 资产搜索"
+          placeholder="DSL 搜索：domain=example AND status_code>=400"
+          onKeyDown={handleKeyDown}
+          onFocus={() => refresh(query, cursorPos())}
+          onClick={() => refresh(query, cursorPos())}
+          onBlur={() => setTimeout(() => setOpen(false), 120)}
+          inputRef={inputRef}
+          sx={{ "& input": { fontFamily: "monospace", fontSize: 12 } }}
+          slotProps={{ input: {
+            startAdornment: <InputAdornment position="start"><Search size={16} color="currentColor" /></InputAdornment>,
+            endAdornment: query ? <InputAdornment position="end"><IconButton size="small" aria-label="清除" onMouseDown={(event) => event.preventDefault()} onClick={() => { onChange(""); refresh("", 0); }}><X size={15} /></IconButton></InputAdornment> : undefined,
+          } }}
+        />
 
-        {open && suggestions.length > 0 && (<Popover isOpen={open} onOpenChange={setOpen}>
-            <Popover.Content triggerRef={inputRef} isNonModal placement="bottom start" className="min-w-72 max-w-sm border border-border bg-overlay p-1 shadow-overlay" onMouseDown={(event) => event.preventDefault()}>
-              <div>
-                <ListBox aria-label="DSL 语法提示" selectionMode="single" onAction={(key) => {
-                const s = suggestions[Number(key)];
-                if (s)
-                    apply(s);
-            }} className="p-1">
-                  {suggestions.map((s, i) => (<ListBox.Item key={i} id={String(i)} textValue={`${s.label} ${s.desc}`} className={cn("flex items-center gap-3 px-3 py-1.5 rounded-md cursor-pointer text-left outline-none", i === selIdx ? "bg-surface-secondary" : "hover:bg-surface-secondary/60")} onMouseEnter={() => setSelIdx(i)}>
-                      <span className={cn("shrink-0 font-mono text-xs font-semibold", KIND_STYLE[s.kind])}>
-                        {s.label}
-                      </span>
-                      <span className="text-xs text-muted truncate">{s.desc}</span>
-                    </ListBox.Item>))}
-                </ListBox>
-              </div>
-            </Popover.Content>
-          </Popover>)}
+        {open && suggestions.length > 0 && (<Popover open anchorEl={inputRef.current} onClose={() => setOpen(false)} anchorOrigin={{ vertical: "bottom", horizontal: "left" }} transformOrigin={{ vertical: "top", horizontal: "left" }}>
+          <List dense sx={{ minWidth: 288, maxWidth: 420, p: 0.5 }} aria-label="DSL 语法提示">
+            {suggestions.map((s, i) => (<ListItemButton key={`${s.kind}-${s.label}-${i}`} selected={i === selIdx} onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setSelIdx(i)} onClick={() => apply(s)} sx={{ gap: 1.5, py: 0.75, borderRadius: 1 }}>
+              <span style={{ flexShrink: 0, fontFamily: "monospace", fontSize: 12, fontWeight: 600, color: s.kind === "field" ? "var(--mui-palette-primary-main)" : s.kind === "operator" ? "var(--mui-palette-warning-main)" : "var(--mui-palette-success-main)" }}>{s.label}</span>
+              <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12, color: "var(--mui-palette-text-secondary)" }}>{s.desc}</span>
+            </ListItemButton>))}
+          </List>
+        </Popover>)}
       </div>
 
       {query.trim() && !open && (<p className="pl-1 text-[11px] text-muted">
