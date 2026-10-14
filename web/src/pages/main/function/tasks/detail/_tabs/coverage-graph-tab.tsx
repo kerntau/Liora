@@ -1,6 +1,6 @@
 import * as React from "react";
 import type { Graph as G6Graph } from "@antv/g6";
-import { Button, Card, Chip, Drawer, ScrollShadow } from "@heroui/react";
+import { Button, Card, Chip, Drawer } from "@mui/material";
 import { AppWindow, Building2, Globe, Link2, type LucideIcon, Radio, RefreshCw, Server, Waypoints } from "lucide-react";
 import { api } from "@/lib/api";
 import type { CoverageAssetRef, CoverageAssetRefs, CoverageGraphEdge, CoverageGraphNode } from "@/lib/types";
@@ -251,9 +251,7 @@ function RefList({ title, items }: {
             <span className="shrink-0 font-mono text-muted">#{r.id}</span>
             {r.state && <span className="shrink-0 text-muted">{r.state}</span>}
             <span className="min-w-32 flex-1 break-words text-foreground">{r.summary || "—"}</span>
-            {r.inherited && r.source_task_id && (<Chip className="shrink-0" size="sm" variant={"secondary"}>
-                来源 #{r.source_task_id} · 只读
-              </Chip>)}
+            {r.inherited && r.source_task_id && (<Chip className="shrink-0" size="small" label={`来源 #${r.source_task_id} · 只读`} />)}
           </div>))}
       </div>
     </div>);
@@ -286,25 +284,23 @@ function AssetSheet({ node, taskId, onOpenChange, }: {
         };
     }, [node, taskId]);
     return (
-      <Drawer.Backdrop isOpen={node !== null} onOpenChange={onOpenChange}>
-        <Drawer.Content placement={"right"}>
-          <Drawer.Dialog className="flex w-full flex-col gap-0 p-0 data-[side=right]:sm:max-w-md">
-            <Drawer.CloseTrigger aria-label="关闭"/>
+      <Drawer anchor="right" open={node !== null} onClose={() => onOpenChange(false)} slotProps={{ paper: { sx: { width: { xs: "100vw", sm: 448 }, maxWidth: "100vw" } } }}>
+          <div className="flex w-full flex-col gap-0 p-0">
             {node && meta && Icon && (<>
-                <Drawer.Header className="border-b p-4">
+                <div className="border-b p-4">
                   <div className="flex items-center gap-2.5 pr-8">
                     <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg shadow-sm", meta.iconBg)}>
                       <Icon className="size-4 text-white"/>
                     </span>
                     <div className="min-w-0">
-                      <Drawer.Heading className="leading-tight">{meta.label}</Drawer.Heading>
+                      <div className="leading-tight font-semibold">{meta.label}</div>
                       <span className="text-muted truncate font-mono text-xs" title={node.label}>
                         {node.label}
                       </span>
                     </div>
                   </div>
-                </Drawer.Header>
-                <ScrollShadow className="min-h-0 flex-1" data-slot="scroll-shadow" data-scrollbar="thin">
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto" data-scrollbar="thin">
                   <div className="flex w-full min-w-0 flex-col gap-4 p-4">
                     <section>
                       <h4 className="text-muted mb-1 text-xs font-medium">属性</h4>
@@ -338,11 +334,10 @@ function AssetSheet({ node, taskId, onOpenChange, }: {
                       </pre>
                     </section>
                   </div>
-                </ScrollShadow>
+                </div>
               </>)}
-          </Drawer.Dialog>
-        </Drawer.Content>
-      </Drawer.Backdrop>
+          </div>
+      </Drawer>
     );
 }
 function FoldSheet({ fold, onOpenChange, onShowMore, onPick, }: {
@@ -354,20 +349,18 @@ function FoldSheet({ fold, onOpenChange, onShowMore, onPick, }: {
     const meta = fold ? kindMeta[fold.kind] : null;
     const Icon = meta?.icon;
     return (
-      <Drawer.Backdrop isOpen={fold !== null} onOpenChange={onOpenChange}>
-        <Drawer.Content placement={"right"}>
-          <Drawer.Dialog className="flex w-full flex-col gap-0 p-0 data-[side=right]:sm:max-w-md">
-            <Drawer.CloseTrigger aria-label="关闭"/>
+      <Drawer anchor="right" open={fold !== null} onClose={() => onOpenChange(false)} slotProps={{ paper: { sx: { width: { xs: "100vw", sm: 448 }, maxWidth: "100vw" } } }}>
+          <div className="flex w-full flex-col gap-0 p-0">
             {fold && meta && Icon && (<>
-                <Drawer.Header className="border-b p-4">
-                  <Drawer.Heading className="text-base">
+                <div className="border-b p-4">
+                  <div className="text-base font-semibold">
                     未展示的{meta.label}（{fold.hidden.length}）
-                  </Drawer.Heading>
+                  </div>
                   <p className="text-muted text-xs">已测优先展示。点「展示更多」把下一批拉进图里。</p>
-                </Drawer.Header>
-                <ScrollShadow className="min-h-0 flex-1" data-slot="scroll-shadow" data-scrollbar="thin">
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto" data-scrollbar="thin">
                   <div className="flex flex-col gap-1 p-3">
-                    {fold.hidden.map((n) => (<Button key={n.key} type="button" onClick={() => onPick(n)} className="hover:bg-accent flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm" variant="ghost" size="sm">
+                    {fold.hidden.map((n) => (<Button key={n.key} type="button" onClick={() => onPick(n)} className="hover:bg-accent flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm" variant="text" size="small">
                         <span className={cn("flex size-5 shrink-0 items-center justify-center rounded", n.tested ? meta.iconBg : "bg-surface-secondary dark:bg-surface-secondary")}>
                           <Icon className="size-3 text-white"/>
                         </span>
@@ -377,16 +370,15 @@ function FoldSheet({ fold, onOpenChange, onShowMore, onPick, }: {
                         {n.tested && <span className="size-1.5 shrink-0 rounded-full bg-success"/>}
                       </Button>))}
                   </div>
-                </ScrollShadow>
+                </div>
                 <div className="border-t p-3">
-                  <Button className="w-full" onPress={() => onShowMore(fold.groupId)} variant={"outline"}>
+                  <Button className="w-full" onClick={() => onShowMore(fold.groupId)} variant="outlined">
                     展示更多（+{FOLD_STEP}）
                   </Button>
                 </div>
               </>)}
-          </Drawer.Dialog>
-        </Drawer.Content>
-      </Drawer.Backdrop>
+          </div>
+      </Drawer>
     );
 }
 // ---------------------------------------------------------------------------
@@ -590,7 +582,7 @@ function GraphInner({ taskId, coverageEnabled = true }: {
                   · 已测 <span className="font-semibold tabular-nums text-success dark:text-success">{tested}</span>
                 </>)}
             </span>) : (<span className="text-muted">{loading ? "加载中…" : "暂无范围内资产（先锚定任务范围）"}</span>)}
-          <Button className="size-6" onPress={fetchGraph} size="sm" isIconOnly aria-label={"刷新"} variant={"ghost"}>
+          <Button className="size-6" onClick={fetchGraph} size="small" aria-label={"刷新"} variant="text" sx={{ minWidth: 28, p: 0 }}>
             <RefreshCw className={cn("size-3.5", loading && "animate-spin")}/>
           </Button>
         </div>
@@ -635,11 +627,11 @@ export function CoverageGraphTab({ taskId, coverageEnabled = true }: {
     taskId: string;
     coverageEnabled?: boolean;
 }) {
-    return (<Card>
-      <Card.Content className="p-0">
+    return (<Card variant="outlined">
+      <div className="p-0">
         <div className="h-[72vh] w-full overflow-hidden rounded-xl">
           <GraphInner taskId={taskId} coverageEnabled={coverageEnabled}/>
         </div>
-      </Card.Content>
+      </div>
     </Card>);
 }
