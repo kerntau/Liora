@@ -1,7 +1,7 @@
 import * as React from "react";
 import { Link } from "react-router";
 import { useSearchParams } from "react-router";
-import { buttonVariants } from "@heroui/react";
+
 import { ArrowLeftIcon } from "lucide-react";
 import { AgentEditor } from "@/components/agent-editor";
 import { cn } from "@/lib/utils";
@@ -13,7 +13,7 @@ function AgentDetailInner() {
     const key = searchParams.get("key") ?? "";
     return (<div className="flex flex-1 flex-col gap-4">
       <div className="flex items-center gap-2">
-        <Link to="/system/agents" className={cn(buttonVariants({ variant: "ghost", size: "sm", isIconOnly: true }))}>
+        <Link to="/system/agents" className={cn("inline-flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted hover:bg-surface-secondary") }>
           <ArrowLeftIcon className="size-4"/>
         </Link>
         <div>
@@ -31,3 +31,4 @@ export default function AgentDetailPage() {
       <AgentDetailInner />
     </React.Suspense>);
 }
+

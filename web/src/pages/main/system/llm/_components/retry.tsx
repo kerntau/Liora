@@ -7,7 +7,9 @@
 //   次数   空/0 = 用内置默认 | -1 = 关闭这层重试 | >0 = 用这个次数
 //   间隔   空/0 = 用这层原本的指数退避 | >0 = 改用这个固定毫秒间隔
 import * as React from "react";
-import { Button, Label, NumberField } from "@heroui/react";
+import Button from "@mui/material/Button";
+import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
 import { Loader2Icon, SaveIcon } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -123,17 +125,12 @@ function NumField({ id, value, onChange, placeholder, min, }: {
         const incoming = value === 0 ? "" : String(value);
         setText((cur) => (Number(cur || 0) === value ? cur : incoming));
     }, [value]);
-    return (<NumberField id={id} minValue={min} className="w-28 shrink-0" onChange={(nextValue) => {
-            setText(Number.isNaN(nextValue) ? "" : String(nextValue));
-            const n = Number(Number.isNaN(nextValue) ? "" : String(nextValue));
-            onChange((Number.isNaN(nextValue) ? "" : String(nextValue)).trim() === "" || !Number.isFinite(n) ? 0 : Math.trunc(n));
-        }} aria-label={placeholder} value={String(text) === "" ? NaN : Number(text)}>
-      <NumberField.Group>
-        <NumberField.DecrementButton />
-        <NumberField.Input />
-        <NumberField.IncrementButton />
-      </NumberField.Group>
-    </NumberField>);
+    return <TextField id={id} type="number" size="small" className="w-28 shrink-0" aria-label={placeholder} value={text} placeholder={placeholder} onChange={(event) => {
+      const next = event.target.value;
+      setText(next);
+      const n = Number(next);
+      onChange(next.trim() === "" || !Number.isFinite(n) ? 0 : Math.trunc(n));
+    }} />;
 }
 /** 一层重试的两个旋钮。idPrefix 用来在同一页出现多次时保住 label 的 htmlFor。 */
 export function RetryRuleFields({ layer, idPrefix, value, onChange, compact, }: {
@@ -149,7 +146,7 @@ export function RetryRuleFields({ layer, idPrefix, value, onChange, compact, }: 
     return (<div className={compact ? "grid gap-2" : "grid gap-3 rounded-lg border p-3"}>
       <div className="grid gap-0.5">
         <div className="flex flex-wrap items-baseline gap-2">
-          <Label className="text-sm">{meta.title}</Label>
+          <Typography component="label" className="text-sm">{meta.title}</Typography>
           <span className="text-muted text-xs">{meta.where}</span>
         </div>
         {/* 哪些错误会走到这层，具体到状态码——填了旋钮却看不到效果，多半是错误压根不落在这层。 */}
@@ -163,15 +160,15 @@ export function RetryRuleFields({ layer, idPrefix, value, onChange, compact, }: 
       </div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <div className="flex items-center gap-2">
-          <Label htmlFor={`${idPrefix}-${layer}-n`} className="text-muted text-xs">
+          <Typography component="label" htmlFor={`${idPrefix}-${layer}-n`} className="text-muted text-xs">
             {meta.attemptsLabel}
-          </Label>
+          </Typography>
           <NumField id={`${idPrefix}-${layer}-n`} min={-1} value={value.attempts} placeholder={`默认 ${meta.defAttempts}`} onChange={(n) => onChange({ ...value, attempts: n })}/>
         </div>
         <div className="flex items-center gap-2">
-          <Label htmlFor={`${idPrefix}-${layer}-ms`} className="text-muted text-xs">
+          <Typography component="label" htmlFor={`${idPrefix}-${layer}-ms`} className="text-muted text-xs">
             间隔 ms
-          </Label>
+          </Typography>
           <NumField id={`${idPrefix}-${layer}-ms`} min={0} value={value.interval_ms} placeholder="默认退避" onChange={(n) => onChange({ ...value, interval_ms: n })}/>
           <span className="text-muted text-xs">{human ? `固定 ${human}` : meta.defInterval}</span>
         </div>
@@ -186,7 +183,7 @@ export function ProfileRetryFields({ value, onChange, }: {
 }) {
     return (<div className="grid gap-3 rounded-lg border p-3">
       <div className="grid gap-0.5">
-        <Label className="text-sm">重试覆盖</Label>
+        <Typography component="label" className="text-sm">重试覆盖</Typography>
         <p className="text-muted text-xs">
           只对这个配置生效，覆盖「重试与退避」里的全局默认。每格留空 = 跟随全局；次数填 -1 = 关掉这层重试；
           间隔填了就用固定间隔取代指数退避。熔断与意图重跑是进程级的，只能在全局那页调。
@@ -256,13 +253,21 @@ export function RetryPolicyPanel() {
       </div>
 
       <div className="flex gap-2">
-        <Button onPress={save} isDisabled={saving}>
+        <Button onClick={save} disabled={saving} variant="contained">
           {saving ? <Loader2Icon className="animate-spin"/> : <SaveIcon />}
           保存
         </Button>
-        <Button onPress={() => setPolicy(ZERO_POLICY)} isDisabled={saving} variant={"outline"}>
+        <Button onClick={() => setPolicy(ZERO_POLICY)} disabled={saving} variant="outlined">
           全部恢复默认
         </Button>
       </div>
     </div>);
 }
+
+
+
+
+
+
+
+
