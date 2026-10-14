@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Button, InputGroup, ScrollShadow } from "@heroui/react";
+import { Button, IconButton, TextField } from "@mui/material";
 import { BuildingIcon, ChevronRightIcon, CircleDashedIcon, GlobeIcon, LayoutTemplateIcon, LinkIcon, type LucideIcon, NetworkIcon, RefreshCwIcon, SearchIcon, SmartphoneIcon, } from "lucide-react";
 import type { FindingAssetKind, FindingAssetNode } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -219,28 +219,23 @@ export function AssetTree({ nodes, selected, onSelect, loading, truncated, dropp
     pushRows(visible);
     return (<div className="flex min-h-0 flex-1 flex-col gap-2">
       <div className="flex items-center gap-1">
-        <InputGroup className="flex-1">
-          <InputGroup.Input type="search" value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="过滤资产" aria-label="过滤资产"/>
-          <div className="flex shrink-0 items-center px-2 text-muted">
-            <SearchIcon aria-hidden="true"/>
-          </div>
-        </InputGroup>
-        {onRefresh && (<Button className="size-8 shrink-0 text-muted" onPress={onRefresh} isDisabled={loading} aria-label="刷新资产树" size="sm" isIconOnly variant={"ghost"}>
+        <TextField className="flex-1" size="small" type="search" value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="过滤资产" aria-label="过滤资产" slotProps={{ input: { endAdornment: <SearchIcon aria-hidden="true" className="text-muted" /> } }} />
+        {onRefresh && (<IconButton className="size-8 shrink-0 text-muted" onClick={onRefresh} disabled={loading} aria-label="刷新资产树" size="small">
             <RefreshCwIcon className={cn("size-4", loading && "animate-spin")}/>
-          </Button>)}
+          </IconButton>)}
       </div>
 
-      <Button type="button" onClick={() => onSelect(null)} className={cn("flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm", selected === null ? "bg-accent font-medium" : "hover:bg-accent/50")} variant="ghost" size="sm">
+      <Button type="button" onClick={() => onSelect(null)} className={cn("flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm", selected === null ? "bg-accent font-medium" : "hover:bg-accent/50")} variant="text" size="small">
         <span>全部资产</span>
         <span className="text-xs tabular-nums text-muted">{findingTotal}</span>
       </Button>
 
-      <ScrollShadow className="min-h-0 flex-1" data-slot="scroll-shadow" data-scrollbar="thin">
+      <div className="min-h-0 flex-1 overflow-y-auto" data-slot="scroll-shadow" data-scrollbar="thin">
         <div className="flex flex-col pr-2">
           {rows}
           {rows.length === 0 && <p className="px-2 py-8 text-center text-xs text-muted">{emptyHint}</p>}
         </div>
-      </ScrollShadow>
+      </div>
 
       {truncated && (<p className="px-1 text-xs text-muted">
           资产过多，已隐藏{(droppedKinds ?? []).map((k) => KIND_LABEL[k as FindingAssetKind] ?? k).join(" / ")}
@@ -258,10 +253,10 @@ function AssetTreeRow({ node, open, selected, onToggle, onSelect, }: {
     const Icon = KIND_ICON[node.kind] ?? GlobeIcon;
     const hasChildren = node.children.length > 0;
     return (<div className={cn("group flex items-center gap-1 rounded-md pr-1 text-sm", selected ? "bg-accent" : "hover:bg-accent/50")} style={{ paddingLeft: `${node.depth * 10}px` }}>
-      {hasChildren ? (<Button type="button" onClick={onToggle} className="flex size-5 shrink-0 items-center justify-center rounded text-muted hover:text-foreground" aria-label={open ? "折叠" : "展开"} aria-expanded={open} variant="ghost" size="sm">
+      {hasChildren ? (<Button type="button" onClick={onToggle} className="flex size-5 shrink-0 items-center justify-center rounded text-muted hover:text-foreground" aria-label={open ? "折叠" : "展开"} aria-expanded={open} variant="text" size="small" sx={{ minWidth: 20, p: 0 }}>
           <ChevronRightIcon className={cn("size-3.5 transition-transform", open && "rotate-90")}/>
         </Button>) : (<span className="size-5 shrink-0"/>)}
-      <Button type="button" onClick={onSelect} className="flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left" aria-label={`${KIND_LABEL[node.kind] ?? node.kind} · ${node.label}`} variant="ghost" size="sm">
+      <Button type="button" onClick={onSelect} className="flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left" aria-label={`${KIND_LABEL[node.kind] ?? node.kind} · ${node.label}`} variant="text" size="small">
         <Icon className="size-3.5 shrink-0 text-muted" aria-hidden="true"/>
         <span className={cn("min-w-0 truncate", selected && "font-medium")}>{node.display}</span>
       </Button>
