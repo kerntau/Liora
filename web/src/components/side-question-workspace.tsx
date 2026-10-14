@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { Alert, AlertDialog, Button, Chip, Drawer, ScrollShadow, Skeleton, TextArea, TextField } from "@heroui/react";
+import { Alert, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Drawer, IconButton, Skeleton, TextField } from "@mui/material";
 import { ArrowUpIcon, MessageCircleQuestionIcon, SquareIcon, Trash2Icon, XIcon } from "lucide-react";
 import { Markdown } from "@/components/markdown";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/resizable-panels";
@@ -19,12 +19,10 @@ export function SideQuestionButton({ side }: {
 }) {
     if (!side.enabled)
         return null;
-    return (<Button size="sm" onPress={() => side.setOpen(true)} className="gap-1.5" aria-label={"/btw 旁路提问"} variant={"ghost"}>
+    return (<Button size="small" onClick={() => side.setOpen(true)} className="gap-1.5" aria-label={"/btw 旁路提问"} variant="text">
       <MessageCircleQuestionIcon className="size-4"/>
       <span>旁路提问</span>
-      <Chip size="sm" className="font-mono text-[10px]" variant={"soft"}>
-        /btw
-      </Chip>
+      <Chip size="small" className="font-mono text-[10px]" label="/btw" />
     </Button>);
 }
 function SidePanel({ side, label, composerLayout, }: {
@@ -60,12 +58,12 @@ function SidePanel({ side, label, composerLayout, }: {
           </p>
           <p className="truncate text-muted text-xs">{label}</p>
         </div>
-        <Button size="sm" isIconOnly onPress={() => setConfirm(true)} isDisabled={!side.items.length || side.busy} aria-label="清空旁路历史" variant={"ghost"}>
+        <IconButton size="small" onClick={() => setConfirm(true)} disabled={!side.items.length || side.busy} aria-label="清空旁路历史">
           <Trash2Icon className="size-4"/>
-        </Button>
-        <Button size="sm" isIconOnly onPress={() => side.setOpen(false)} aria-label="关闭旁路面板" variant={"ghost"}>
+        </IconButton>
+        <IconButton size="small" onClick={() => side.setOpen(false)} aria-label="关闭旁路面板">
           <XIcon className="size-4"/>
-        </Button>
+        </IconButton>
       </div>
 
       <div className="border-b border-border px-3 py-2 text-muted text-xs">
@@ -75,11 +73,11 @@ function SidePanel({ side, label, composerLayout, }: {
           </>) : ("主 Agent 首次运行后即可提问")}
       </div>
 
-      <ScrollShadow ref={viewport} data-scrollbar="thin" onScroll={(event) => {
+      <div ref={viewport} data-scrollbar="thin" onScroll={(event) => {
             const el = event.currentTarget;
             pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
         }} className="min-h-0 flex-1 p-3" data-slot="scroll-shadow">
-        {side.nextCursor > 0 && (<Button size="sm" className="w-full mb-3" onPress={() => void side.load(side.nextCursor)} variant={"ghost"}>
+        {side.nextCursor > 0 && (<Button size="small" className="w-full mb-3" onClick={() => void side.load(side.nextCursor)} variant="text">
             加载更早的旁路问答
           </Button>)}
         {side.loading && <Skeleton className="h-16 w-full rounded-md"/>}
@@ -96,9 +94,7 @@ function SidePanel({ side, label, composerLayout, }: {
                   {item.question}
                 </div>
                 <div className="flex flex-wrap items-center gap-2 text-muted text-xs">
-                  <Chip size="sm" color={currentStatus.color} variant={"soft"}>
-                    {currentStatus.label}
-                  </Chip>
+                  <Chip size="small" color={currentStatus.color === "accent" ? "primary" : currentStatus.color === "danger" ? "error" : currentStatus.color === "warning" ? "warning" : currentStatus.color === "success" ? "success" : "default"} label={currentStatus.label} />
                   <span className="truncate">{item.model.model}</span>
                   <time dateTime={item.snapshot_at} title={new Date(item.snapshot_at).toLocaleString()}>
                     上下文 {new Date(item.snapshot_at).toLocaleTimeString()}
@@ -114,65 +110,53 @@ function SidePanel({ side, label, composerLayout, }: {
                     <span className="inline-block size-2 rounded-full bg-accent animate-pulse"/>
                     {preparationLabels[item.context?.phase ?? "answering"]}
                   </p>)}
-                {item.error && (<Alert status="danger" className="mt-2">
-                    <Alert.Description>{item.error}</Alert.Description>
-                  </Alert>)}
+                {item.error && (<Alert severity="error" className="mt-2">{item.error}</Alert>)}
               </article>);
         })}
         </div>
-      </ScrollShadow>
+      </div>
 
       <div className="shrink-0 border-t border-border p-3">
-        {(side.error || side.snapshot?.reason) && (<Alert status="danger" className="mb-2">
-            <Alert.Description>{side.error || side.snapshot?.reason}</Alert.Description>
-          </Alert>)}
+        {(side.error || side.snapshot?.reason) && (<Alert severity="error" className="mb-2">{side.error || side.snapshot?.reason}</Alert>)}
         <div className={cn("relative flex rounded-lg border border-border bg-surface shadow-xs focus-within:ring-2 focus-within:ring-accent", inlineComposer ? "flex-row items-center" : "flex-col")}>
-          <TextField className="contents" isDisabled={side.busy}>
-            <TextArea rows={1} className={cn("w-full resize-none bg-transparent px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted", inlineComposer ? "max-h-40 min-h-9" : "max-h-36 min-h-16")} aria-label="旁路问题" placeholder="询问当前上下文…" value={side.draft} maxLength={4000} onChange={(event) => side.setDraft(event.target.value)} onKeyDown={(event) => {
+          <TextField disabled={side.busy} multiline minRows={inlineComposer ? 1 : 3} maxRows={inlineComposer ? 6 : 8} fullWidth variant="standard" slotProps={{ input: { disableUnderline: true }, htmlInput: { maxLength: 4000 } }} className={cn("w-full", inlineComposer ? "max-h-40" : "max-h-36")} aria-label="旁路问题" placeholder="询问当前上下文…" value={side.draft} onChange={(event) => side.setDraft(event.target.value)} onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                 event.preventDefault();
                 void side.ask(side.draft);
             }
-        }}></TextArea>
-          </TextField>
+        }} />
           <div className={cn("flex items-center px-2 py-1.5", inlineComposer ? "shrink-0" : "justify-between border-t border-separator")}>
             {!inlineComposer && <span className="text-muted text-xs">独立问答 · 无工具执行</span>}
-            {side.running ? (<Button size="sm" isIconOnly className="ml-auto size-7" onPress={() => void side.stop()} aria-label="停止旁路回答" variant={"danger"}>
+            {side.running ? (<IconButton size="small" className="ml-auto" onClick={() => void side.stop()} aria-label="停止旁路回答" color="error">
                 <SquareIcon className="size-3.5 fill-current"/>
-              </Button>) : (<Button size="sm" isIconOnly className="ml-auto size-7" onPress={() => void side.ask(side.draft)} isDisabled={side.busy || !side.draft.trim() || !side.snapshot?.available} aria-label="发送旁路问题" variant={"primary"}>
+              </IconButton>) : (<IconButton size="small" className="ml-auto" onClick={() => void side.ask(side.draft)} disabled={side.busy || !side.draft.trim() || !side.snapshot?.available} aria-label="发送旁路问题" color="primary">
                 <ArrowUpIcon className="size-3.5"/>
-              </Button>)}
+              </IconButton>)}
           </div>
         </div>
       </div>
       {inlineComposer && (<div className="shrink-0 truncate px-3 pt-0.5 pb-1 text-muted text-xs">独立问答 · 无工具执行</div>)}
 
       
-        <AlertDialog.Backdrop isOpen={confirm} onOpenChange={setConfirm}>
-          <AlertDialog.Container>
-            <AlertDialog.Dialog>
-              <AlertDialog.Header>
-                <AlertDialog.Heading>清空旁路历史？</AlertDialog.Heading>
-              </AlertDialog.Header>
-              <AlertDialog.Body>
+        <Dialog open={confirm} onClose={() => setConfirm(false)}>
+              <DialogTitle>清空旁路历史？</DialogTitle>
+              <DialogContent>
                 <p className="text-sm text-muted">
                   删除当前 Agent 的旁路问答，并停止正在生成的旁路回答。主会话和上下文快照会保留。
                 </p>
-              </AlertDialog.Body>
-              <AlertDialog.Footer>
-                <Button slot="close" variant={"outline"}>
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={() => setConfirm(false)} variant="outlined">
                   取消
                 </Button>
-                <Button onPress={() => {
+                <Button onClick={() => {
             void side.clear();
             setConfirm(false);
-        }} variant={"danger"}>
+        }} variant="contained" color="error">
                   清空历史
                 </Button>
-              </AlertDialog.Footer>
-            </AlertDialog.Dialog>
-          </AlertDialog.Container>
-        </AlertDialog.Backdrop>
+              </DialogActions>
+        </Dialog>
       
     </section>);
 }
@@ -196,13 +180,9 @@ export function SideQuestionWorkspace({ side, label, children, composerLayout = 
           </>)}
       </ResizablePanelGroup>
       
-        <Drawer.Backdrop isOpen={mobile && side.open && side.enabled} onOpenChange={side.setOpen}>
-          <Drawer.Content placement="bottom">
-            <Drawer.Dialog className={cn("h-full flex flex-col", "h-[85svh]")}>
-              <SidePanel side={side} label={label} composerLayout={composerLayout}/>
-            </Drawer.Dialog>
-          </Drawer.Content>
-        </Drawer.Backdrop>
+        <Drawer anchor="bottom" open={mobile && side.open && side.enabled} onClose={() => side.setOpen(false)} slotProps={{ paper: { sx: { height: "85svh" } } }}>
+          <SidePanel side={side} label={label} composerLayout={composerLayout}/>
+        </Drawer>
       
     </>);
 }
