@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Link } from "react-router";
-import { Button, Card, Chip, ListBox, Select } from "@heroui/react";
+import { Button, Card, Chip, MenuItem, Select } from "@mui/material";
 import { ArrowDownIcon, ArrowUpIcon, ArrowUpRightIcon, ChevronRightIcon } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/status-badge";
@@ -38,45 +38,27 @@ function Row({ f, contextTaskId, onStatus, }: {
     const [open, setOpen] = React.useState(false);
     return (<div className="border-b last:border-b-0">
       <div className="flex w-full items-center gap-3 px-4 py-3 text-sm hover:bg-accent/40">
-        <Button type="button" onClick={() => setOpen((o) => !o)} className="flex min-w-0 flex-1 items-center gap-3 text-left" variant="ghost" size="sm">
+        <Button type="button" onClick={() => setOpen((o) => !o)} className="flex min-w-0 flex-1 items-center gap-3 text-left" variant="text" size="small">
           <ChevronRightIcon className={cn("size-4 shrink-0 text-muted transition-transform", open && "rotate-90")}/>
           <StatusBadge domain="severity" value={f.severity} dot/>
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <div className="flex min-w-0 items-center gap-2">
               <span className="truncate font-medium">{findingLabel(f)}</span>
-              {f.inherited && f.source_task_id && (<Chip className="shrink-0" size="sm" variant={"secondary"}>
-                  来源 #{f.source_task_id} · 只读
-                </Chip>)}
+              {f.inherited && f.source_task_id && (<Chip className="shrink-0" size="small" label={`来源 #${f.source_task_id} · 只读`} />)}
             </div>
             <span className="truncate text-xs text-muted">{f.summary}</span>
           </div>
         </Button>
-        <Chip size="sm" variant={"secondary"}>
-          流量证据 {f.traffic_count ?? 0} 条
-        </Chip>
+        <Chip size="small" label={`流量证据 ${f.traffic_count ?? 0} 条`} />
         {f.assets && f.assets.length > 0 && (<div className="hidden shrink-0 flex-wrap justify-end gap-1 sm:flex">
             {f.assets.slice(0, 2).map((a) => (<code key={a.id} className="max-w-[10rem] truncate rounded bg-surface-secondary px-1.5 py-0.5 font-mono text-xs" title={`${a.type} · ${a.label}`}>
                 {a.label}
               </code>))}
             {f.assets.length > 2 && <span className="text-xs text-muted">+{f.assets.length - 2}</span>}
           </div>)}
-        {f.finding_id && !f.inherited ? (<Select selectedKey={f.status} aria-label="选择选项" onSelectionChange={(key) => {
-                if (key !== null)
-                    ((v) => onStatus(f, v as FindingStatus))(String(key));
-            }}>
-            <Select.Trigger className="h-7 w-28 shrink-0 border-none px-1 shadow-none focus-visible:ring-0">
-              <StatusBadge domain="finding" value={f.status} dot/>
-            </Select.Trigger>
-            <Select.Popover>
-              <ListBox>
-                <>
-                  {FINDING_STATUSES.map((st) => (<ListBox.Item key={st} id={st}>
-                      {statusMeta("finding", st).label}
-                    </ListBox.Item>))}
-                </>
-              </ListBox>
-            </Select.Popover>
-          </Select>) : (<StatusBadge domain="finding" value={f.status} dot/>)}
+        {f.finding_id && !f.inherited ? (<Select value={f.status} aria-label="选择状态" size="small" onChange={(event) => onStatus(f, event.target.value as FindingStatus)} sx={{ minWidth: 112 }}>
+          {FINDING_STATUSES.map((st) => <MenuItem key={st} value={st}>{statusMeta("finding", st).label}</MenuItem>)}
+        </Select>) : (<StatusBadge domain="finding" value={f.status} dot/>)}
         <span className="hidden shrink-0 text-xs text-muted md:block">{new Date(f.ts).toLocaleString("zh-CN")}</span>
         {f.finding_id && (<Link to={f.inherited
                 ? `/function/findings/detail?id=${f.finding_id}&context_task=${contextTaskId}`
@@ -140,20 +122,20 @@ export function FindingsTab({ taskId }: {
             return sortPreference.direction === "asc" ? compared : -compared;
         return b.id.localeCompare(a.id, undefined, { numeric: true });
     });
-    return (<Card className="overflow-hidden py-0">
-      <Card.Content className="px-0">
+    return (<Card variant="outlined" className="overflow-hidden py-0">
+      <div className="px-0">
         <div className="flex items-center border-b px-4 py-2 text-xs text-muted">
           <span className="min-w-0 flex-1">漏洞</span>
           <Button type="button" className="inline-flex items-center gap-1 outline-none focus-visible:underline" aria-label={`发现时间当前${sortPreference.direction === "asc" ? "正序" : "倒序"}，点击切换排序方向`} onClick={() => setSortPreference((current) => ({
             field: "time",
             direction: current.direction === "asc" ? "desc" : "asc",
-        }))} variant="ghost" size="sm">
+        }))} variant="text" size="small">
             <span>发现时间</span>
             {sortPreference.direction === "asc" ? (<ArrowUpIcon className="size-3.5"/>) : (<ArrowDownIcon className="size-3.5"/>)}
           </Button>
         </div>
         {items.map((f) => (<Row key={f.id} f={f} contextTaskId={taskId} onStatus={onStatus}/>))}
         {items.length === 0 && (<p className="px-4 py-8 text-center text-sm text-muted">本任务及直接关联任务暂无确认发现。</p>)}
-      </Card.Content>
+      </div>
     </Card>);
 }
