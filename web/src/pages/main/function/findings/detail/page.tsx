@@ -1,7 +1,7 @@
 import * as React from "react";
 import { Link } from "react-router";
 import { useSearchParams } from "react-router";
-import { Alert, buttonVariants, Card, Chip, ListBox, Select, Separator, Tabs } from "@heroui/react";
+import { Alert, Button, Card, Chip, Divider, MenuItem, Select, Tab, Tabs as MuiTabs } from "@mui/material";
 import { ArrowLeftIcon, ArrowUpRightIcon, ShieldAlertIcon } from "lucide-react";
 import { toast } from "sonner";
 import { CopyButton } from "@/components/copy-button";
@@ -94,94 +94,61 @@ function FindingDetailInner() {
     if (!finding) {
         return (<div className="flex flex-1 flex-col items-center justify-center gap-3 p-10 text-center">
         <p className="text-muted">{loaded ? `未找到发现 ${id}` : "加载中…"}</p>
-        {loaded && (<Link to="/function/findings" className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
+        {loaded && (<Button component={Link} to="/function/findings" variant="outlined" size="small">
             <ArrowLeftIcon /> 返回发现列表
-          </Link>)}
+          </Button>)}
       </div>);
     }
     const title = finding.name || finding.vulnclass || "未分类";
-    return (<Tabs selectedKey={tab} className="flex flex-1 flex-col gap-0" onSelectionChange={(key) => setTab(String(key))}>
+    return (<div className="flex flex-1 flex-col gap-0">
       {/* Sticky header */}
       <header className="sticky top-0 z-10 flex flex-col gap-2 border-b bg-background/95 px-4 py-2.5 backdrop-blur lg:px-6">
         <div className="flex flex-wrap items-center gap-2">
           <SidebarTrigger className="-ml-1"/>
-          <Link to="/function/findings" className={cn(buttonVariants({ variant: "ghost", size: "sm", isIconOnly: true }), "size-7")}>
+          <Button component={Link} to="/function/findings" variant="text" size="small" aria-label="返回发现列表" sx={{ minWidth: 28, p: 0 }}>
             <ArrowLeftIcon />
-          </Link>
+          </Button>
           <ShieldAlertIcon className="size-4 text-muted"/>
           <h1 className="max-w-md truncate text-sm font-semibold" title={title}>
             {title}
           </h1>
           <code className="rounded bg-surface-secondary px-1.5 py-0.5 font-mono text-xs text-muted">#{finding.id}</code>
-          <Separator orientation="vertical" className="mx-1 h-4"/>
+          <Divider orientation="vertical" flexItem className="mx-1"/>
           <StatusBadge domain="severity" value={finding.severity} dot/>
           <StatusBadge domain="finding" value={finding.status} dot/>
-          {finding.inherited && finding.source_task_id && (<Chip size="sm" variant={"secondary"}>
-              来源任务 #{finding.source_task_id} · 只读
-            </Chip>)}
+          {finding.inherited && finding.source_task_id && <Chip size="small" label={`来源任务 #${finding.source_task_id} · 只读`} />}
         </div>
-        <Tabs.ListContainer>
-          <Tabs.List>
-            <Tabs.Tab id="overview">
-              概览
-              <Tabs.Indicator />
-            </Tabs.Tab>
-            <Tabs.Tab id="lineage">
-              链路图
-              <Tabs.Indicator />
-            </Tabs.Tab>
-          </Tabs.List>
-        </Tabs.ListContainer>
+        <MuiTabs value={tab} onChange={(_, value) => setTab(value)}><Tab value="overview" label="概览" /><Tab value="lineage" label="链路图" /></MuiTabs>
       </header>
 
       {/* Tab content */}
       <div className="flex-1 p-4 lg:p-6">
         {/* 概览：左（摘要 + 证据）/ 右（状态区） */}
-        <Tabs.Panel id="overview" className="mt-0">
+        {tab === "overview" && (
           <div className="grid gap-4 lg:grid-cols-3">
             {/* 左栏 */}
             <div className="flex flex-col gap-4 lg:col-span-2">
-              <Card>
-                <Card.Header>
-                  <Card.Title className="text-sm">摘要</Card.Title>
-                </Card.Header>
-                <Card.Content>
+              <Card variant="outlined"><div className="border-b p-4 text-sm font-semibold">摘要</div><div className="p-4">
                   <p className="text-sm leading-relaxed whitespace-pre-wrap">{finding.summary || "（无摘要）"}</p>
-                </Card.Content>
-              </Card>
+                </div></Card>
               <FindingRetestPanel key={id} findingId={id} readOnly={finding.inherited} onCompleted={load}/>
-              <Card>
-                <Card.Header>
-                  <Card.Title className="text-sm">证据 / PoC</Card.Title>
-                </Card.Header>
-                <Card.Content>
+              <Card variant="outlined"><div className="border-b p-4 text-sm font-semibold">证据 / PoC</div><div className="p-4">
                   {finding.evidence ? (<pre className="max-h-[46vh] overflow-auto rounded-md bg-surface-secondary px-3 py-2 font-mono text-xs whitespace-pre-wrap">
                       {finding.evidence}
                     </pre>) : (<p className="text-sm text-muted">（无证据）</p>)}
-                </Card.Content>
-              </Card>
+                </div></Card>
               <FindingTrafficPanel key={id} findingId={id} contextTask={contextTaskId || undefined} readOnly={finding.inherited} onChanged={load}/>
               {/* 证据下方：详细报告(Markdown 渲染) */}
-              <Card>
-                <Card.Header className="flex-row items-center justify-between">
-                  <Card.Title className="text-sm">详细报告</Card.Title>
+              <Card variant="outlined"><div className="flex items-center justify-between border-b p-4"><div className="text-sm font-semibold">详细报告</div>
                   {finding.report && <CopyButton text={finding.report} successMessage="已复制详细报告"/>}
-                </Card.Header>
-                <Card.Content>
-                  {finding.report_stale ? (<Alert>
-                      <Alert.Description>流量证据已变更，详细报告待更新。</Alert.Description>
-                    </Alert>) : null}
+                </div><div className="p-4">
+                  {finding.report_stale ? <Alert severity="warning">流量证据已变更，详细报告待更新。</Alert> : null}
                   {finding.report ? (<Markdown text={finding.report}/>) : (<p className="text-sm text-muted">暂无详细报告。</p>)}
-                </Card.Content>
-              </Card>
+                </div></Card>
             </div>
 
             {/* 右栏：状态区 */}
-            <Card className="h-fit lg:sticky lg:top-24">
-              <Card.Header>
-                <Card.Title className="text-sm">状态</Card.Title>
-              </Card.Header>
-              <Card.Content className="divide-y">
+            <Card variant="outlined" className="h-fit lg:sticky lg:top-24"><div className="border-b p-4 text-sm font-semibold">状态</div><div className="divide-y p-4">
                 {/* 漏洞 ID */}
                 <FieldRow label="漏洞 ID">
                   <code className="rounded bg-surface-secondary px-1.5 py-0.5 font-mono text-xs text-muted">
@@ -191,44 +158,12 @@ function FindingDetailInner() {
 
                 {/* 严重等级 */}
                 <FieldRow label="严重等级">
-                  {finding.inherited ? (<StatusBadge domain="severity" value={finding.severity} dot/>) : (<Select selectedKey={finding.severity} aria-label="选择选项" onSelectionChange={(key) => {
-                if (key !== null)
-                    ((v) => changeSeverity(v as Severity))(String(key));
-            }}>
-                      <Select.Trigger className="h-7 w-auto border-none px-1 shadow-none focus-visible:ring-0">
-                        <StatusBadge domain="severity" value={finding.severity} dot/>
-                      </Select.Trigger>
-                      <Select.Popover>
-                        <ListBox>
-                          <>
-                            {SEVERITIES.map((sv) => (<ListBox.Item key={sv} id={sv}>
-                                {statusMeta("severity", sv).label}
-                              </ListBox.Item>))}
-                          </>
-                        </ListBox>
-                      </Select.Popover>
-                    </Select>)}
+                  {finding.inherited ? <StatusBadge domain="severity" value={finding.severity} dot/> : <Select size="small" value={finding.severity} onChange={(event) => void changeSeverity(event.target.value as Severity)}>{SEVERITIES.map((sv) => <MenuItem key={sv} value={sv}>{statusMeta("severity", sv).label}</MenuItem>)}</Select>}
                 </FieldRow>
 
                 {/* 处理状态 */}
                 <FieldRow label="处理状态">
-                  {finding.inherited ? (<StatusBadge domain="finding" value={finding.status} dot/>) : (<Select selectedKey={finding.status} aria-label="选择选项" onSelectionChange={(key) => {
-                if (key !== null)
-                    ((v) => changeStatus(v as FindingStatus))(String(key));
-            }}>
-                      <Select.Trigger className="h-7 w-auto border-none px-1 shadow-none focus-visible:ring-0">
-                        <StatusBadge domain="finding" value={finding.status} dot/>
-                      </Select.Trigger>
-                      <Select.Popover>
-                        <ListBox>
-                          <>
-                            {FINDING_STATUSES.map((st) => (<ListBox.Item key={st} id={st}>
-                                {statusMeta("finding", st).label}
-                              </ListBox.Item>))}
-                          </>
-                        </ListBox>
-                      </Select.Popover>
-                    </Select>)}
+                  {finding.inherited ? <StatusBadge domain="finding" value={finding.status} dot/> : <Select size="small" value={finding.status} onChange={(event) => void changeStatus(event.target.value as FindingStatus)}>{FINDING_STATUSES.map((st) => <MenuItem key={st} value={st}>{statusMeta("finding", st).label}</MenuItem>)}</Select>}
                 </FieldRow>
 
                 {/* 漏洞类型 */}
@@ -259,17 +194,16 @@ function FindingDetailInner() {
                 <FieldRow label="发现时间">
                   <span className="tabular-nums">{fmtTime(finding.ts)}</span>
                 </FieldRow>
-              </Card.Content>
-            </Card>
+              </div></Card>
           </div>
-        </Tabs.Panel>
+        )}
 
         {/* 链路图：从任务初始节点回溯到本漏洞节点的攻击链路 */}
-        <Tabs.Panel id="lineage" className="mt-0">
+        {tab === "lineage" && (
           <FindingLineageView findingId={finding.id}/>
-        </Tabs.Panel>
+        )}
       </div>
-    </Tabs>);
+    </div>);
 }
 export default function FindingDetailPage() {
     return (<React.Suspense fallback={null}>
