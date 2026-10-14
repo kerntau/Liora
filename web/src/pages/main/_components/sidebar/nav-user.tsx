@@ -1,67 +1,86 @@
 import * as React from "react";
-import { Avatar, Dropdown } from "@heroui/react";
+import Avatar from "@mui/material/Avatar";
+import Divider from "@mui/material/Divider";
+import ListItemIcon from "@mui/material/ListItemIcon";
+import ListItemText from "@mui/material/ListItemText";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
 import { EllipsisVertical, KeyRound, LogOut } from "lucide-react";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@/components/ui/sidebar";
 import { auth } from "@/lib/auth";
 import { getInitials } from "@/lib/utils";
 import { ChangePasswordDialog } from "./change-password-dialog";
-export function NavUser({ user, }: {
-    readonly user: {
-        readonly name: string;
-        readonly email: string;
-        readonly avatar: string;
-    };
+
+export function NavUser({ user }: {
+  readonly user: { readonly name: string; readonly email: string; readonly avatar: string };
 }) {
-    const { isMobile } = useSidebar();
-    const [pwOpen, setPwOpen] = React.useState(false);
-    function handleLogout() {
-        auth.clearToken();
-    }
-    return (<SidebarMenu>
+  const { isMobile } = useSidebar();
+  const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
+  const [pwOpen, setPwOpen] = React.useState(false);
+  const menuOpen = Boolean(anchorEl);
+
+  function handleLogout() {
+    auth.clearToken();
+  }
+
+  function closeMenu() {
+    setAnchorEl(null);
+  }
+
+  return (
+    <SidebarMenu>
       <SidebarMenuItem>
-        <Dropdown>
-          <SidebarMenuButton size="lg" className="data-[state=open]:bg-default data-[state=open]:text-default-foreground" asChild><Dropdown.Trigger>
-              <Avatar className="h-8 w-8 rounded-lg grayscale shrink-0">
-                <Avatar.Image src={user.avatar || undefined} alt={user.name}/>
-                <Avatar.Fallback className="rounded-lg">{getInitials(user.name)}</Avatar.Fallback>
-              </Avatar>
-              <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-medium text-foreground">{user.name}</span>
-                <span className="truncate text-muted text-xs">{user.email}</span>
-              </div>
-              <EllipsisVertical className="ml-auto size-4 text-muted"/>
-            </Dropdown.Trigger></SidebarMenuButton>
-          <Dropdown.Popover placement={isMobile ? "bottom" : "right"} className="min-w-56 p-1 bg-surface border border-border rounded-lg shadow-lg">
-            <div className="flex items-center gap-2 px-2 py-2 text-left text-sm border-b border-border mb-1">
-              <Avatar className="h-8 w-8 rounded-lg shrink-0">
-                <Avatar.Image src={user.avatar || undefined} alt={user.name}/>
-                <Avatar.Fallback className="rounded-lg">{getInitials(user.name)}</Avatar.Fallback>
-              </Avatar>
-              <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-medium text-foreground">{user.name}</span>
-                <span className="truncate text-muted text-xs">{user.email}</span>
-              </div>
-            </div>
-            <Dropdown.Menu aria-label="用户账户菜单" onAction={(key) => {
-            if (key === "change-password") {
-                setPwOpen(true);
-            }
-            else if (key === "logout") {
-                handleLogout();
-            }
-        }}>
-              <Dropdown.Item id="change-password" textValue="修改密码" className="flex items-center gap-2 p-1.5 rounded-md cursor-pointer text-sm outline-none hover:bg-surface-secondary">
-                <KeyRound className="size-4 text-muted"/>
-                <span>修改密码</span>
-              </Dropdown.Item>
-              <Dropdown.Item id="logout" textValue="退出登录" variant="danger" className="flex items-center gap-2 p-1.5 rounded-md cursor-pointer text-sm outline-none text-danger hover:bg-danger/10">
-                <LogOut className="size-4"/>
-                <span>退出登录</span>
-              </Dropdown.Item>
-            </Dropdown.Menu>
-          </Dropdown.Popover>
-        </Dropdown>
+        <SidebarMenuButton
+          size="lg"
+          aria-haspopup="true"
+          aria-expanded={menuOpen ? "true" : undefined}
+          onClick={(event) => setAnchorEl(event.currentTarget)}
+          sx={{ width: "100%", justifyContent: "flex-start", gap: 1, textAlign: "left" }}
+        >
+          <Avatar src={user.avatar || undefined} alt={user.name} sx={{ width: 32, height: 32, borderRadius: 1, filter: "grayscale(1)" }}>
+            {getInitials(user.name)}
+          </Avatar>
+          <span className="grid min-w-0 flex-1 text-left text-sm leading-tight">
+            <span className="truncate font-medium">{user.name}</span>
+            <span className="truncate text-xs text-muted-foreground">{user.email}</span>
+          </span>
+          <EllipsisVertical size={16} className="ml-auto text-muted-foreground" />
+        </SidebarMenuButton>
+        <Menu
+          anchorEl={anchorEl}
+          open={menuOpen}
+          onClose={closeMenu}
+          anchorOrigin={{ vertical: isMobile ? "bottom" : "top", horizontal: isMobile ? "left" : "right" }}
+          transformOrigin={{ vertical: isMobile ? "top" : "bottom", horizontal: isMobile ? "left" : "right" }}
+          slotProps={{ paper: { sx: { minWidth: 224, borderRadius: 1.5, mt: 0.5 } } }}
+        >
+          <StackUser user={user} />
+          <Divider />
+          <MenuItem onClick={() => { closeMenu(); setPwOpen(true); }}>
+            <ListItemIcon><KeyRound size={17} /></ListItemIcon>
+            <ListItemText>修改密码</ListItemText>
+          </MenuItem>
+          <MenuItem onClick={() => { closeMenu(); handleLogout(); }} sx={{ color: "error.main" }}>
+            <ListItemIcon sx={{ color: "inherit" }}><LogOut size={17} /></ListItemIcon>
+            <ListItemText>退出登录</ListItemText>
+          </MenuItem>
+        </Menu>
       </SidebarMenuItem>
-      <ChangePasswordDialog open={pwOpen} onOpenChange={setPwOpen}/>
-    </SidebarMenu>);
+      <ChangePasswordDialog open={pwOpen} onOpenChange={setPwOpen} />
+    </SidebarMenu>
+  );
+}
+
+function StackUser({ user }: { readonly user: { readonly name: string; readonly email: string; readonly avatar: string } }) {
+  return (
+    <div className="flex items-center gap-2 px-3 py-2">
+      <Avatar src={user.avatar || undefined} alt={user.name} sx={{ width: 32, height: 32, borderRadius: 1 }}>
+        {getInitials(user.name)}
+      </Avatar>
+      <div className="grid min-w-0 flex-1 text-left text-sm leading-tight">
+        <span className="truncate font-medium">{user.name}</span>
+        <span className="truncate text-xs text-muted-foreground">{user.email}</span>
+      </div>
+    </div>
+  );
 }

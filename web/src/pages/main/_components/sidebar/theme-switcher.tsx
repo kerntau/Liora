@@ -1,4 +1,4 @@
-import { Button } from "@heroui/react";
+import IconButton from "@mui/material/IconButton";
 import { Monitor, Moon, Sun } from "lucide-react";
 import { persistPreference } from "@/lib/preferences/preferences-storage";
 import { usePreferencesStore } from "@/stores/preferences/preferences-provider";
@@ -12,7 +12,7 @@ export function ThemeSwitcher() {
         setThemeMode(nextTheme);
         void persistPreference("theme_mode", nextTheme);
     };
-    return (<Button size="sm" isIconOnly onPress={cycleTheme} aria-label={`当前色彩模式: ${themeMode}，点击切换`} variant={"ghost"}>
+    return (<IconButton size="small" onClick={cycleTheme} aria-label={`当前色彩模式: ${themeMode}，点击切换`}>
       {/* SYSTEM */}
       <Monitor className="hidden size-4 [html[data-theme-mode=system]_&]:block"/>
 
@@ -21,5 +21,5 @@ export function ThemeSwitcher() {
 
       {/* LIGHT (resolved) */}
       <Moon className="block size-4 dark:hidden [html[data-theme-mode=system]_&]:hidden"/>
-    </Button>);
+    </IconButton>);
 }

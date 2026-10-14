@@ -1,6 +1,17 @@
 
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
+import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Card from "@mui/material/Card";
+import CircularProgress from "@mui/material/CircularProgress";
+import Divider from "@mui/material/Divider";
+import IconButton from "@mui/material/IconButton";
+import InputAdornment from "@mui/material/InputAdornment";
+import Stack from "@mui/material/Stack";
+import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
 import {
   Shield,
   Lock,
@@ -12,7 +23,6 @@ import {
   Cpu,
   Layers,
   AlertCircle,
-  CheckCircle2,
 } from "lucide-react";
 import { APP_CONFIG } from "@/config/app-config";
 import { api } from "@/lib/api";
@@ -54,242 +64,155 @@ export default function LoginPage() {
     }
   }
 
-  if (checking) {
-    return (
-      <div
-        role="status"
-        className="flex min-h-dvh flex-col items-center justify-center gap-3 bg-[#0f1724] text-slate-400"
-      >
-        <div className="relative size-10">
-          <div className="absolute inset-0 rounded-full border-2 border-blue-500/20 border-t-blue-500 animate-spin" />
-        </div>
-        <span className="text-xs tracking-wider font-mono text-slate-500">
-          INITIALIZING LIORA SYSTEM…
-        </span>
-      </div>
-    );
-  }
+  if (checking) return <Stack role="status" sx={{ minHeight: "100dvh", alignItems: "center", justifyContent: "center", color: "text.secondary" }} spacing={2}><CircularProgress size={28} /><Typography variant="caption">正在初始化 Liora…</Typography></Stack>;
 
   return (
-    <div className="relative flex min-h-dvh w-full overflow-hidden bg-[#0f1724] text-slate-200">
+    <Box sx={{ minHeight: "100dvh", display: "flex", bgcolor: "background.default", color: "text.primary" }}>
 
       {/* 左侧：品牌与核心能力矩阵展示区 */}
-      <div className="relative hidden w-1/2 flex-col justify-between border-r border-slate-800 bg-[#111b2b] p-12 lg:flex xl:p-16">
+      <Box sx={{ display: { xs: "none", lg: "flex" }, width: "50%", flexDirection: "column", justifyContent: "space-between", borderRight: 1, borderColor: "divider", bgcolor: "background.paper", p: { lg: 6, xl: 8 } }}>
         {/* 顶部品牌 */}
-        <div className="flex items-center gap-3.5">
-          <div className="flex size-11 items-center justify-center rounded-lg border border-slate-700 bg-[#172338]">
-            <div className="flex size-full items-center justify-center rounded-lg">
+        <Stack direction="row" sx={{ alignItems: "center" }} spacing={1.75}>
+          <Box sx={{ width: 44, height: 44, display: "grid", placeItems: "center", border: 1, borderColor: "divider", borderRadius: 2, bgcolor: "action.hover" }}>
+            <Box sx={{ display: "grid", placeItems: "center" }}>
               <img
                 src={APP_CONFIG.logoIcon || APP_CONFIG.logo}
                 alt="Liora"
                 className="size-6 object-contain"
               />
-            </div>
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-lg font-bold tracking-tight text-white">
+            </Box>
+          </Box>
+          <Box>
+            <Stack direction="row" sx={{ alignItems: "center" }} spacing={1}>
+              <Typography variant="h6" color="text.primary">
                 {APP_CONFIG.name}
-              </span>
-              <span className="rounded-md border border-slate-700 bg-slate-800/60 px-2 py-0.5 text-[10px] font-medium text-slate-400">
+              </Typography>
+              <Typography variant="caption" sx={{ border: 1, borderColor: "divider", borderRadius: 1, px: 1, py: 0.25, color: "text.secondary" }}>
                 v2.2
-              </span>
-            </div>
-            <p className="text-xs text-slate-400">
+              </Typography>
+            </Stack>
+            <Typography variant="caption" color="text.secondary">
               AI 辅助自动化渗透测试平台
-            </p>
-          </div>
-        </div>
+            </Typography>
+          </Box>
+        </Stack>
 
         {/* 中间：核心理念与特性矩阵 */}
-        <div className="my-auto space-y-8 max-w-lg">
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 text-xs font-medium text-blue-400">
-              <Sparkles className="size-3.5" />
-              <span>智能驱动 · 自主规划 · 安全受控</span>
-            </div>
-            <h1 className="text-3xl font-bold tracking-tight text-white xl:text-4xl">
+        <Box sx={{ my: "auto", maxWidth: 560 }}>
+          <Stack spacing={2.5}>
+            <Stack direction="row" sx={{ alignItems: "center", color: "primary.main" }} spacing={1}>
+              <Sparkles size={16} />
+              <Typography variant="caption" sx={{ fontWeight: 600 }}>智能驱动 · 自主规划 · 安全受控</Typography>
+            </Stack>
+            <Typography variant="h2" sx={{ fontSize: { lg: "2.25rem", xl: "2.75rem" } }}>
               赋能下一代自动化
               <br />
-              <span className="text-blue-400">
+              <Box component="span" color="primary.main">
                 智能渗透与安全推演
-              </span>
-            </h1>
-            <p className="text-sm leading-relaxed text-slate-400">
+              </Box>
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.8 }}>
               集成大模型自主智能体调度、多阶段探测决策链、自适应流量拦截防护与自动化漏洞证据存证。
-            </p>
-          </div>
+            </Typography>
+          </Stack>
 
-          <div className="grid gap-2">
-            <div className="flex items-start gap-3.5 rounded-lg border border-slate-800 bg-[#172338] p-4 transition-colors hover:border-slate-700">
-              <div className="rounded-md border border-blue-500/20 bg-blue-500/10 p-2 text-blue-400">
-                <Cpu className="size-4" />
-              </div>
-              <div className="space-y-0.5">
-                <div className="text-xs font-semibold text-slate-200">
-                  多 Agent 自主协同架构
-                </div>
-                <div className="text-[11px] leading-normal text-slate-400">
-                  主 Agent 决策规划、Worker 精准执行，支持旁路实时协同与漏洞复测。
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3.5 rounded-lg border border-slate-800 bg-[#172338] p-4 transition-colors hover:border-slate-700">
-              <div className="rounded-md border border-emerald-500/20 bg-emerald-500/10 p-2 text-emerald-400">
-                <Shield className="size-4" />
-              </div>
-              <div className="space-y-0.5">
-                <div className="text-xs font-semibold text-slate-200">
-                  全流程主动安全护栏
-                </div>
-                <div className="text-[11px] leading-normal text-slate-400">
-                  内置操作拦截规则与实时审批通道，杜绝高危非目标破坏行为。
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3.5 rounded-lg border border-slate-800 bg-[#172338] p-4 transition-colors hover:border-slate-700">
-              <div className="rounded-md border border-indigo-500/20 bg-indigo-500/10 p-2 text-indigo-400">
-                <Layers className="size-4" />
-              </div>
-              <div className="space-y-0.5">
-                <div className="text-xs font-semibold text-slate-200">
-                  完整证据链与资产拓扑
-                </div>
-                <div className="text-[11px] leading-normal text-slate-400">
-                  从资产侦察、攻击面探索到报告生成，全生命周期可视化审计追溯。
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+          <Stack spacing={1.25} sx={{ mt: 5 }}>
+            <Feature icon={<Cpu size={18} />} title="多 Agent 自主协同架构" text="主 Agent 决策规划、Worker 精准执行，支持旁路实时协同与漏洞复测。" />
+            <Feature icon={<Shield size={18} />} title="全流程主动安全护栏" text="内置操作拦截规则与实时审批通道，杜绝高危非目标破坏行为。" />
+            <Feature icon={<Layers size={18} />} title="完整证据链与资产拓扑" text="从资产侦察、攻击面探索到报告生成，全生命周期可视化审计追溯。" />
+          </Stack>
+        </Box>
 
         {/* 底部系统状态 */}
-        <div className="flex items-center justify-between text-xs text-slate-500 border-t border-slate-800/60 pt-6">
-          <div className="flex items-center gap-2">
-            <span className="flex size-2 rounded-full bg-emerald-500">
-            </span>
-            <span className="font-mono text-[11px] text-slate-400">
+          <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center", borderTop: 1, borderColor: "divider", pt: 3 }}>
+          <Stack direction="row" sx={{ alignItems: "center" }} spacing={1}>
+            <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: "success.main" }} />
+            <Typography variant="caption" color="text.secondary">
               SYSTEM ENGINE ONLINE
-            </span>
-          </div>
-          <div className="font-mono text-[11px] text-slate-500">
+            </Typography>
+          </Stack>
+          <Typography variant="caption" color="text.secondary">
             LOCAL EMBEDDED NODE
-          </div>
-        </div>
-      </div>
+          </Typography>
+        </Stack>
+      </Box>
 
       {/* 右侧：登录控制台表单区 */}
-      <div className="relative flex flex-1 items-center justify-center p-6 sm:p-10">
-        <div className="w-full max-w-md space-y-7">
+      <Box sx={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", p: { xs: 3, sm: 5 } }}>
+        <Box sx={{ width: "100%", maxWidth: 440 }}>
           {/* 移动端/窄屏下的 Logo 顶标 */}
-          <div className="flex flex-col items-center text-center lg:hidden space-y-2">
-            <div className="flex size-12 items-center justify-center rounded-lg border border-slate-700 bg-[#172338]">
-              <div className="flex size-full items-center justify-center rounded-lg">
+          <Stack sx={{ display: { xs: "flex", lg: "none" }, alignItems: "center", textAlign: "center", mb: 3 }} spacing={1.5}>
+            <Box sx={{ width: 48, height: 48, display: "grid", placeItems: "center", border: 1, borderColor: "divider", borderRadius: 2, bgcolor: "action.hover" }}>
+              <Box sx={{ display: "grid", placeItems: "center" }}>
                 <img
                   src={APP_CONFIG.logoIcon || APP_CONFIG.logo}
                   alt="Liora"
                   className="size-7 object-contain"
                 />
-              </div>
-            </div>
-            <h2 className="text-xl font-bold text-white tracking-tight">
+              </Box>
+            </Box>
+            <Typography variant="h5">
               {APP_CONFIG.name}
-            </h2>
-            <p className="text-xs text-slate-400">
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
               AI 辅助自动化渗透测试平台
-            </p>
-          </div>
+            </Typography>
+          </Stack>
 
           {/* 表单外壳卡片 */}
-          <div className="relative rounded-xl border border-slate-700 bg-[#172338] p-7 shadow-xl shadow-black/20 sm:p-8">
+          <Card variant="outlined" sx={{ p: { xs: 3, sm: 4 }, bgcolor: "background.paper" }}>
 
-            <div className="space-y-1.5 pb-6">
-              <h2 className="text-xl font-semibold tracking-tight text-white">
+            <Stack spacing={0.75} sx={{ mb: 3.5 }}>
+              <Typography variant="h5">
                 控制台登录
-              </h2>
-              <p className="text-xs text-slate-400">
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
                 请输入管理员密码以接入灵探管控中枢
-              </p>
-            </div>
+              </Typography>
+            </Stack>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <Stack component="form" onSubmit={handleSubmit} spacing={2.25}>
               {/* 固定用户名 */}
-              <div className="space-y-1.5">
-                <label className="flex items-center justify-between text-xs font-medium text-slate-300">
-                  <span>用户账号</span>
-                  <span className="flex items-center gap-1 text-[11px] font-mono text-blue-400/90">
-                    <Shield className="size-3" />
+              <Box>
+                <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center", mb: 0.75 }}>
+                  <Typography variant="caption" sx={{ fontWeight: 600 }}>用户账号</Typography>
+                  <Typography variant="caption" color="primary.main" sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                    <Shield size={13} />
                     内置系统管理员
-                  </span>
-                </label>
-                <div className="relative flex items-center">
-                  <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-500">
-                    <User className="size-4" />
-                  </div>
-                  <input
-                    type="text"
-                    readOnly
-                    value="Liora"
-                    className="w-full rounded-lg border border-slate-700 bg-[#101927] py-2.5 pl-10 pr-4 font-mono text-sm font-semibold text-slate-200 outline-none select-none cursor-not-allowed transition-colors"
-                  />
-                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3.5 text-slate-500 text-xs">
-                    <Lock className="size-3.5" />
-                  </div>
-                </div>
-              </div>
+                  </Typography>
+                </Stack>
+                <TextField fullWidth value="Liora" disabled slotProps={{ input: { startAdornment: <InputAdornment position="start"><User size={17} /></InputAdornment>, endAdornment: <InputAdornment position="end"><Lock size={15} /></InputAdornment> } }} />
+              </Box>
 
               {/* 密码输入框 */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-slate-300">
-                  访问密码
-                </label>
-                <div className="relative flex items-center">
-                  <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-500">
-                    <Lock className="size-4" />
-                  </div>
-                  <input
+              <TextField
+                fullWidth
+                label="访问密码"
                     type={showPassword ? "text" : "password"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="请输入控制台密码"
                     autoFocus
                     autoComplete="current-password"
-                    className="w-full rounded-lg border border-slate-600 bg-[#101927] py-2.5 pl-10 pr-10 text-sm text-white placeholder-slate-500 outline-none transition-colors focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    tabIndex={-1}
-                    className="absolute inset-y-0 right-0 flex items-center pr-3.5 text-slate-500 hover:text-slate-300 transition-colors"
-                  >
-                    {showPassword ? (
-                      <EyeOff className="size-4" />
-                    ) : (
-                      <Eye className="size-4" />
-                    )}
-                  </button>
-                </div>
-              </div>
+                slotProps={{ input: { startAdornment: <InputAdornment position="start"><Lock size={17} /></InputAdornment>, endAdornment: <InputAdornment position="end"><IconButton edge="end" size="small" aria-label={showPassword ? "隐藏密码" : "显示密码"} onClick={() => setShowPassword(!showPassword)}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</IconButton></InputAdornment> } }}
+              />
 
               {/* 错误提示 */}
               {error && (
-                <div className="flex items-center gap-2.5 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300 animate-in fade-in duration-200">
-                  <AlertCircle className="size-4 shrink-0 text-rose-400" />
-                  <span>{error}</span>
-                </div>
+                <Alert severity="error" icon={<AlertCircle size={18} />}>{error}</Alert>
               )}
 
               {/* 提交按钮 */}
-              <button
+              <Button
+                fullWidth
+                variant="contained"
+                size="large"
                 type="submit"
                 disabled={loading || !password.trim()}
-                className="group relative flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 py-2.5 text-sm font-medium text-white shadow-sm shadow-blue-950/30 transition-colors hover:bg-blue-500 active:scale-[0.99] disabled:pointer-events-none disabled:opacity-50"
               >
                 {loading ? (
                   <>
-                    <div className="size-4 rounded-full border-2 border-white/20 border-t-white animate-spin" />
+                    <CircularProgress size={18} color="inherit" />
                     <span>身份校验中…</span>
                   </>
                 ) : (
@@ -298,18 +221,24 @@ export default function LoginPage() {
                     <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
                   </>
                 )}
-              </button>
-            </form>
+              </Button>
+            </Stack>
 
-            <div className="mt-6 border-t border-slate-800/80 pt-4 text-center">
-              <p className="text-[11px] text-slate-500">
+            <Divider sx={{ mt: 3, mb: 1.5 }} />
+            <Typography variant="caption" color="text.secondary" sx={{ textAlign: "center", display: "block" }}>
                 灵探渗透测试受控环境 · 仅限授权安全审计使用
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+            </Typography>
+          </Card>
+        </Box>
+      </Box>
+    </Box>
   );
+}
+
+function Feature({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) {
+  return <Stack direction="row" spacing={1.75} sx={{ p: 2, border: 1, borderColor: "divider", borderRadius: 2, bgcolor: "action.hover" }}>
+    <Box sx={{ display: "grid", placeItems: "center", width: 36, height: 36, flexShrink: 0, borderRadius: 1.5, color: "primary.main", bgcolor: "action.selected" }}>{icon}</Box>
+    <Box><Typography variant="body2" sx={{ fontWeight: 650 }}>{title}</Typography><Typography variant="caption" color="text.secondary">{text}</Typography></Box>
+  </Stack>;
 }
 

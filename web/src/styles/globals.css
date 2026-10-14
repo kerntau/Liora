@@ -24,6 +24,31 @@
   body {
     font-family: var(--font-sans), system-ui, sans-serif;
   }
+
+  .sidebar-menu-button,
+  .sidebar-sub-button {
+    display: flex;
+    width: 100%;
+    min-height: 38px;
+    align-items: center;
+    gap: 10px;
+    border-radius: 8px;
+    padding: 8px 10px;
+    color: inherit;
+    font-size: 0.875rem;
+    text-align: left;
+    text-decoration: none;
+    transition: background-color 160ms ease, color 160ms ease;
+  }
+  .sidebar-menu-button:hover,
+  .sidebar-sub-button:hover,
+  .sidebar-menu-button.is-active,
+  .sidebar-sub-button.is-active {
+    background: color-mix(in srgb, currentColor 10%, transparent);
+    color: #246bce;
+  }
+  .sidebar-menu-button.is-active { font-weight: 600; }
+  .sidebar-sub-button { min-height: 32px; font-size: 0.8125rem; }
 }
 
 html[data-font="geistMono"] body {
