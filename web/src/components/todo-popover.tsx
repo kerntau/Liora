@@ -1,69 +1,13 @@
 import * as React from "react";
-import { Button, Popover, Spinner, Surface } from "@heroui/react";
+import Button from "@mui/material/Button";
+import CircularProgress from "@mui/material/CircularProgress";
 import { ListTodo } from "lucide-react";
+import Paper from "@mui/material/Paper";
+import Popover from "@mui/material/Popover";
 import { cn } from "@/lib/utils";
-export function TodoPopover({ seq, fetchDetail, }: {
-    seq: number | null;
-    fetchDetail: (seq: number) => Promise<string>;
-}) {
-    const [open, setOpen] = React.useState(false);
-    const [todos, setTodos] = React.useState<{
-        content: string;
-        status: string;
-    }[] | null>(null);
-    const [loading, setLoading] = React.useState(false);
-    const [err, setErr] = React.useState("");
-    const load = React.useCallback(async () => {
-        if (seq == null)
-            return;
-        setLoading(true);
-        setErr("");
-        try {
-            const detail = await fetchDetail(seq);
-            const start = detail.indexOf("{");
-            const parsed = JSON.parse(start >= 0 ? detail.slice(start) : detail);
-            setTodos(Array.isArray(parsed?.todos) ? parsed.todos : []);
-        }
-        catch {
-            setErr("解析 Todo 失败");
-            setTodos(null);
-        }
-        finally {
-            setLoading(false);
-        }
-    }, [seq, fetchDetail]);
-    React.useEffect(() => {
-        if (open)
-            load();
-    }, [open, load]);
-    const disabled = seq == null;
-    const MARK: Record<string, string> = { pending: "☐", in_progress: "▶", completed: "✔" };
-    return (<Popover isOpen={open} onOpenChange={disabled ? undefined : setOpen}>
-      
-        <Button type="button" size="sm" isDisabled={disabled} className="h-7 px-2 text-xs text-muted hover:text-foreground gap-1" variant={"outline"}>
-          <ListTodo className="size-3.5"/>
-          <span>Todo</span>
-        </Button>
-      
-      <Popover.Content className="w-80 p-3 bg-surface border border-border rounded-xl shadow-xl">
-        <Popover.Dialog className="outline-none">
-          <div className="flex items-center justify-between pb-2 mb-2 border-b border-border">
-            <span className="text-xs font-semibold text-foreground">最近 Todo 状态</span>
-            {loading && <Spinner size="sm"/>}
-          </div>
-
-          {err && <p className="text-danger px-1 text-xs">{err}</p>}
-          {todos && todos.length === 0 && !loading && (<p className="text-muted px-1 text-xs py-2 text-center">（暂无 Todo 项）</p>)}
-
-          <Surface variant="secondary" className="max-h-60 overflow-y-auto rounded-lg p-2 bg-surface-secondary" data-scrollbar="thin">
-            <ul className="space-y-1.5">
-              {(todos ?? []).map((t, i) => (<li key={`${i}:${t.content}`} className={cn("flex items-start gap-2 text-xs text-foreground", t.status === "completed" && "text-muted line-through", t.status === "in_progress" && "text-accent font-medium")}>
-                  <span className="shrink-0 font-mono">{MARK[t.status] ?? "☐"}</span>
-                  <span className="break-words leading-relaxed">{t.content}</span>
-                </li>))}
-            </ul>
-          </Surface>
-        </Popover.Dialog>
-      </Popover.Content>
-    </Popover>);
+export function TodoPopover({ seq, fetchDetail }: { seq: number | null; fetchDetail: (seq: number) => Promise<string> }) {
+  const [anchor, setAnchor] = React.useState<HTMLElement | null>(null); const open = Boolean(anchor); const [todos, setTodos] = React.useState<{ content: string; status: string }[] | null>(null); const [loading, setLoading] = React.useState(false); const [err, setErr] = React.useState(""); const disabled = seq == null;
+  const load = React.useCallback(async () => { if (seq == null) return; setLoading(true); setErr(""); try { const detail = await fetchDetail(seq); const start = detail.indexOf("{"); const parsed = JSON.parse(start >= 0 ? detail.slice(start) : detail); setTodos(Array.isArray(parsed?.todos) ? parsed.todos : []); } catch { setErr("解析 Todo 失败"); setTodos(null); } finally { setLoading(false); } }, [seq, fetchDetail]); React.useEffect(() => { if (open) void load(); }, [open, load]); const MARK: Record<string, string> = { pending: "☐", in_progress: "▶", completed: "✔" };
+  return <><Button type="button" size="small" disabled={disabled} variant="outlined" onClick={(event) => setAnchor(event.currentTarget)} sx={{ height: 28, px: 1, fontSize: "0.75rem", gap: 0.5 }}><ListTodo size={14} />Todo</Button><Popover open={open} anchorEl={anchor} onClose={() => setAnchor(null)} anchorOrigin={{ vertical: "bottom", horizontal: "left" }}><Paper variant="outlined" className="w-80 rounded-xl p-3"><div className="mb-2 flex items-center justify-between border-b border-border pb-2"><span className="text-xs font-semibold">最近 Todo 状态</span>{loading && <CircularProgress size={16} />}</div>{err && <p className="px-1 text-xs text-danger">{err}</p>}{todos && todos.length === 0 && !loading && <p className="px-1 py-2 text-center text-xs text-muted">（暂无 Todo 项）</p>}<Paper variant="outlined" className="max-h-60 overflow-y-auto rounded-lg bg-surface-secondary p-2"><ul className="space-y-1.5">{(todos ?? []).map((todo, index) => <li key={`${index}:${todo.content}`} className={cn("flex items-start gap-2 text-xs", todo.status === "completed" && "text-muted line-through", todo.status === "in_progress" && "font-medium text-accent")}><span className="shrink-0 font-mono">{MARK[todo.status] ?? "☐"}</span><span className="break-words leading-relaxed">{todo.content}</span></li>)}</ul></Paper></Paper></Popover></>;
 }
+
