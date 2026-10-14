@@ -1,0 +1,756 @@
+import * as React from "react";
+import { Alert, Button, Chip, Disclosure, ListBox, Select, Skeleton, Table } from "@heroui/react";
+import { BotIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, ClipboardListIcon, CopyIcon, RefreshCwIcon, ShieldAlertIcon, XIcon, } from "lucide-react";
+import { toast } from "sonner";
+import { TablePagination } from "@/components/table-pagination";
+import { api } from "@/lib/api";
+import type { InterceptApprovalFilter, InterceptApprovalRow, InterceptAudit, InterceptDetail, InterceptPending, InterceptReviewInput, } from "@/lib/types";
+import { cn } from "@/lib/utils";
+function fmtTime(value?: string) {
+    if (!value)
+        return "—";
+    return new Date(value).toLocaleString("zh-CN", {
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+    });
+}
+function source(row: InterceptApprovalRow) {
+    if (row.decision_source)
+        return row.decision_source;
+    if (row.rule_id)
+        return "rule";
+    return row.reason?.startsWith("[模型]") ? "model" : "unknown";
+}
+function originLabel(row: InterceptApprovalRow) {
+    if (row.task_id)
+        return row.task_id;
+    if (row.conversation_id)
+        return `对话 #${row.conversation_id}`;
+    return "—";
+}
+function ApprovalOrigin({ row, detail = false }: {
+    row: InterceptApprovalRow;
+    detail?: boolean;
+}) {
+    const [locating, setLocating] = React.useState(false);
+    const label = detail && row.task_id ? `任务 ${row.task_id}` : originLabel(row);
+    const query = new URLSearchParams({ approval: String(row.id) });
+    let href: string | undefined;
+    if (row.conversation_id) {
+        query.set("c", String(row.conversation_id));
+        href = `/function/conversations/detail?${query}`;
+    }
+    else if (row.task_id) {
+        query.set("id", row.task_id);
+        href = `/function/tasks/detail?${query}`;
+    }
+    return href ? (<a href={href} className="text-accent underline-offset-4 hover:underline" aria-label={`定位审批 #${row.id} 的来源：${label}`} aria-busy={locating} onClick={async (e) => {
+            e.stopPropagation();
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)
+                return;
+            e.preventDefault();
+            if (locating)
+                return;
+            setLocating(true);
+            try {
+                await api.interceptExecution(row.id, row.conversation_id ?? undefined);
+                window.location.assign(href);
+            }
+            catch (error) {
+                toast.error((error as Error).message || "无法定位对应执行");
+                setLocating(false);
+            }
+        }}>
+      {label}
+    </a>) : (<span>{label}</span>);
+}
+function StatusBadge({ status }: {
+    status: string;
+}) {
+    const labels: Record<string, string> = { pending: "待审批", allowed: "已允许", denied: "已拒绝", timeout: "已超时" };
+    let color: "default" | "accent" | "success" | "warning" | "danger" = "default";
+    if (status === "allowed")
+        color = "success";
+    if (status === "denied")
+        color = "danger";
+    if (status === "pending")
+        color = "warning";
+    return (<Chip size="sm" color={color} variant={"soft"}>
+      {labels[status] ?? status}
+    </Chip>);
+}
+function MatchCell({ row, showReason = true }: {
+    row: InterceptApprovalRow;
+    showReason?: boolean;
+}) {
+    const reason = row.reason?.replace(/^\[模型\]\s*/, "");
+    return (<div className="flex min-w-0 flex-col gap-1">
+      {source(row) === "model" ? (<Chip size="sm" color="accent" className="gap-1 self-start" variant={"soft"}>
+          <BotIcon className="size-3"/>
+          <span>模型判定</span>
+        </Chip>) : (<span className="truncate">{row.rule_name || "规则未记录或已删除"}</span>)}
+      {showReason ? (<p className="truncate text-muted text-xs" title={reason}>
+          {reason || "未记录理由"}
+        </p>) : null}
+    </div>);
+}
+function CodeBlock({ label, text, truncated = false }: {
+    label: string;
+    text: string;
+    truncated?: boolean;
+}) {
+    async function copy() {
+        try {
+            await navigator.clipboard.writeText(text);
+            toast.success("已复制");
+        }
+        catch {
+            toast.error("复制失败，请手动选择内容复制");
+        }
+    }
+    return (<section className="flex min-w-0 flex-col gap-2" aria-label={label}>
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="font-medium text-muted text-xs">{label}</h3>
+        {text ? (<Button size="sm" isIconOnly className="size-6" aria-label={`复制${label}`} onPress={() => void copy()} variant={"ghost"}>
+            <CopyIcon className="size-3.5"/>
+          </Button>) : null}
+      </div>
+      <pre className="max-h-80 min-w-0 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-surface-secondary p-3 font-mono text-xs leading-6 [overflow-wrap:anywhere]">
+        {text || "未记录"}
+      </pre>
+      {truncated ? <p className="text-muted text-xs">内容已截断，以上为保存的片段。</p> : null}
+    </section>);
+}
+const contextLabels: Record<string, string> = {
+    user: "用户消息",
+    assistant: "Agent 消息",
+    text: "Agent 消息",
+    tool_use: "工具请求",
+    tool_result: "工具输出",
+};
+const actionLabels: Record<string, string> = { allow: "允许", ask: "转人工审批", deny: "拒绝" };
+const executionLabels: Record<InterceptAudit["execution_status"], string> = {
+    not_started: "尚未执行",
+    not_executed: "未执行",
+    awaiting_result: "已允许，等待执行结果",
+    succeeded: "执行成功",
+    failed: "执行失败",
+    unknown: "执行结果未知",
+};
+function ModelReviewContext({ input }: {
+    input: InterceptReviewInput;
+}) {
+    const [jsonOpen, setJsonOpen] = React.useState(false);
+    return (<section className="flex min-w-0 flex-col gap-4" aria-label="模型审查上下文">
+      <div className="flex flex-col gap-2">
+        <h3 className="font-medium text-sm">模型审查上下文</h3>
+        <p className="text-muted text-xs">
+          以下为本次实际发送给审查模型的输入快照。背景仅用于理解当前动作，裁决依据为审查策略。
+          {input.version < 4 ? "此记录使用旧版输入，保留当时实际发送的内容。" : null}
+        </p>
+      </div>
+      <CodeBlock label="当前待审查调用" text={JSON.stringify({ tool_name: input.tool_name, arguments: input.arguments }, null, 2)}/>
+      {input.version >= 2 ? (input.background ? (<div className="flex min-w-0 flex-col gap-2">
+            <CodeBlock label={input.background.source === "user_message" ? "背景 · 用户消息" : "背景 · Worker 意图摘要（旧版）"} text={input.background.text} truncated={input.background.truncated}/>
+            <p className="text-muted text-xs">
+              {input.background.source === "user_message"
+                ? "取自当前用户消息。"
+                : "这是旧版发送的 Worker 意图摘要；新版 Worker 审查不再发送此内容。"}
+            </p>
+          </div>) : (<p className="text-muted text-xs">本次审查未附带背景消息。</p>)) : (<>
+          {input.turn_input ? (<CodeBlock label="当前轮输入（旧版）" text={input.turn_input} truncated={input.background_truncated}/>) : null}
+          {input.task ? (<>
+              <CodeBlock label="任务描述（旧版）" text={input.task.description} truncated={input.task.truncated}/>
+              <CodeBlock label="任务目标（旧版）" text={input.task.goal} truncated={input.task.truncated}/>
+              <CodeBlock label="任务操作约束（旧版）" text={JSON.stringify(input.task.constraints, null, 2)}/>
+            </>) : null}
+          {input.worker_intent ? (<CodeBlock label="Worker 意图（旧版）" text={input.worker_intent} truncated={input.background_truncated}/>) : null}
+        </>)}
+      {input.working_directory ? <CodeBlock label="工作目录" text={input.working_directory}/> : null}
+      {input.version >= 3 ? (<p className="text-muted text-xs">本次审查未发送历史调用或执行结果。</p>) : (<div className="flex min-w-0 flex-col gap-3">
+          <h4 className="font-medium text-muted text-xs">当时提供给模型的历史调用（旧版）</h4>
+          {input.history?.length ? (input.history.map((entry) => (<div key={entry.tool_use_id} className="flex min-w-0 flex-col gap-2 rounded-lg border border-border p-3">
+                <p className="break-words font-medium text-xs">
+                  {entry.tool} · {entry.status === "succeeded" ? "成功" : "失败（可能有部分副作用）"}
+                </p>
+                <CodeBlock label="历史调用参数" text={entry.arguments_preview} truncated={entry.truncated}/>
+                <CodeBlock label="历史执行结果" text={entry.result} truncated={entry.truncated}/>
+              </div>))) : (<p className="text-muted text-xs">本次未提供可配对的历史工具执行记录。</p>)}
+          {input.history_truncated ? <p className="text-muted text-xs">历史为有限窗口，部分内容已截断。</p> : null}
+        </div>)}
+
+      <Disclosure isExpanded={jsonOpen} onExpandedChange={setJsonOpen}>
+        <Disclosure.Heading>
+          <Disclosure.Trigger className="gap-1.5 self-start">
+            <ChevronDownIcon className={cn("size-4 transition-transform", jsonOpen && "rotate-180")}/>
+            查看完整模型审查输入 JSON
+          </Disclosure.Trigger>
+        </Disclosure.Heading>
+        <Disclosure.Content className="pt-3">
+          <CodeBlock label="模型审查输入" text={JSON.stringify(input, null, 2)}/>
+        </Disclosure.Content>
+      </Disclosure>
+    </section>);
+}
+type Decide = (id: number, decision: "allowed" | "denied") => Promise<void>;
+function DecisionActions({ row, busy, decide }: {
+    row: InterceptApprovalRow;
+    busy: boolean;
+    decide: Decide;
+}) {
+    if (row.status !== "pending")
+        return null;
+    return (<div className="flex flex-wrap gap-2">
+      <Button size="sm" isDisabled={busy} onPress={() => void decide(row.id, "allowed")} className="gap-1.5" variant={"primary"}>
+        <CheckIcon className="size-4"/>
+        允许
+      </Button>
+      <Button size="sm" isDisabled={busy} onPress={() => void decide(row.id, "denied")} className="gap-1.5" variant={"danger"}>
+        <XIcon className="size-4"/>
+        拒绝
+      </Button>
+    </div>);
+}
+export function ApprovalDetail({ row, busy, decide, revision, readOnly = false, defaultExpanded = false, onResolved, }: {
+    row: InterceptApprovalRow;
+    busy: boolean;
+    decide: Decide;
+    revision: number;
+    readOnly?: boolean;
+    defaultExpanded?: boolean;
+    onResolved?: (status: "allowed" | "denied" | "timeout") => void;
+}) {
+    const [detail, setDetail] = React.useState<InterceptDetail | null>(null);
+    const [error, setError] = React.useState("");
+    const [retry, setRetry] = React.useState(0);
+    const [more, setMore] = React.useState(defaultExpanded);
+    const [commandOpen, setCommandOpen] = React.useState(false);
+    const [auditContextOpen, setAuditContextOpen] = React.useState(false);
+    // biome-ignore lint/correctness/useExhaustiveDependencies: Status, refresh and retry invalidate details without closing the panel.
+    React.useEffect(() => {
+        let cancelled = false;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        async function load() {
+            try {
+                const next = await api.interceptDetail(row.id);
+                if (cancelled)
+                    return;
+                setDetail(next);
+                setError("");
+                if (next.status !== "pending")
+                    onResolved?.(next.status);
+                if (next.status === "pending" || next.audit?.execution_status === "awaiting_result")
+                    timer = setTimeout(() => void load(), 5000);
+            }
+            catch (e) {
+                if (!cancelled)
+                    setError((e as Error).message || "详情加载失败");
+            }
+        }
+        void load();
+        return () => {
+            cancelled = true;
+            clearTimeout(timer);
+        };
+    }, [row.id, row.status, revision, retry, onResolved]);
+    const current = detail?.status === row.status ? detail : row;
+    const audit = detail?.audit;
+    let execution = audit ? executionLabels[audit.execution_status] : "未记录";
+    if (row.status === "pending")
+        execution = "尚未执行";
+    if (audit && audit.correlation !== "exact" && audit.effective_action === "allow")
+        execution = "未关联执行结果";
+    const command = typeof row.tool_input?.command === "string" ? row.tool_input.command : undefined;
+    let initialLabel = source(row) === "model" ? "模型初判" : "规则初判";
+    if (audit?.model_fallback)
+        initialLabel = "模型异常回退";
+    return (<div className="flex min-w-0 flex-col gap-4 p-3 sm:p-5">
+      <div className="grid min-w-0 gap-5 rounded-xl border border-border bg-surface-secondary/40 p-4 lg:grid-cols-2">
+        <div className="flex min-w-0 flex-col gap-3">
+          <CodeBlock label={`${current.agent_name || current.conv_agent_key || "Agent"} · 工具请求`} text={JSON.stringify(row.tool_input ?? {}, null, 2)}/>
+          {command ? (<Disclosure isExpanded={commandOpen} onExpandedChange={setCommandOpen}>
+              <Disclosure.Heading>
+                <Disclosure.Trigger className="gap-1.5 self-start">
+                  <ChevronDownIcon className={cn("size-4 transition-transform", commandOpen && "rotate-180")}/>
+                  查看命令内容
+                </Disclosure.Trigger>
+              </Disclosure.Heading>
+              <Disclosure.Content className="pt-2">
+                <CodeBlock label="命令内容" text={command}/>
+              </Disclosure.Content>
+            </Disclosure>) : null}
+          <p className="text-muted text-xs">
+            执行结果：<span className="text-foreground">{detail ? execution : "加载中…"}</span>
+          </p>
+        </div>
+        <div className="flex min-w-0 flex-col gap-4 lg:border-l lg:border-border lg:pl-5">
+          <h3 className="font-medium text-muted text-xs">{current.status === "pending" ? "审查状态" : "审批裁决"}</h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge status={current.status}/>
+            <MatchCell row={current} showReason={false}/>
+          </div>
+          <p className="whitespace-pre-wrap break-words text-sm leading-7 [overflow-wrap:anywhere]">
+            {current.reason?.replace(/^\[模型\]\s*/, "") || "未记录审批理由"}
+          </p>
+          {audit?.decision_reason ? <p className="text-sm">{audit.decision_reason}</p> : null}
+          {audit?.effective_action ? <p className="text-sm">最终动作：{actionLabels[audit.effective_action]}</p> : null}
+          <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-xs">
+            <dt className="text-muted">来源</dt>
+            <dd className="break-words">
+              <ApprovalOrigin row={current} detail/>
+            </dd>
+            <dt className="text-muted">申请时间</dt>
+            <dd>{fmtTime(row.created_at)}</dd>
+            <dt className="text-muted">决定时间</dt>
+            <dd>{fmtTime(current.decided_at)}</dd>
+            {audit?.rule_name ? (<>
+                <dt className="text-muted">规则快照</dt>
+                <dd>{audit.rule_name}</dd>
+              </>) : null}
+            {audit?.profile_id ? (<>
+                <dt className="text-muted">审批模型配置</dt>
+                <dd>#{audit.profile_id}</dd>
+              </>) : null}
+          </dl>
+          {!readOnly ? <DecisionActions row={current} busy={busy} decide={decide}/> : null}
+        </div>
+      </div>
+
+      {error ? (<Alert status="danger">
+          <Alert.Description>
+            <div className="flex flex-wrap items-center gap-2">
+              <span>详情加载失败：{error}</span>
+              <Button size="sm" onPress={() => setRetry((v) => v + 1)} variant={"outline"}>
+                重试详情
+              </Button>
+            </div>
+          </Alert.Description>
+        </Alert>) : null}
+      {!detail && !error ? <Skeleton className="h-8 w-60 rounded-md"/> : null}
+      {detail && !audit ? (<Alert status="default">
+          <Alert.Description>此记录未保存审批详情快照，无法还原当时的上下文、模型初判和执行输出。</Alert.Description>
+        </Alert>) : null}
+
+      {audit ? (<Disclosure isExpanded={more} onExpandedChange={setMore}>
+          <Disclosure.Heading>
+            <Disclosure.Trigger className="gap-1.5 self-start">
+              <ChevronDownIcon className={cn("size-4 transition-transform", more && "rotate-180")}/>
+              {more ? "收起上下文" : "查看上下文与执行结果"}
+            </Disclosure.Trigger>
+          </Disclosure.Heading>
+          <Disclosure.Content className="pt-4">
+            <div className="flex min-w-0 flex-col gap-5">
+              {audit.model_input ? (<ModelReviewContext input={audit.model_input}/>) : (<Alert status="default">
+                  <Alert.Description>
+                    {audit.model_input_digest
+                    ? "此历史记录仅保存审查输入指纹，未保存输入原文，无法还原当时发给模型的上下文。这不代表审查时没有上下文；新产生的模型裁决会保留输入快照。"
+                    : "此记录没有保存模型审查输入，可能由规则直接裁决、模型调用前发生异常或产生于旧版本。"}
+                  </Alert.Description>
+                </Alert>)}
+              {audit.user_message || audit.context?.length ? (<Disclosure isExpanded={auditContextOpen} onExpandedChange={setAuditContextOpen}>
+                  <Disclosure.Heading>
+                    <Disclosure.Trigger className="gap-1.5 self-start">
+                      <ChevronDownIcon className={cn("size-4 transition-transform", auditContextOpen && "rotate-180")}/>
+                      {audit.model_input && audit.model_input.version >= 3
+                    ? "查看会话审计片段（未发送模型）"
+                    : "查看会话审计片段"}
+                    </Disclosure.Trigger>
+                  </Disclosure.Heading>
+                  <Disclosure.Content className="pt-3">
+                    <div className="flex min-w-0 flex-col gap-3">
+                      {audit.user_message ? (<CodeBlock label="会话当前轮输入（审计片段）" text={audit.user_message} truncated={audit.user_truncated}/>) : null}
+                      <section className="flex min-w-0 flex-col gap-3">
+                        <h3 className="font-medium text-muted text-xs">可见会话上下文</h3>
+                        <p className="text-muted text-xs">
+                          保存于 {fmtTime(audit.captured_at)} 的会话记录片段。模型实际使用的内容以“模型审查输入”为准。
+                        </p>
+                        {audit.context_truncated ? (<p className="text-muted text-xs">仅保存最近的上下文，部分内容已截断。</p>) : null}
+                        {audit.context?.length ? (audit.context.map((entry, index) => (<CodeBlock key={`${entry.kind}-${entry.tool_use_id || index}`} label={`${contextLabels[entry.kind] ?? entry.kind}${entry.tool ? ` · ${entry.tool}` : ""}${entry.is_error ? " · 异常" : ""}`} text={entry.text} truncated={entry.truncated}/>))) : (<p className="text-muted text-sm">未记录可关联的上下文</p>)}
+                      </section>
+                    </div>
+                  </Disclosure.Content>
+                </Disclosure>) : null}
+              <CodeBlock label={`${initialLabel}：${actionLabels[audit.initial_action] ?? audit.initial_action}`} text={audit.initial_reason.replace(/^\[模型\]\s*/, "")}/>
+              <CodeBlock label="执行输出" text={audit.output ?? (audit.execution_status === "not_executed" ? "工具未执行。" : "尚无执行输出")} truncated={audit.output_truncated}/>
+              {audit.correlation !== "exact" ? (<Alert status="default">
+                  <Alert.Description>
+                    {audit.correlation === "ambiguous"
+                    ? "存在相同参数的并发调用，无法唯一关联工具调用；本记录不展示推测的执行结果。"
+                    : "未记录可唯一关联的工具调用 ID。"}
+                  </Alert.Description>
+                </Alert>) : null}
+              <dl className="grid gap-2 text-muted text-xs [overflow-wrap:anywhere]">
+                <div>工具调用 ID：{audit.tool_use_id || "未记录"}</div>
+                <div>参数摘要 SHA-256：{audit.input_digest}</div>
+                <div>审查配置指纹 SHA-256：{audit.config_digest || "未记录"}</div>
+                {audit.model_input_digest ? <div>模型审查输入 SHA-256：{audit.model_input_digest}</div> : null}
+                {audit.execution_ended_at ? <div>结果记录时间：{fmtTime(audit.execution_ended_at)}</div> : null}
+              </dl>
+            </div>
+          </Disclosure.Content>
+        </Disclosure>) : null}
+    </div>);
+}
+const approvalBreakpoints = ["(min-width: 40rem)", "(min-width: 48rem)", "(min-width: 64rem)", "(min-width: 80rem)"];
+function subscribeColumns(onChange: () => void) {
+    const queries = approvalBreakpoints.map((query) => window.matchMedia(query));
+    for (const query of queries)
+        query.addEventListener("change", onChange);
+    return () => {
+        for (const query of queries)
+            query.removeEventListener("change", onChange);
+    };
+}
+function visibleColumnCount() {
+    const matches = approvalBreakpoints.map((query) => window.matchMedia(query).matches);
+    return 3 + Number(matches[0]) + Number(matches[1]) + 2 * Number(matches[2]) + 2 * Number(matches[3]);
+}
+function serverColumnCount() {
+    return 9;
+}
+function ApprovalTable({ rows, busy, decide, revision, label, }: {
+    rows: InterceptApprovalRow[];
+    busy: boolean;
+    decide: Decide;
+    revision: number;
+    label: string;
+}) {
+    const [expanded, setExpanded] = React.useState<Set<number>>(() => new Set());
+    const columns = React.useSyncExternalStore(subscribeColumns, visibleColumnCount, serverColumnCount);
+    const prefix = React.useId();
+    function toggle(id: number) {
+        setExpanded((prev) => {
+            const next = new Set(prev);
+            if (next.has(id))
+                next.delete(id);
+            else
+                next.add(id);
+            return next;
+        });
+    }
+    return (<div className="w-full overflow-x-auto">
+      <Table>
+        <Table.ScrollContainer>
+          <Table.Content className="w-full table-fixed text-left text-sm" aria-label={label}>
+            <Table.Header className="border-b border-border bg-surface-secondary/50 text-xs text-muted">
+              <Table.Column className="w-10 px-3 py-3" id="column-21121" isRowHeader>
+                <span className="sr-only">展开详情</span>
+              </Table.Column>
+              <Table.Column className="hidden w-14 px-3 py-3 sm:table-cell" id="column-21235" isRowHeader>
+                #
+              </Table.Column>
+              <Table.Column className="w-28 px-3 py-3" id="column-21306" isRowHeader>
+                工具
+              </Table.Column>
+              <Table.Column className="hidden px-3 py-3 md:table-cell" id="column-21357" isRowHeader>
+                来源
+              </Table.Column>
+              <Table.Column className="hidden px-3 py-3 lg:table-cell" id="column-21424" isRowHeader>
+                匹配规则
+              </Table.Column>
+              <Table.Column className="hidden px-3 py-3 xl:table-cell" id="column-21493" isRowHeader>
+                参数
+              </Table.Column>
+              <Table.Column className="w-24 px-3 py-3" id="column-21560" isRowHeader>
+                状态
+              </Table.Column>
+              <Table.Column className="hidden w-36 px-3 py-3 lg:table-cell" id="column-21611" isRowHeader>
+                申请时间
+              </Table.Column>
+              <Table.Column className="hidden w-36 px-3 py-3 xl:table-cell" id="column-21685" isRowHeader>
+                决定时间
+              </Table.Column>
+            </Table.Header>
+            <Table.Body className="divide-y divide-border">
+              {rows.map((row) => {
+            const open = expanded.has(row.id);
+            const panelID = `${prefix}-${row.id}`;
+            return (<React.Fragment key={row.id}>
+                    <Table.Row data-state={open ? "selected" : undefined} className="cursor-pointer transition-colors hover:bg-surface-secondary/50" onAction={() => toggle(row.id)} id={`${row.id}-22026`}>
+                      <Table.Cell className="px-3 py-3">
+                        <Button size="sm" isIconOnly className="size-7" aria-label={`${open ? "收起" : "展开"}审批 #${row.id}`} aria-expanded={open} aria-controls={open ? panelID : undefined} onPress={() => toggle(row.id)} variant={"ghost"}>
+                          {open ? <ChevronDownIcon className="size-4"/> : <ChevronRightIcon className="size-4"/>}
+                        </Button>
+                      </Table.Cell>
+                      <Table.Cell className="hidden px-3 py-3 text-muted sm:table-cell">{row.id}</Table.Cell>
+                      <Table.Cell className="px-3 py-3">
+                        <code className="block truncate text-xs">{row.tool_name}</code>
+                      </Table.Cell>
+                      <Table.Cell className="hidden px-3 py-3 md:table-cell">
+                        <div className="flex flex-col gap-1">
+                          <span className="truncate" title={originLabel(row)}>
+                            <ApprovalOrigin row={row}/>
+                          </span>
+                          <span className="truncate text-muted text-xs">{row.agent_name || row.conv_agent_key}</span>
+                        </div>
+                      </Table.Cell>
+                      <Table.Cell className="hidden px-3 py-3 lg:table-cell">
+                        <MatchCell row={row}/>
+                      </Table.Cell>
+                      <Table.Cell className="hidden px-3 py-3 xl:table-cell">
+                        <code className="block truncate text-muted text-xs">{JSON.stringify(row.tool_input)}</code>
+                      </Table.Cell>
+                      <Table.Cell className="px-3 py-3">
+                        <StatusBadge status={row.status}/>
+                      </Table.Cell>
+                      <Table.Cell className="hidden px-3 py-3 text-muted text-xs lg:table-cell">
+                        {fmtTime(row.created_at)}
+                      </Table.Cell>
+                      <Table.Cell className="hidden px-3 py-3 text-muted text-xs xl:table-cell">
+                        {fmtTime(row.decided_at)}
+                      </Table.Cell>
+                    </Table.Row>
+                    {open ? (<Table.Row className="hover:bg-transparent" id={`${row.id}-24174`}>
+                        <Table.Cell colSpan={columns} className="whitespace-normal p-0 border-b border-border bg-surface">
+                          <section id={panelID} aria-label={`审批详情 #${row.id}`}>
+                            <ApprovalDetail row={row} busy={busy} decide={decide} revision={revision}/>
+                          </section>
+                        </Table.Cell>
+                      </Table.Row>) : null}
+                  </React.Fragment>);
+        })}
+            </Table.Body>
+          </Table.Content>
+        </Table.ScrollContainer>
+      </Table>
+    </div>);
+}
+export function ApprovalRecords({ taskId }: {
+    taskId?: string;
+}) {
+    const [rows, setRows] = React.useState<InterceptApprovalRow[]>([]);
+    const [pendingRows, setPendingRows] = React.useState<InterceptPending[]>([]);
+    const [page, setPage] = React.useState(1);
+    const [pageSize, setPageSize] = React.useState(20);
+    const [total, setTotal] = React.useState(0);
+    const [filter, setFilter] = React.useState<InterceptApprovalFilter>({});
+    const [loading, setLoading] = React.useState(true);
+    const [refreshing, setRefreshing] = React.useState(false);
+    const [error, setError] = React.useState("");
+    const [pendingError, setPendingError] = React.useState("");
+    const [deciding, setDeciding] = React.useState(false);
+    const [revision, setRevision] = React.useState(0);
+    const request = React.useRef(0);
+    const decisionLock = React.useRef(false);
+    const filtered = Boolean(filter.status || filter.decision_source);
+    // A task can stay mounted while the user switches between task details.
+    // Reset the cursor so the new scope always starts at its newest records.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: taskId intentionally resets pagination when scope changes.
+    React.useEffect(() => {
+        setPage(1);
+    }, [taskId]);
+    const load = React.useCallback(async (manual = false) => {
+        const id = ++request.current;
+        if (manual)
+            setRefreshing(true);
+        try {
+            const [history, pending] = await Promise.allSettled([
+                taskId
+                    ? api.interceptTaskPage(taskId, page, pageSize, filter)
+                    : api.interceptHistoryPage(page, pageSize, filter),
+                api.interceptPending(),
+            ]);
+            if (id !== request.current)
+                return;
+            if (history.status === "fulfilled") {
+                setRows(history.value.items);
+                setTotal(history.value.total);
+                setError("");
+            }
+            else {
+                setError((history.reason as Error).message || "加载失败");
+            }
+            if (pending.status === "fulfilled") {
+                setPendingRows(pending.value);
+                setPendingError("");
+            }
+            else {
+                setPendingError((pending.reason as Error).message || "加载失败");
+            }
+            if (manual)
+                setRevision((v) => v + 1);
+        }
+        catch (e) {
+            if (id === request.current)
+                setError((e as Error).message || "加载失败");
+        }
+        finally {
+            if (id === request.current) {
+                setLoading(false);
+                setRefreshing(false);
+            }
+        }
+    }, [taskId, page, pageSize, filter]);
+    const latestLoad = React.useRef(load);
+    latestLoad.current = load;
+    React.useEffect(() => {
+        void load();
+        const timer = setInterval(() => void load(), 5000);
+        return () => {
+            request.current++;
+            clearInterval(timer);
+        };
+    }, [load]);
+    const changePageSize = (next: number) => {
+        setPageSize(next);
+        setPage(1);
+    };
+    const changeFilter = (next: InterceptApprovalFilter) => {
+        request.current++;
+        setFilter(next);
+        setPage(1);
+        setRows([]);
+        setTotal(0);
+        setError("");
+        setLoading(true);
+    };
+    const decide: Decide = async (id, decision) => {
+        if (decisionLock.current)
+            return;
+        decisionLock.current = true;
+        setDeciding(true);
+        try {
+            await api.interceptDecide(id, decision);
+            request.current++;
+            setRows((prev) => prev.map((row) => (row.id === id ? { ...row, status: decision, decided_at: new Date().toISOString() } : row)));
+            setPendingRows((prev) => prev.filter((row) => row.id !== id));
+            setRevision((v) => v + 1);
+            toast.success(decision === "allowed" ? "已允许执行" : "已拒绝执行");
+            await latestLoad.current(true);
+        }
+        catch (e) {
+            toast.error((e as Error).message);
+            await latestLoad.current(true);
+        }
+        finally {
+            decisionLock.current = false;
+            setDeciding(false);
+        }
+    };
+    const historyById = new Map(rows.map((row) => [row.id, row]));
+    const pending: InterceptApprovalRow[] = pendingRows
+        .filter((row) => !taskId || row.task_id === taskId)
+        .map((row) => ({
+        conv_title: "",
+        conv_agent_key: "",
+        rule_name: row.rule_id ? `规则 #${row.rule_id}` : "",
+        ...historyById.get(row.id),
+        ...row,
+    }));
+    const title = taskId ? "拦截审批" : "审批记录";
+    return (<div className="flex min-w-0 flex-col gap-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <ClipboardListIcon className="size-5 text-muted"/>
+          <h1 className="font-semibold text-xl">{title}</h1>
+          {pending.length ? (<Chip size="sm" color="warning" variant={"soft"}>
+              {pending.length} 待审批
+            </Chip>) : null}
+        </div>
+        <Button size="sm" onPress={() => void load(true)} isDisabled={loading || refreshing} className="gap-1.5" variant={"outline"}>
+          <RefreshCwIcon className={cn("size-4", refreshing && "animate-spin")}/>
+          刷新
+        </Button>
+      </div>
+      <p className="text-muted text-sm">展开记录查看工具请求和审批裁决，以及当时的上下文与执行结果。</p>
+
+      <div className="flex flex-wrap items-center gap-3" aria-label="审批记录筛选">
+        <div className="flex flex-col gap-1 w-full sm:w-40">
+          <span className="text-xs font-medium text-muted">审批状态</span>
+          <Select aria-label="审批状态" selectedKey={filter.status ?? "all"} onSelectionChange={(key) => {
+            if (key !== null)
+                ((key) => {
+                    const val = String(key);
+                    changeFilter({
+                        ...filter,
+                        status: val === "all" ? undefined : (val as InterceptApprovalFilter["status"]),
+                    });
+                })(String(key));
+        }}>
+            <Select.Trigger>
+              <Select.Value />
+            </Select.Trigger>
+            <Select.Popover>
+              <ListBox>
+                <ListBox.Item id="all">全部状态</ListBox.Item>
+                <ListBox.Item id="denied">已拒绝</ListBox.Item>
+                <ListBox.Item id="pending">待审批</ListBox.Item>
+                <ListBox.Item id="allowed">已允许</ListBox.Item>
+                <ListBox.Item id="timeout">已超时</ListBox.Item>
+              </ListBox>
+            </Select.Popover>
+          </Select>
+        </div>
+
+        <div className="flex flex-col gap-1 w-full sm:w-40">
+          <span className="text-xs font-medium text-muted">判定来源</span>
+          <Select aria-label="判定来源" selectedKey={filter.decision_source ?? "all"} onSelectionChange={(key) => {
+            if (key !== null)
+                ((key) => {
+                    const val = String(key);
+                    changeFilter({
+                        ...filter,
+                        decision_source: val === "all" ? undefined : (val as InterceptApprovalFilter["decision_source"]),
+                    });
+                })(String(key));
+        }}>
+            <Select.Trigger>
+              <Select.Value />
+            </Select.Trigger>
+            <Select.Popover>
+              <ListBox>
+                <ListBox.Item id="all">全部来源</ListBox.Item>
+                <ListBox.Item id="model">模型判定</ListBox.Item>
+                <ListBox.Item id="rule">规则判定</ListBox.Item>
+                <ListBox.Item id="unknown">来源未知</ListBox.Item>
+              </ListBox>
+            </Select.Popover>
+          </Select>
+        </div>
+
+        {filtered ? (<Button size="sm" className="self-end" onPress={() => changeFilter({})} variant={"ghost"}>
+            清除筛选
+          </Button>) : null}
+      </div>
+
+      {error ? (<Alert status="danger">
+          <Alert.Description>记录加载失败：{error}。请点击刷新重试。</Alert.Description>
+        </Alert>) : null}
+      {pendingError ? (<Alert status="danger">
+          <Alert.Description>待审批加载失败：{pendingError}。请点击刷新重试。</Alert.Description>
+        </Alert>) : null}
+
+      {pending.length ? (<section className="overflow-hidden rounded-xl border border-border bg-surface">
+          <div className="flex items-center gap-2 border-b border-border bg-surface-secondary/40 px-4 py-3 font-medium text-sm">
+            <ShieldAlertIcon className="size-4 text-warning"/>
+            待处理（{pending.length}）<span className="text-muted text-xs">展开后允许或拒绝</span>
+          </div>
+          <ApprovalTable rows={pending} busy={deciding} decide={decide} revision={revision} label="待处理审批"/>
+        </section>) : null}
+
+      <section className="overflow-hidden rounded-xl border border-border bg-surface">
+        <div className="border-b border-border px-4 py-3 font-medium text-sm">
+          {filtered ? "筛选结果" : "全部记录"}（{total}）
+        </div>
+        {loading ? (<div className="flex flex-col gap-3 p-4">
+            <Skeleton className="h-10 w-full rounded-md"/>
+            <Skeleton className="h-10 w-full rounded-md"/>
+            <Skeleton className="h-10 w-full rounded-md"/>
+          </div>) : null}
+        {!loading && !rows.length && !error ? (<div className="flex flex-col items-center justify-center p-8 text-center text-muted">
+            <ClipboardListIcon className="size-10 mb-2 opacity-50"/>
+            <p className="font-medium text-foreground">{filtered ? "没有符合筛选条件的审批记录" : "暂无审批记录"}</p>
+            <p className="text-xs mt-1">
+              {filtered
+                ? "请调整审批状态或判定来源，或清除筛选查看全部记录。"
+                : "规则或模型作出审批决定后，记录将显示在这里。"}
+            </p>
+          </div>) : null}
+        {rows.length ? (<ApprovalTable rows={rows} busy={deciding} decide={decide} revision={revision} label="审批记录列表"/>) : null}
+        {!loading && !error ? (<TablePagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={changePageSize} pageSizeOptions={[10, 20, 50]}/>) : null}
+      </section>
+    </div>);
+}

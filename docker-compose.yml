@@ -1,0 +1,28 @@
+services:
+  liora:
+    image: ${LIORA_IMAGE:-liora:local}
+    build:
+      context: .
+      args:
+        TARGETARCH: ${LIORA_TARGET_ARCH:-amd64}
+    environment:
+      LIORA_SQLITE_PATH: /app/data/liora.db
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LIORA_LLM_PROVIDER: ${LIORA_LLM_PROVIDER:-}
+      LIORA_LLM_MODEL: ${LIORA_LLM_MODEL:-}
+      LIORA_LLM_BASE_URL: ${LIORA_LLM_BASE_URL:-}
+      LIORA_LLM_PROXY: ${LIORA_LLM_PROXY:-}
+    command: ["-addr", ":8787", "-proxy", ":8788", "-key-dir", "/app/auth"]
+    ports:
+      - "8787:8787"
+      - "127.0.0.1:8788:8788"
+    volumes:
+      - ./data:/app/data
+      - ./skills:/app/skills
+      # Signing key stays outside task files and survives container replacement.
+      - liora_auth:/app/auth
+    restart: unless-stopped
+
+volumes:
+  liora_auth:

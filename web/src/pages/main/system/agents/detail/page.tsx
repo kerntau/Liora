@@ -1,0 +1,33 @@
+import * as React from "react";
+import { Link } from "react-router";
+import { useSearchParams } from "react-router";
+import { buttonVariants } from "@heroui/react";
+import { ArrowLeftIcon } from "lucide-react";
+import { AgentEditor } from "@/components/agent-editor";
+import { cn } from "@/lib/utils";
+// Deep-link editor page for one agent. The primary flow is the drawer on
+// /system/agents; this page reuses the same AgentEditor component full-width so a
+// direct URL (or an external link) still opens the editor.
+function AgentDetailInner() {
+    const [searchParams] = useSearchParams();
+    const key = searchParams.get("key") ?? "";
+    return (<div className="flex flex-1 flex-col gap-4">
+      <div className="flex items-center gap-2">
+        <Link to="/system/agents" className={cn(buttonVariants({ variant: "ghost", size: "sm", isIconOnly: true }))}>
+          <ArrowLeftIcon className="size-4"/>
+        </Link>
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">Agent</h1>
+          <p className="text-muted font-mono text-xs">{key}</p>
+        </div>
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col rounded-lg border">
+        <AgentEditor agentKey={key}/>
+      </div>
+    </div>);
+}
+export default function AgentDetailPage() {
+    return (<React.Suspense fallback={null}>
+      <AgentDetailInner />
+    </React.Suspense>);
+}

@@ -1,0 +1,58 @@
+package server
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io/fs"
+	"net/http"
+	"path"
+	"strings"
+	"time"
+)
+
+// newWebUIHandler shares React Router's manifest. Only registered pages receive
+// the SPA shell; missing assets, API and retired routes stay 404.
+func newWebUIHandler(root fs.FS) (http.Handler, error) {
+	data, err := fs.ReadFile(root, "routes.json")
+	if err != nil {
+		return nil, fmt.Errorf("read frontend routes: %w", err)
+	}
+	var manifest map[string]string
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return nil, fmt.Errorf("decode frontend routes: %w", err)
+	}
+	index, err := fs.ReadFile(root, "index.html")
+	if err != nil {
+		return nil, fmt.Errorf("read frontend entry: %w", err)
+	}
+	routes := make(map[string]bool, len(manifest))
+	for _, route := range manifest {
+		routes[route] = true
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		p := path.Clean(r.URL.Path)
+		if p == "/api" || strings.HasPrefix(p, "/api/") {
+			http.NotFound(w, r)
+			return
+		}
+		if routes[p] {
+			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			// ServeContent preserves the deep-link URL (including query strings).
+			http.ServeContent(w, r, "index.html", time.Time{}, bytes.NewReader(index))
+			return
+		}
+		name := strings.TrimPrefix(p, "/")
+		if info, err := fs.Stat(root, name); err == nil && !info.IsDir() {
+			http.ServeFileFS(w, r, root, name)
+			return
+		}
+		http.NotFound(w, r)
+	}), nil
+}
