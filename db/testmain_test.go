@@ -1,32 +1,19 @@
 package db
 
 import (
-	"database/sql"
 	"os"
+	"path/filepath"
 	"testing"
-
-	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-// TestMain acquires a PostgreSQL advisory lock (7337741002) for the entire
-// db test suite. Packages agent and server hold the same lock, so parallel
-// `go test ./...` runs serialize across packages on the shared dev DB and
-// avoid cross-package cleanup races (e.g. DELETE FROM assets WHERE id > X
-// from one package deleting assets created by another).
+// Each package uses a disposable file, never the user's business database.
 func TestMain(m *testing.M) {
-	dsn, _, err := DSN()
+	dir, err := os.MkdirTemp("", "liora-db-tests-")
 	if err != nil {
-		// No DB configured — tests that need PG will skip themselves.
-		os.Exit(m.Run())
+		panic(err)
 	}
-	conn, err := sql.Open("pgx", dsn)
-	if err != nil || conn.Ping() != nil {
-		os.Exit(m.Run())
-	}
-	defer conn.Close()
-	if _, err := conn.Exec(`SELECT pg_advisory_lock(7337741002)`); err != nil {
-		os.Exit(m.Run())
-	}
-	defer conn.Exec(`SELECT pg_advisory_unlock(7337741002)`) //nolint:errcheck
-	os.Exit(m.Run())
+	os.Setenv("LIORA_SQLITE_PATH", filepath.Join(dir, "test.db"))
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
 }

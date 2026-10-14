@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	actool "github.com/Autumn-27/norma/tool"
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
+	"liora/agent"
+	"liora/db"
 )
 
 // hasSkillTool reports whether the packed tool set contains the Skill meta-tool.
@@ -28,11 +28,11 @@ func hasSkillTool(tools []actool.CoreTool) bool {
 func TestAssembleVisibleSkill(t *testing.T) {
 	dsn, _, err := db.DSN()
 	if err != nil {
-		t.Skipf("no database config (%v) — skipping", err)
+		t.Fatalf("no database config (%v) — skipping", err)
 	}
 	pg, err := db.Open(dsn)
 	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
+		t.Fatalf("SQLite unavailable (%v) — skipping", err)
 	}
 	defer pg.Close()
 

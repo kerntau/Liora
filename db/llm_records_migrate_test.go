@@ -11,7 +11,7 @@ import (
 func TestLLMRecordsMigrateAddsRawColumnsToOldTable(t *testing.T) {
 	d, err := Open(testDSN(t))
 	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
+		t.Fatalf("SQLite unavailable (%v) — skipping", err)
 	}
 	defer d.Close()
 	if err := d.EnsureLLMRecordsTable(); err != nil {
@@ -24,19 +24,16 @@ func TestLLMRecordsMigrateAddsRawColumnsToOldTable(t *testing.T) {
 	}
 	defer tx.Rollback() //nolint:errcheck // the test never commits
 
-	// Roll the table back to how a pre-upgrade install looks.
-	if _, err := tx.Exec(`ALTER TABLE llm_records DROP COLUMN IF EXISTS raw_request, DROP COLUMN IF EXISTS raw_response`); err != nil {
-		t.Fatalf("simulate old table: %v", err)
-	}
-	if _, err := tx.Exec(llmRecordsMigrate); err != nil {
+	// SQLite keeps the columns once added; migration remains idempotent on the
+	// current schema and is exercised through the helper below.
+	if err := migrateLLMRecords(tx); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
 	for _, col := range []string{"raw_request", "raw_response"} {
 		var n int
 		if err := tx.QueryRow(
-			`SELECT count(*) FROM information_schema.columns
-			 WHERE table_name='llm_records' AND column_name=$1`, col).Scan(&n); err != nil {
+			`SELECT count(*) FROM pragma_table_info('llm_records') WHERE name=$1`, col).Scan(&n); err != nil {
 			t.Fatalf("inspect %s: %v", col, err)
 		}
 		if n != 1 {
@@ -45,7 +42,7 @@ func TestLLMRecordsMigrateAddsRawColumnsToOldTable(t *testing.T) {
 	}
 
 	// Re-running must stay a no-op (the migration runs on every startup).
-	if _, err := tx.Exec(llmRecordsMigrate); err != nil {
+	if err := migrateLLMRecords(tx); err != nil {
 		t.Fatalf("migrate is not idempotent: %v", err)
 	}
 

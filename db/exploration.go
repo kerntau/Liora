@@ -144,13 +144,13 @@ func (d *DB) TokenDailyAll(days int) ([]DailyTokenBucket, error) {
 		days = 30
 	}
 	rows, err := d.Query(`
-		SELECT TO_CHAR(DATE_TRUNC('day', created_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS day,
+		SELECT strftime('%Y-%m-%d',created_at) AS day,
 		       COALESCE(SUM(input_tokens), 0),
 		       COALESCE(SUM(output_tokens), 0),
 		       COALESCE(SUM(cache_read_tokens), 0)
 		FROM activity
 		WHERE kind = 'result'
-		  AND created_at >= NOW() - ($1 * INTERVAL '1 day')
+		  AND created_at >= strftime('%Y-%m-%d %H:%M:%f','now','-' || $1 || ' days')
 		GROUP BY day
 		ORDER BY day`, days)
 	if err != nil {
@@ -352,7 +352,7 @@ func (s *ExplorationStore) SetIntentState(id int64, state string) error {
 	// terminal states stamp completed_at; reopening (back to open/running) clears it.
 	terminal := state == "done" || state == "blocked" || state == "exhausted" || state == "stopped"
 	_, err := s.db.Exec(`UPDATE exploration_nodes
-SET state=$1, blocked_reason=NULL, content_version=content_version+1, completed_at = CASE WHEN $4 THEN now() ELSE NULL END
+SET state=$1, blocked_reason=NULL, content_version=content_version+1, completed_at = CASE WHEN $4 THEN strftime('%Y-%m-%d %H:%M:%f','now') ELSE NULL END
 WHERE id=$2 AND exploration_id=$3 AND kind='intent'`, state, id, s.expID, terminal)
 	return err
 }
@@ -363,7 +363,7 @@ WHERE id=$2 AND exploration_id=$3 AND kind='intent'`, state, id, s.expID, termin
 func (s *ExplorationStore) CompareAndSetIntentState(id int64, expected, state string) (bool, error) {
 	terminal := state == "done" || state == "blocked" || state == "exhausted" || state == "stopped"
 	res, err := s.db.Exec(`UPDATE exploration_nodes
-SET state=$1, blocked_reason=NULL, content_version=content_version+1, completed_at = CASE WHEN $5 THEN now() ELSE NULL END
+SET state=$1, blocked_reason=NULL, content_version=content_version+1, completed_at = CASE WHEN $5 THEN strftime('%Y-%m-%d %H:%M:%f','now') ELSE NULL END
 WHERE id=$2 AND exploration_id=$3 AND kind='intent' AND state=$4`, state, id, s.expID, expected, terminal)
 	if err != nil {
 		return false, err
@@ -396,7 +396,7 @@ func (s *ExplorationStore) SoftDeleteIntent(id int64, reason string) (string, er
 	var state string
 	var rawPayload []byte
 	if err := tx.QueryRow(`SELECT state, payload FROM exploration_nodes
-		WHERE id=$1 AND exploration_id=$2 AND kind='intent' FOR UPDATE`, id, s.expID).Scan(&state, &rawPayload); err != nil {
+		WHERE id=$1 AND exploration_id=$2 AND kind='intent'`, id, s.expID).Scan(&state, &rawPayload); err != nil {
 		if err == sql.ErrNoRows {
 			return "", fmt.Errorf("intent not found")
 		}
@@ -407,7 +407,7 @@ func (s *ExplorationStore) SoftDeleteIntent(id int64, reason string) (string, er
 	}
 	if _, err := tx.Exec(`UPDATE exploration_nodes
 		SET state='deleted', delete_reason=$3, blocked_reason=NULL,
-		    content_version=content_version+1, completed_at=now()
+		    content_version=content_version+1, completed_at=strftime('%Y-%m-%d %H:%M:%f','now')
 		WHERE id=$1 AND exploration_id=$2`, id, s.expID, reason); err != nil {
 		return "", err
 	}
@@ -442,7 +442,7 @@ func (s *ExplorationStore) CancelIntent(id int64) (IntentCleanup, error) {
 	// 锁定意图行确认存在(幂等:已删则 not found)。状态不校验——真删除对任何状态成立,
 	// running 的 worker 由调用方先停。
 	if err := tx.QueryRow(`SELECT 1 FROM exploration_nodes
-		WHERE id=$1 AND exploration_id=$2 AND kind='intent' FOR UPDATE`, id, s.expID).Scan(new(int)); err != nil {
+		WHERE id=$1 AND exploration_id=$2 AND kind='intent'`, id, s.expID).Scan(new(int)); err != nil {
 		if err == sql.ErrNoRows {
 			return out, fmt.Errorf("intent not found")
 		}
@@ -763,14 +763,14 @@ ORDER BY id DESC LIMIT $4`, s.expID, kind, before, limit+1)
 }
 
 // listByKindPageFiltered is ListByKindPage with an optional summary keyword
-// filter (payload->>'summary' ILIKE %q%). Fetches one extra row so the caller can
+// filter (payload->>'summary' LIKE %q%). Fetches one extra row so the caller can
 // probe hasMore. Empty q = no filter. Newest-first by id.
 func (s *ExplorationStore) listByKindPageFiltered(kind string, before int64, limit int, q string) ([]*Node, error) {
 	where := `exploration_id=$1 AND kind=$2 AND ($3 <= 0 OR id < $3)`
 	args := []any{s.expID, kind, before}
 	if q != "" {
 		args = append(args, "%"+q+"%")
-		where += fmt.Sprintf(` AND payload->>'summary' ILIKE $%d`, len(args))
+		where += fmt.Sprintf(` AND payload->>'summary' LIKE $%d`, len(args))
 	}
 	args = append(args, limit+1)
 	rows, err := s.db.Query(`SELECT `+nodeCols+` FROM exploration_nodes
@@ -789,7 +789,7 @@ func (s *ExplorationStore) countByKindFiltered(kind, q string) (int, error) {
 	args := []any{s.expID, kind}
 	if q != "" {
 		args = append(args, "%"+q+"%")
-		where += fmt.Sprintf(` AND payload->>'summary' ILIKE $%d`, len(args))
+		where += fmt.Sprintf(` AND payload->>'summary' LIKE $%d`, len(args))
 	}
 	var n int
 	err := s.db.QueryRow(`SELECT COUNT(*) FROM exploration_nodes WHERE `+where, args...).Scan(&n)
@@ -873,7 +873,7 @@ func (s *ExplorationStore) NodesPage(f NodeFilter, page, size int) ([]*Node, int
 	if q := strings.TrimSpace(f.Query); q != "" {
 		args = append(args, "%"+q+"%")
 		mark := "$" + fmt.Sprint(len(args))
-		ors := []string{"payload::text ILIKE " + mark, "COALESCE(origin,'') ILIKE " + mark}
+		ors := []string{"CAST(payload AS TEXT) LIKE " + mark, "COALESCE(origin,'') LIKE " + mark}
 		// 纯数字(或 UI 里带 # 前缀的形式,如「#41」)当作节点 id 精确匹配,方便直接定位某个节点。
 		if idStr := strings.TrimPrefix(q, "#"); idStr != "" {
 			if id, err := strconv.ParseInt(idStr, 10, 64); err == nil {
@@ -1023,7 +1023,7 @@ func (s *ExplorationStore) FindingLineage(nodeID int64) ([]*Node, []Edge, error)
 	// anc = the node + everything that can reach it via edges (walk src<-dst).
 	nodeRows, err := s.db.Query(`
 WITH RECURSIVE anc(id) AS (
-    SELECT $2::bigint
+    SELECT CAST($2 AS INTEGER)
   UNION
     SELECT e.src_id
     FROM exploration_edges e
@@ -1047,7 +1047,7 @@ ORDER BY id`, s.expID, nodeID)
 	// edges among the ancestor set only (the lineage's internal relations).
 	edgeRows, err := s.db.Query(`
 WITH RECURSIVE anc(id) AS (
-    SELECT $2::bigint
+    SELECT CAST($2 AS INTEGER)
   UNION
     SELECT e.src_id
     FROM exploration_edges e
@@ -1264,7 +1264,7 @@ func (d *DB) TokenTotalsAll() (map[int64]TokenUsage, error) {
 // Persisted (unlike Engine.LastActivity's in-memory map), so it survives restarts
 // and gives终态任务 a stable "ran until" time for computing run duration.
 func (d *DB) LastActivityAll() (map[int64]int64, error) {
-	rows, err := d.Query(`SELECT exploration_id, EXTRACT(EPOCH FROM MAX(created_at))::bigint FROM activity GROUP BY exploration_id`)
+	rows, err := d.Query(`SELECT exploration_id, CAST(unixepoch(MAX(created_at)) AS INTEGER) FROM activity GROUP BY exploration_id`)
 	if err != nil {
 		return nil, err
 	}
@@ -1295,44 +1295,12 @@ type TaskListMetrics struct {
 // The lateral lookups use the per-exploration indexes instead of grouping the
 // complete activity history on every poll.
 func (d *DB) TaskListMetricsAll() (map[int64]TaskListMetrics, error) {
-	rows, err := d.Query(`
-		SELECT task.exploration_id,
-		       COALESCE(token_metrics.input_tokens,0),
-		       COALESCE(token_metrics.output_tokens,0),
-		       COALESCE(token_metrics.cache_read_tokens,0),
-		       COALESCE(token_metrics.cache_write_tokens,0),
-		       COALESCE(latest_activity.created_at,0),
-		       COALESCE(goal_metrics.total,0),
-		       COALESCE(goal_metrics.met,0),
-		       COALESCE(intent_metrics.running,0)
-		FROM tasks task
-		LEFT JOIN LATERAL (
-			SELECT SUM(input_tokens) AS input_tokens,
-			       SUM(output_tokens) AS output_tokens,
-			       SUM(cache_read_tokens) AS cache_read_tokens,
-			       SUM(cache_write_tokens) AS cache_write_tokens
-			FROM activity
-			WHERE exploration_id=task.exploration_id AND kind='result'
-		) token_metrics ON true
-		LEFT JOIN LATERAL (
-			SELECT EXTRACT(EPOCH FROM created_at)::bigint AS created_at
-			FROM activity
-			WHERE exploration_id=task.exploration_id
-			ORDER BY created_at DESC
-			LIMIT 1
-		) latest_activity ON true
-		LEFT JOIN LATERAL (
-			SELECT COUNT(*) AS total,
-			       COUNT(*) FILTER (WHERE state='met') AS met
-			FROM exploration_nodes
-			WHERE exploration_id=task.exploration_id AND kind='goal'
-		) goal_metrics ON true
-		LEFT JOIN LATERAL (
-			SELECT COUNT(*) AS running
-			FROM exploration_nodes
-			WHERE exploration_id=task.exploration_id AND kind='intent' AND state='running'
-		) intent_metrics ON true
-		WHERE task.deleted_at IS NULL`)
+	rows, err := d.Query(`SELECT task.exploration_id,COALESCE((SELECT SUM(input_tokens) FROM activity WHERE exploration_id=task.exploration_id AND kind='result'),0),COALESCE((SELECT SUM(output_tokens) FROM activity WHERE exploration_id=task.exploration_id AND kind='result'),0),COALESCE((SELECT SUM(cache_read_tokens) FROM activity WHERE exploration_id=task.exploration_id AND kind='result'),0),COALESCE((SELECT SUM(cache_write_tokens) FROM activity WHERE exploration_id=task.exploration_id AND kind='result'),0),
+ COALESCE((SELECT unixepoch(created_at) FROM activity WHERE exploration_id=task.exploration_id ORDER BY created_at DESC LIMIT 1),0),
+ (SELECT COUNT(*) FROM exploration_nodes WHERE exploration_id=task.exploration_id AND kind='goal'),
+ (SELECT COUNT(*) FROM exploration_nodes WHERE exploration_id=task.exploration_id AND kind='goal' AND state='met'),
+ (SELECT COUNT(*) FROM exploration_nodes WHERE exploration_id=task.exploration_id AND kind='intent' AND state='running')
+ FROM tasks task WHERE task.deleted_at IS NULL`)
 	if err != nil {
 		return nil, err
 	}
@@ -1414,9 +1382,9 @@ func (s *ExplorationStore) TokenStatsByWorker() ([]TokenUsage, error) {
 func (s *ExplorationStore) TokenStatsBySession() ([]SessionTokenUsage, error) {
 	rows, err := s.db.Query(`SELECT
 		CASE
-			WHEN COALESCE(a.worker,'')='mainagent' THEN 'main:' || COALESCE(a.main_seg,0)::text
+			WHEN COALESCE(a.worker,'')='mainagent' THEN 'main:' || CAST(COALESCE(a.main_seg,0) AS TEXT)
 			WHEN COALESCE(a.worker,'')='planner' THEN 'plan'
-			WHEN n.id IS NOT NULL THEN 'intent:' || n.id::text
+			WHEN n.id IS NOT NULL THEN 'intent:' || CAST(n.id AS TEXT)
 			ELSE ''
 		END AS session_key,
 		COALESCE(SUM(a.input_tokens),0), COALESCE(SUM(a.output_tokens),0),
@@ -1788,11 +1756,11 @@ func (s *ExplorationStore) ActivityTraceSearch(nodeID *int64, q string, limit in
 	if nodeID != nil {
 		rows, err = s.db.Query(`SELECT `+traceCols+`
 FROM activity WHERE exploration_id=$1 AND node_id=$2 AND kind NOT IN ('thinking','usage')
-AND (summary ILIKE $3 OR detail ILIKE $3) ORDER BY id LIMIT $4`, s.expID, *nodeID, like, limit)
+AND (summary LIKE $3 OR detail LIKE $3) ORDER BY id LIMIT $4`, s.expID, *nodeID, like, limit)
 	} else {
 		rows, err = s.db.Query(`SELECT `+traceCols+`
 FROM activity WHERE exploration_id=$1 AND node_id IS NOT NULL AND kind NOT IN ('thinking','usage')
-AND (summary ILIKE $2 OR detail ILIKE $2) ORDER BY id LIMIT $3`, s.expID, like, limit)
+AND (summary LIKE $2 OR detail LIKE $2) ORDER BY id LIMIT $3`, s.expID, like, limit)
 	}
 	if err != nil {
 		return nil, err
@@ -1814,7 +1782,7 @@ func (s *ExplorationStore) ActivityTraceSearchForTerminalIntent(nodeID int64, q 
 	WHERE a.exploration_id=$1 AND a.node_id=$2 AND n.kind='intent'
 	  AND n.state IN ('done','blocked','exhausted','stopped')
 	  AND a.kind NOT IN ('thinking','usage')
-	  AND (a.summary ILIKE $3 OR a.detail ILIKE $3)
+	  AND (a.summary LIKE $3 OR a.detail LIKE $3)
 	ORDER BY a.id LIMIT $4`, s.expID, nodeID, like, limit)
 	if err != nil {
 		return nil, err
@@ -1836,7 +1804,7 @@ func (s *ExplorationStore) ActivityTraceSearchTerminalIntents(q string, limit in
 	WHERE a.exploration_id=$1 AND n.kind='intent'
 	  AND n.state IN ('done','blocked','exhausted','stopped')
 	  AND a.kind NOT IN ('thinking','usage')
-	  AND (a.summary ILIKE $2 OR a.detail ILIKE $2)
+	  AND (a.summary LIKE $2 OR a.detail LIKE $2)
 	ORDER BY a.id LIMIT $3`, s.expID, like, limit)
 	if err != nil {
 		return nil, err
@@ -1907,7 +1875,7 @@ func (s *ExplorationStore) ActivityTraceSearchExcluding(excludeNodeID int64, q s
 	rows, err := s.db.Query(`SELECT `+traceCols+`
 FROM activity WHERE exploration_id=$1 AND node_id IS NOT NULL AND node_id <> $2
 AND kind NOT IN ('thinking','usage')
-AND (summary ILIKE $3 OR detail ILIKE $3) ORDER BY id LIMIT $4`, s.expID, excludeNodeID, like, limit)
+AND (summary LIKE $3 OR detail LIKE $3) ORDER BY id LIMIT $4`, s.expID, excludeNodeID, like, limit)
 	if err != nil {
 		return nil, err
 	}

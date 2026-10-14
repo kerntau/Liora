@@ -19,7 +19,7 @@ import (
 
 	"github.com/Autumn-27/norma/permission"
 	actool "github.com/Autumn-27/norma/tool"
-	"github.com/Autumn-27/artex/db"
+	"liora/db"
 )
 
 // 本文件实现自定义工具执行器(docs/自定义工具设计.md)。system=false 的 tools 行按
@@ -182,11 +182,17 @@ func (s *Server) pgTestCustomTool(w http.ResponseWriter, r *http.Request) {
 
 const settingPythonInterp = "python_interpreter"
 
-// detectPython finds a python interpreter absolute path (python3 preferred).
+// detectPython finds a usable Python interpreter (python3 preferred). On
+// Windows, python3.exe may be an installed-app execution alias that resolves
+// successfully via PATH but exits with 9009; probe candidates before storing
+// one so custom tools do not inherit that dead alias.
 func detectPython() string {
 	for _, c := range []string{"python3", "python"} {
 		if p, err := exec.LookPath(c); err == nil {
-			return p
+			probe := exec.Command(p, "-c", "import sys; sys.exit(0)")
+			if err := probe.Run(); err == nil {
+				return p
+			}
 		}
 	}
 	return ""

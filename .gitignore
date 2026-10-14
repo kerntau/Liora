@@ -11,9 +11,8 @@ __pycache__/
 
 # frontend
 web/node_modules/
-web/.next/
+web/dist/
 web/tsconfig.tsbuildinfo
-web/next-env.d.ts
 *.local
 
 # development tools
@@ -35,14 +34,14 @@ Thumbs.db
 .claude/
 
 # 内嵌前端的单二进制产物
-/artex
+/liora
 *.exe
 # 一键更新在可执行文件旁留下的中间产物（暂存件 / 备份 / 失败版本 / 升级标记）
-/artex.new
-/artex.new.sha256
-/artex.old
-/artex.failed
-/artex.upgrade.json
+/liora.new
+/liora.new.sha256
+/liora.old
+/liora.failed
+/liora.upgrade.json
 /server/webui/dist/
 /dist/
 
@@ -59,3 +58,6 @@ Thumbs.db
 /bench/
 /Dockerfile.bench
 /Dockerfile.bench.v2
+# Browser regression artifacts
+web/test-results/
+web/playwright-report/

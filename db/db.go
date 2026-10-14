@@ -1,5 +1,4 @@
-// Package db is the PostgreSQL data source for ARTEX (取代旧 graph 单文件 SQLite)。
-// 它打开连接、应用 schema、并 seed 内置 agent 与变量目录。
+// Package db owns Liora's embedded SQLite business database.
 package db
 
 import (
@@ -9,152 +8,116 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
-	"time"
 
-	"github.com/Autumn-27/artex/config"
-	"github.com/jackc/pgx/v5/pgconn"
-	_ "github.com/jackc/pgx/v5/stdlib" // pgx database/sql driver ("pgx")
+	"liora/config"
+	"modernc.org/sqlite"
 )
 
 //go:embed schema.sql
 var schemaSQL string
 
-const schemaMigrationLockKey int64 = 7337741001
+// DB uses WAL for concurrent readers. Every transaction starts IMMEDIATE so a
+// read-modify-write operation owns the writer reservation before its first read.
+// This replaces PostgreSQL row/advisory locks, including across connections.
+type DB struct{ *sql.DB }
 
-var schemaDeadlockRetryDelays = [...]time.Duration{
-	100 * time.Millisecond,
-	250 * time.Millisecond,
-	500 * time.Millisecond,
-	time.Second,
-}
-
-type schemaExecer interface {
-	ExecContext(context.Context, string, ...any) (sql.Result, error)
-}
-
-func isPostgresDeadlock(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == "40P01"
-}
-
-func applySchemaWithRetry(ctx context.Context, execer schemaExecer, sleep func(time.Duration)) error {
-	for attempt := 0; ; attempt++ {
-		if _, err := execer.ExecContext(ctx, schemaSQL); err != nil {
-			if !isPostgresDeadlock(err) || attempt >= len(schemaDeadlockRetryDelays) {
-				return err
-			}
-			sleep(schemaDeadlockRetryDelays[attempt])
-			continue
-		}
-		return nil
+func DSN(dataDir ...string) (string, string, error) {
+	dir := ""
+	if len(dataDir) > 0 {
+		dir = dataDir[0]
 	}
+	return config.SQLitePath(dir)
 }
 
-// withSchemaMigrationLock pins the session-level lock to one checked-out
-// connection. Running pg_advisory_lock through *sql.DB is incorrect because a
-// later schema or unlock call may use a different pooled PostgreSQL session.
-func withSchemaMigrationLock(ctx context.Context, sqlDB *sql.DB, action func(*sql.Conn) error) (err error) {
-	conn, err := sqlDB.Conn(ctx)
+// A transaction already holds SQLite's writer reservation; no additional
+// advisory lock is required for operations coordinated with schema changes.
+func coordinateWithSchemaMigration(tx *sql.Tx) error { return nil }
+
+func IsUniqueViolation(err error) bool {
+	var e *sqlite.Error
+	return errors.As(err, &e) && (e.Code() == 2067 || e.Code() == 1555)
+}
+
+func IsForeignKeyViolation(err error) bool {
+	var e *sqlite.Error
+	return errors.As(err, &e) && e.Code() == 787
+}
+
+func Open(path string) (*DB, error) {
+	if strings.TrimSpace(path) == "" || strings.Contains(path, "://") || strings.HasPrefix(path, "file:") {
+		return nil, fmt.Errorf("expected a local SQLite file path")
+	}
+	uri := ":memory:"
+	if path != ":memory:" {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return nil, err
+		}
+		if err := os.MkdirAll(filepath.Dir(abs), 0700); err != nil {
+			return nil, err
+		}
+		uriPath := filepath.ToSlash(abs)
+		if !strings.HasPrefix(uriPath, "/") {
+			uriPath = "/" + uriPath
+		}
+		u := url.URL{Scheme: "file", Path: uriPath}
+		uri = u.String()
+	}
+	options := url.Values{}
+	options.Add("_pragma", "foreign_keys(1)")
+	options.Add("_pragma", "busy_timeout(15000)")
+	options.Add("_pragma", "synchronous(FULL)")
+	options.Set("_txlock", "immediate")
+	sqlDB, err := sql.Open("liora-sqlite", uri+"?"+options.Encode())
+	if err != nil {
+		return nil, err
+	}
+	sqlDB.SetMaxOpenConns(8)
+	sqlDB.SetMaxIdleConns(8)
+	if path == ":memory:" {
+		sqlDB.SetMaxOpenConns(1)
+		sqlDB.SetMaxIdleConns(1)
+	}
+	d := &DB{sqlDB}
+	if err := d.initialize(); err != nil {
+		sqlDB.Close()
+		return nil, err
+	}
+	if err := d.seedBuiltins(); err != nil {
+		sqlDB.Close()
+		return nil, fmt.Errorf("seed builtins: %w", err)
+	}
+	return d, nil
+}
+
+func (d *DB) initialize() error {
+	if _, err := d.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		return err
+	}
+	tx, err := d.BeginTx(context.Background(), nil)
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
-	if _, err := conn.ExecContext(ctx, `SELECT pg_advisory_lock($1)`, schemaMigrationLockKey); err != nil {
-		return fmt.Errorf("advisory lock: %w", err)
+	defer tx.Rollback()
+	var version int
+	if err := tx.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		return err
 	}
-	defer func() {
-		if _, unlockErr := conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock($1)`, schemaMigrationLockKey); unlockErr != nil && err == nil {
-			err = fmt.Errorf("advisory unlock: %w", unlockErr)
+	if version > 1 {
+		return fmt.Errorf("SQLite schema version %d is newer than supported version 1", version)
+	}
+	if version == 0 {
+		if _, err := tx.Exec(schemaSQL); err != nil {
+			return fmt.Errorf("initialize SQLite schema: %w", err)
 		}
-	}()
-	return action(conn)
-}
-
-// coordinateWithSchemaMigration makes long, multi-table archive transactions
-// mutually exclusive with startup DDL while allowing ordinary runtime queries
-// to continue normally.
-func coordinateWithSchemaMigration(tx *sql.Tx) error {
-	if _, err := tx.Exec(`SELECT pg_advisory_xact_lock($1)`, schemaMigrationLockKey); err != nil {
-		return fmt.Errorf("coordinate with schema migration: %w", err)
-	}
-	return nil
-}
-
-// DSN resolves the PostgreSQL connection string and reports where it came from.
-// Precedence: env ARTEX_PG_DSN > config file (config.json). There is no
-// built-in default — it errors if neither source is configured.
-func DSN() (dsn, source string, err error) {
-	return config.PostgresDSN()
-}
-
-// DB wraps the shared *sql.DB. PG handles its own connection pool + concurrency
-// (MVCC), so unlike the old SQLite store there is no process-wide write mutex.
-type DB struct{ *sql.DB }
-
-// ensureDatabase connects to the postgres system database and creates the target
-// database if it does not exist. dsn must be a postgres:// URL.
-func ensureDatabase(dsn string) error {
-	u, err := url.Parse(dsn)
-	if err != nil {
-		return nil // unparseable DSN — let the normal Open fail with a clear error
-	}
-	dbName := strings.TrimPrefix(u.Path, "/")
-	if dbName == "" || dbName == "postgres" {
-		return nil
-	}
-	// connect to the postgres maintenance database instead
-	adminDSN := *u
-	adminDSN.Path = "/postgres"
-	admin, err := sql.Open("pgx", adminDSN.String())
-	if err != nil {
-		return nil // best-effort; let Open surface the real error
-	}
-	defer admin.Close()
-	if err := admin.Ping(); err != nil {
-		return nil
-	}
-	var exists bool
-	_ = admin.QueryRow(`SELECT true FROM pg_database WHERE datname=$1`, dbName).Scan(&exists)
-	if !exists {
-		if _, err := admin.Exec(`CREATE DATABASE "` + dbName + `"`); err != nil {
-			return fmt.Errorf("create database %q: %w", dbName, err)
+		if _, err := tx.Exec("PRAGMA user_version=1"); err != nil {
+			return err
 		}
 	}
-	return nil
-}
-
-// Open connects, applies the schema (idempotent), and seeds builtin rows.
-func Open(dsn string) (*DB, error) {
-	if err := ensureDatabase(dsn); err != nil {
-		return nil, err
-	}
-	sqlDB, err := sql.Open("pgx", dsn)
-	if err != nil {
-		return nil, err
-	}
-	if err := sqlDB.Ping(); err != nil {
-		sqlDB.Close()
-		return nil, fmt.Errorf("ping postgres (%s): %w", config.Redact(dsn), err)
-	}
-	d := &DB{sqlDB}
-	// pgx runs multi-statement Exec via the simple protocol when there are no args.
-	// Keep the dedicated lock connection checked out until both DDL and seeding
-	// finish so concurrent application instances cannot initialize out of order.
-	err = withSchemaMigrationLock(context.Background(), sqlDB, func(conn *sql.Conn) error {
-		if err := applySchemaWithRetry(context.Background(), conn, time.Sleep); err != nil {
-			return fmt.Errorf("apply schema: %w", err)
-		}
-		if err := d.seedBuiltins(); err != nil {
-			return fmt.Errorf("seed builtins: %w", err)
-		}
-		return nil
-	})
-	if err != nil {
-		sqlDB.Close()
-		return nil, err
-	}
-	return d, nil
+	return tx.Commit()
 }
 
 // builtinAgent describes one of the fixed agents and its prompt-variable catalog.

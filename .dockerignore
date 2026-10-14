@@ -1,9 +1,14 @@
 .git
 **/node_modules
-web/.next
-web/out
+web/dist
 server/webui/dist
-/artex
+/liora
+*.exe
+.runtime.local
+web/test-results
+web/playwright-report
+.env
+jwt.key
 data
 *.db
 transcripts

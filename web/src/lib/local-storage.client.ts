@@ -1,4 +1,3 @@
-"use client";
 
 export function setLocalStorageValue(key: string, value: string) {
   try {

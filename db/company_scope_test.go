@@ -231,7 +231,7 @@ func TestParseStructuredCompanyScope(t *testing.T) {
 func TestCompanyICPAttribution(t *testing.T) {
 	d, err := Open(testDSN(t))
 	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
+		t.Fatalf("SQLite unavailable (%v) — skipping", err)
 	}
 	defer d.Close()
 
@@ -246,7 +246,7 @@ func TestCompanyICPAttribution(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_, _ = d.Exec(`DELETE FROM assets WHERE task_ids @> ARRAY[$1]::bigint[]`, suffix)
+		_, _ = d.Exec(`DELETE FROM assets WHERE task_ids @> json_array($1)`, suffix)
 		_, _ = d.Exec(`DELETE FROM companies WHERE id=$1`, companyID)
 	})
 
@@ -303,7 +303,7 @@ func TestCompanyICPAttribution(t *testing.T) {
 func TestCompanyScopeAttribution(t *testing.T) {
 	d, err := Open(testDSN(t))
 	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
+		t.Fatalf("SQLite unavailable (%v) — skipping", err)
 	}
 	as := d.Assets()
 	cs := d.Companies()

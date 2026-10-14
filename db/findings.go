@@ -172,7 +172,7 @@ type FindingFilter struct {
 const FindingUnassignedTask = "__unassigned__"
 
 // where builds the WHERE clause (shared by the page and count queries) plus its
-// positional args. All values are parameterized; Query also escapes ILIKE
+// positional args. All values are parameterized; Query also escapes LIKE
 // wildcards so user input is always matched literally.
 func (f FindingFilter) where() (string, []any) {
 	var conds []string
@@ -203,26 +203,26 @@ func (f FindingFilter) where() (string, []any) {
 		// (资产已被删除)。两类都进资产树的未关联桶,这里必须同样收下,否则桶上
 		// 的计数会大于点开后能查到的条数。
 		conds = append(conds, `(
-			jsonb_array_length(COALESCE(f.asset_ids, '[]'::jsonb)) = 0
+			json_array_length(COALESCE(f.asset_ids, '[]')) = 0
 			OR NOT EXISTS (
-				SELECT 1 FROM jsonb_array_elements_text(f.asset_ids) e(v)
-				JOIN assets a ON a.id = e.v::bigint
+				SELECT 1 FROM json_each(f.asset_ids) e
+				JOIN assets a ON a.id = CAST(e.value AS INTEGER)
 			)
 		)`)
 	case len(f.assetIDs) > 0:
-		args = append(args, assetIDContainments(f.assetIDs))
-		conds = append(conds, fmt.Sprintf("f.asset_ids @> ANY($%d::jsonb[])", len(args)))
+		args = append(args, f.assetIDs)
+		conds = append(conds, fmt.Sprintf("EXISTS (SELECT 1 FROM json_each(f.asset_ids) WHERE value IN (SELECT value FROM json_each($%d)))", len(args)))
 	}
 	if query := strings.TrimSpace(f.Query); query != "" {
 		escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
 		args = append(args, "%"+escaped+"%")
 		placeholder := fmt.Sprintf("$%d", len(args))
 		conds = append(conds, fmt.Sprintf(`(
-			COALESCE(f.name, '') ILIKE %s ESCAPE '\' OR
-			f.vulnclass ILIKE %s ESCAPE '\' OR
-			f.summary ILIKE %s ESCAPE '\' OR
-			f.evidence ILIKE %s ESCAPE '\' OR
-			COALESCE(f.report, '') ILIKE %s ESCAPE '\'
+			COALESCE(f.name, '') LIKE %s ESCAPE '\' OR
+			f.vulnclass LIKE %s ESCAPE '\' OR
+			f.summary LIKE %s ESCAPE '\' OR
+			f.evidence LIKE %s ESCAPE '\' OR
+			COALESCE(f.report, '') LIKE %s ESCAPE '\'
 		)`, placeholder, placeholder, placeholder, placeholder, placeholder))
 	}
 	if len(conds) == 0 {
@@ -321,9 +321,9 @@ func (d *DB) ListFindingGroups(f FindingFilter, page, pageSize int) ([]FindingGr
 		return []FindingGroup{}, groupTotal, findingTotal, nil
 	}
 
-	order := "MAX(f.created_at) DESC, t.id DESC NULLS LAST"
+	order := "MAX(f.created_at) DESC, t.id IS NULL, t.id DESC"
 	if f.Sort == "severity" {
-		order = `MAX(CASE f.severity WHEN 'critical' THEN 4 WHEN 'high' THEN 3 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 ELSE 0 END) DESC, MAX(f.created_at) DESC, t.id DESC NULLS LAST`
+		order = `MAX(CASE f.severity WHEN 'critical' THEN 4 WHEN 'high' THEN 3 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 ELSE 0 END) DESC, MAX(f.created_at) DESC, t.id IS NULL, t.id DESC`
 	}
 	pageArgs := append(append([]any{}, args...), pageSize, (page-1)*pageSize)
 	query := fmt.Sprintf(`SELECT t.id, COALESCE(t.name,''), COALESCE(t.description,''), COALESCE(
@@ -349,10 +349,12 @@ func (d *DB) ListFindingGroups(f FindingFilter, page, pageSize int) ([]FindingGr
 	for rows.Next() {
 		var group FindingGroup
 		var taskID sql.NullInt64
+		var lastFoundAt sqliteNullTime
 		if err := rows.Scan(&taskID, &group.TaskName, &group.TaskDescription, &group.TaskStatus, &group.Count,
-			&group.Critical, &group.High, &group.Medium, &group.Low, &group.LastFoundAt); err != nil {
+			&group.Critical, &group.High, &group.Medium, &group.Low, &lastFoundAt); err != nil {
 			return nil, 0, 0, err
 		}
+		group.LastFoundAt = lastFoundAt.Time
 		if taskID.Valid {
 			id := taskID.Int64
 			group.TaskID = &id
@@ -383,8 +385,7 @@ func (s *ExplorationStore) AddFindingFollowUpIntent(findingID, findingNodeID int
 		FROM findings f
 		JOIN tasks t ON t.id=f.task_id
 		JOIN exploration_nodes n ON n.id=f.node_id AND n.exploration_id=t.exploration_id
-		WHERE f.id=$1 AND f.node_id=$2 AND t.exploration_id=$3 AND n.kind='finding'
-		FOR SHARE OF f, t, n`, findingID, findingNodeID, s.expID).Scan(&liveNodeID)
+		WHERE f.id=$1 AND f.node_id=$2 AND t.exploration_id=$3 AND n.kind='finding'`, findingID, findingNodeID, s.expID).Scan(&liveNodeID)
 	if err == sql.ErrNoRows {
 		return 0, Activity{}, ErrFindingOriginUnavailable
 	}
@@ -722,7 +723,7 @@ func (d *DB) setFindingCol(id int64, col, jsonKey, val string) (int64, error) {
 	}
 	if nodeID != nil {
 		_, _ = d.Exec(`UPDATE exploration_nodes
-			SET payload = jsonb_set(payload, '{`+jsonKey+`}', to_jsonb($1::text))
+			SET payload = json_set(payload, '$.`+jsonKey+`', $1)
 			WHERE id = $2`, val, *nodeID)
 	}
 	return 1, nil

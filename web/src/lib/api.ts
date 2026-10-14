@@ -1,4 +1,6 @@
-// Real backend client. /api/* is proxied to the Go backend (next.config rewrites).
+import { auth } from "./auth";
+
+// Real backend client. /api/* is proxied to the Go backend (Rsbuild development proxy).
 // Returns the domain types in lib/types.ts. Shapes match the backend handlers;
 // a few fields the backend serializes differently (e.g. created_at as a unix int)
 // are passed through and formatted at the call site.
@@ -81,10 +83,7 @@ import type {
   UsageStats,
 } from "@/lib/types";
 
-function getToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("artex_token");
-}
+const getToken = auth.getToken;
 
 export async function http<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken();
@@ -98,9 +97,7 @@ export async function http<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (r.status === 401) {
     if (typeof window !== "undefined") {
-      localStorage.removeItem("artex_token");
-      document.cookie = "artex_token=; path=/; max-age=0";
-      window.location.href = "/login";
+      auth.clearToken();
     }
     throw new Error("未授权");
   }
@@ -123,8 +120,8 @@ export async function http<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function sseUrl(path: string): string {
   const base =
-    process.env.NEXT_PUBLIC_SSE_BASE ??
-    (typeof window !== "undefined" ? `${window.location.protocol}//${window.location.hostname}:8787` : "");
+    process.env.PUBLIC_LIORA_SSE_BASE ||
+    (typeof window !== "undefined" ? window.location.origin : "");
   const token = getToken();
   const sep = path.includes("?") ? "&" : "?";
   return token ? `${base}${path}${sep}token=${encodeURIComponent(token)}` : `${base}${path}`;

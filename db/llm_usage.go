@@ -28,8 +28,8 @@ type LLMUsage struct {
 
 const llmUsageSchema = `
 CREATE TABLE IF NOT EXISTS llm_usage (
-    id             BIGSERIAL PRIMARY KEY,
-    ts             TIMESTAMPTZ NOT NULL DEFAULT now(),
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts             DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now')),
     task_id        TEXT,
     exploration_id BIGINT,
     worker         TEXT,
@@ -201,10 +201,10 @@ func (d *DB) UsageDaily(days int) ([]ProfileDayUsage, error) {
 	}
 	rows, err := d.Query(`
 SELECT COALESCE(profile_name,'') AS profile_name,
-       to_char(ts AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day,
+       strftime('%Y-%m-%d',ts) AS day,
        COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0), COALESCE(SUM(cache_read),0)
 FROM llm_usage
-WHERE ts >= now() - ($1 * interval '1 day')
+WHERE ts >= datetime('now', printf('-%d days', $1))
 GROUP BY profile_name, day
 ORDER BY day`, days)
 	if err != nil {

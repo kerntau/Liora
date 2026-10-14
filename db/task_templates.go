@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
-
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 const (
@@ -123,8 +121,7 @@ func normalizeTaskTemplatePatch(patch TaskTemplatePatch) (TaskTemplatePatch, *st
 }
 
 func taskTemplateUniqueViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+	return IsUniqueViolation(err)
 }
 
 // CreateTaskTemplate inserts one globally reusable preset.
@@ -197,10 +194,10 @@ func (d *DB) PatchTaskTemplate(id int64, patch TaskTemplatePatch) (*TaskTemplate
 		return nil, err
 	}
 	t, err := scanTaskTemplate(d.QueryRow(`UPDATE task_templates
-SET name=CASE WHEN $2 THEN $3::text ELSE name END,
-    nkey=CASE WHEN $2 THEN $4::text ELSE nkey END,
-    description=CASE WHEN $5 THEN $6::text ELSE description END,
-    goal=CASE WHEN $7 THEN $8::text ELSE goal END
+SET name=CASE WHEN $2 THEN CAST($3 AS TEXT) ELSE name END,
+    nkey=CASE WHEN $2 THEN CAST($4 AS TEXT) ELSE nkey END,
+    description=CASE WHEN $5 THEN CAST($6 AS TEXT) ELSE description END,
+    goal=CASE WHEN $7 THEN CAST($8 AS TEXT) ELSE goal END
 WHERE id=$1
 RETURNING `+taskTemplateCols,
 		id,

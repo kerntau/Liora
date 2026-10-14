@@ -6,53 +6,21 @@ import (
 	"embed"
 	"io/fs"
 	"net/http"
-	"path"
-	"strings"
 )
 
-// webuiDist holds the statically-exported frontend (built with
-// `cd web && npm run build:static`, then copied into server/webui/dist). Compiled
-// into the binary only when building with `-tags embedui`. The `all:` prefix is
-// required so Next's `_next/` asset dir (leading underscore) is included.
+// webuiDist contains the Rsbuild output copied from web/dist by build.sh.
 //
 //go:embed all:webui/dist
 var webuiDist embed.FS
 
-// webuiHandler serves exported pages. Unknown and retired paths return 404.
-// Auth is enforced client-side and on /api.
 func (s *Server) webuiHandler() http.Handler {
 	root, err := fs.Sub(webuiDist, "webui/dist")
 	if err != nil {
 		panic(err)
 	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
-		if p == "" {
-			p = "index.html"
-		}
-		// 1) exact file (assets: _next/*, favicon.ico, ...)
-		// 2) route dir → <p>/index.html (trailingSlash export)
-		// 3) <p>.html
-		for _, cand := range []string{p, p + "/index.html", p + ".html"} {
-			if serveFileIfExists(w, r, root, cand) {
-				return
-			}
-		}
-		http.NotFound(w, r)
-	})
-}
-
-// serveFileIfExists serves name from fsys when it exists as a regular file.
-func serveFileIfExists(w http.ResponseWriter, r *http.Request, fsys fs.FS, name string) bool {
-	f, err := fsys.Open(name)
+	handler, err := newWebUIHandler(root)
 	if err != nil {
-		return false
+		panic(err)
 	}
-	st, statErr := f.Stat()
-	_ = f.Close()
-	if statErr != nil || st.IsDir() {
-		return false
-	}
-	http.ServeFileFS(w, r, fsys, name)
-	return true
+	return handler
 }

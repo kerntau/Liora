@@ -1,7 +1,6 @@
 package db
 
 import (
-	"database/sql"
 	"strings"
 	"time"
 )
@@ -62,7 +61,7 @@ func (d *DB) SkillStats() ([]SkillStat, error) {
 	rows, err := d.Query(`
 SELECT skill, COUNT(*) AS calls,
        COUNT(DISTINCT task_id) AS tasks,
-       COALESCE(STRING_AGG(DISTINCT agent_key, ','), '') AS agents,
+       COALESCE(GROUP_CONCAT(DISTINCT agent_key), '') AS agents,
        MAX(ts) AS last_used
 FROM skill_usage
 WHERE found
@@ -76,7 +75,7 @@ ORDER BY COUNT(*) DESC, skill`)
 	for rows.Next() {
 		var s SkillStat
 		var agents string
-		var lastUsed sql.NullTime
+		var lastUsed sqliteNullTime
 		if err := rows.Scan(&s.Skill, &s.Calls, &s.Tasks, &agents, &lastUsed); err != nil {
 			return nil, err
 		}
@@ -109,7 +108,7 @@ func (d *DB) MissingSkillStats(limit int) ([]SkillStat, error) {
 	}
 	rows, err := d.Query(`
 SELECT skill, COUNT(*) AS calls,
-       COALESCE(STRING_AGG(DISTINCT agent_key, ','), '') AS agents,
+       COALESCE(GROUP_CONCAT(DISTINCT agent_key), '') AS agents,
        MAX(ts) AS last_used
 FROM skill_usage
 WHERE NOT found
@@ -123,7 +122,7 @@ ORDER BY COUNT(*) DESC, skill`)
 	for rows.Next() {
 		var s SkillStat
 		var agents string
-		var lastUsed sql.NullTime
+		var lastUsed sqliteNullTime
 		if err := rows.Scan(&s.Skill, &s.Calls, &agents, &lastUsed); err != nil {
 			return nil, err
 		}
@@ -202,7 +201,7 @@ ORDER BY COUNT(*) DESC, skill`, taskID)
 	out := []SkillStat{}
 	for rows.Next() {
 		var s SkillStat
-		var lastUsed sql.NullTime
+		var lastUsed sqliteNullTime
 		if err := rows.Scan(&s.Skill, &s.Calls, &lastUsed); err != nil {
 			return nil, err
 		}

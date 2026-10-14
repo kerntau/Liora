@@ -13,9 +13,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
 	"github.com/Autumn-27/norma/llm"
+	"liora/agent"
+	"liora/db"
 )
 
 func TestChatMentionParsing(t *testing.T) {
@@ -119,7 +119,7 @@ func TestChatMentionPagination(t *testing.T) {
 func TestChatMentionWorkerReceivesServerDetails(t *testing.T) {
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
+		t.Fatalf("SQLite unavailable (%v) — skipping", err)
 	}
 	defer m.Close()
 	ctx, cancel := context.WithCancel(context.Background())

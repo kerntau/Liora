@@ -28,9 +28,7 @@ func (d *DB) WithEvidenceTx(ctx context.Context, fn func(*sql.Tx) error) error {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1)`, findingEvidenceLockKey); err != nil {
-		return err
-	}
+	// BEGIN IMMEDIATE serializes evidence SQL and filesystem mutations.
 	if err = fn(tx); err != nil {
 		return err
 	}
@@ -141,7 +139,7 @@ func LockTaskEvidenceTx(tx *sql.Tx, taskID int64) error {
 		return nil
 	}
 	var deleted sql.NullTime
-	if err := tx.QueryRow(`SELECT deleted_at FROM tasks WHERE id=$1 FOR UPDATE`, taskID).Scan(&deleted); err != nil {
+	if err := tx.QueryRow(`SELECT deleted_at FROM tasks WHERE id=$1`, taskID).Scan(&deleted); err != nil {
 		return err
 	}
 	if deleted.Valid {
@@ -170,7 +168,7 @@ func LockFindingEvidenceTx(tx *sql.Tx, findingID int64, version *int64) error {
 		return err
 	}
 	var current int64
-	if err := tx.QueryRow(`SELECT evidence_version FROM findings WHERE id=$1 FOR UPDATE`, findingID).Scan(&current); err != nil {
+	if err := tx.QueryRow(`SELECT evidence_version FROM findings WHERE id=$1`, findingID).Scan(&current); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrFindingNotFound
 		}
@@ -246,7 +244,7 @@ func FindingTrafficTx(tx *sql.Tx, findingID int64) (*FindingTraffic, error) {
 		}
 		return nil, err
 	}
-	rows, err := tx.Query(`SELECT b.id,b.finding_id,b.snapshot_id,b.role,b.note,b.position,b.created_at,to_jsonb(s)
+	rows, err := tx.Query(`SELECT b.id,b.finding_id,b.snapshot_id,b.role,b.note,b.position,b.created_at,json_object('id',s.id,'source_traffic_id',s.source_traffic_id,'captured_at',s.captured_at,'url',s.url,'method',s.method,'status',s.status,'content_type',s.content_type,'req_head',s.req_head,'resp_head',s.resp_head,'req_hash',s.req_hash,'resp_hash',s.resp_hash,'req_len',s.req_len,'resp_len',s.resp_len,'unreferenced_at',s.unreferenced_at,'created_at',strftime('%Y-%m-%dT%H:%M:%fZ',s.created_at))
 FROM finding_traffic_bindings b JOIN traffic_evidence_snapshots s ON s.id=b.snapshot_id WHERE b.finding_id=$1 ORDER BY b.position,b.id`, findingID)
 	if err != nil {
 		return nil, err
@@ -448,7 +446,7 @@ func (d *DB) SetFindingReportVersionByNodeID(ctx context.Context, nodeID int64, 
 		if err := LockFindingEvidenceTx(tx, id, version); err != nil {
 			return err
 		}
-		res, err := tx.Exec(`UPDATE findings SET report=$2,report_evidence_version=COALESCE($3::bigint,CASE WHEN evidence_version=0 THEN 0 ELSE -1 END) WHERE id=$1`, id, report, version)
+		res, err := tx.Exec(`UPDATE findings SET report=$2,report_evidence_version=COALESCE(CAST($3 AS INTEGER),CASE WHEN evidence_version=0 THEN 0 ELSE -1 END) WHERE id=$1`, id, report, version)
 		if err != nil {
 			return err
 		}

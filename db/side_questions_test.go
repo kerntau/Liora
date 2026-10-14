@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Autumn-27/artex/sidequestion"
 	"github.com/Autumn-27/norma/llm"
+	"liora/sidequestion"
 )
 
 func sideFixture(t *testing.T) (*DB, sidequestion.Snapshot) {
@@ -228,7 +228,21 @@ func TestSideArchiveRowsWithoutNewFields(t *testing.T) {
 	rows := map[string]json.RawMessage{}
 	for _, table := range []string{"side_question_sessions", "side_question_requests"} {
 		var raw []byte
-		if err = tx.QueryRow(`SELECT json_agg(t) FROM `+table+` t WHERE session_key=$1`, s.Parent.Key()).Scan(&raw); err != nil {
+		jr, qerr := queryJSON(tx, `SELECT * FROM `+table+` WHERE session_key=$1`, s.Parent.Key())
+		if qerr != nil {
+			t.Fatal(qerr)
+		}
+		var itemsRaw []json.RawMessage
+		for jr.Next() {
+			var item json.RawMessage
+			if err = jr.Scan(&item); err != nil {
+				t.Fatal(err)
+			}
+			itemsRaw = append(itemsRaw, item)
+		}
+		jr.Close()
+		raw, err = json.Marshal(itemsRaw)
+		if err != nil {
 			t.Fatal(err)
 		}
 		var items []map[string]json.RawMessage

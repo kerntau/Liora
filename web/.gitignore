@@ -9,12 +9,10 @@
 # testing
 /coverage
 
-# next.js
-/.next/
-/out/
-
-# production
-/build
+# Rsbuild output and browser tests
+/dist/
+/test-results/
+/playwright-report/
 
 # misc
 .DS_Store
@@ -29,9 +27,5 @@ yarn-error.log*
 # local env files
 .env*.local
 
-# vercel
-.vercel
-
 # typescript
 *.tsbuildinfo
-next-env.d.ts

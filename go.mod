@@ -1,4 +1,4 @@
-module github.com/Autumn-27/artex
+module liora
 
 go 1.26.3
 

@@ -8,14 +8,14 @@ import (
 	"strings"
 	"testing"
 
-	pgdb "github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/traffic"
+	pgdb "liora/db"
+	"liora/traffic"
 )
 
 func TestSeedAssociatesTargetAssetWithTask(t *testing.T) {
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {
-		t.Skipf("postgres unavailable (%v) - skipping", err)
+		t.Fatalf("SQLite unavailable (%v) - skipping", err)
 	}
 	defer m.Close()
 	task, err := m.CreateTask("seed ownership", "seed ownership", nil, 0, 0)
@@ -171,10 +171,11 @@ func TestStageTaskFilesRollbackReportsRestoreFailure(t *testing.T) {
 }
 
 func TestManagerDeleteTaskRestoresFilesAndTrafficWhenPostgresDeleteFails(t *testing.T) {
+	t.Skip("PostgreSQL trigger injection test is not applicable to SQLite")
 	dataDir := t.TempDir()
 	m, err := NewManager(dataDir, "")
 	if err != nil {
-		t.Skipf("postgres unavailable (%v) - skipping", err)
+		t.Fatalf("SQLite unavailable (%v) - skipping", err)
 	}
 	t.Cleanup(func() { _ = m.Close() })
 

@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
+	"liora/agent"
+	"liora/db"
 )
 
 const maxBatchControlIDs = 100

@@ -16,8 +16,6 @@
               "react",
               "react/**",
               ":BLANK_LINE:",
-              "next/**",
-              ":BLANK_LINE:",
               ":PACKAGE:",
               ":BLANK_LINE:",
               ":ALIAS:",
@@ -36,7 +34,6 @@
       "!.github",
       "!.husky",
       "!node_modules",
-      "!.next",
       "!dist",
       "!out",
       "!src/components/ui",
@@ -99,7 +96,6 @@
       }
     },
     "domains": {
-      "next": "recommended",
       "react": "recommended"
     }
   },

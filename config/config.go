@@ -1,5 +1,5 @@
 // Package config loads runtime configuration from a JSON file, with environment
-// variables taking precedence. Currently it carries the PostgreSQL connection.
+// variables taking precedence. The business database is SQLite by default.
 package config
 
 import (
@@ -12,9 +12,10 @@ import (
 	"strings"
 )
 
-// Database is the PostgreSQL connection config. Either set DSN directly, or set
-// the component fields and a DSN is assembled from them.
+// Database contains the SQLite path. Legacy PostgreSQL fields are retained for
+// compatibility and are ignored by the SQLite runtime.
 type Database struct {
+	Path     string `json:"path"`
 	DSN      string `json:"dsn"`
 	Host     string `json:"host"`
 	Port     int    `json:"port"`
@@ -22,6 +23,34 @@ type Database struct {
 	Password string `json:"password"`
 	DBName   string `json:"dbname"`
 	SSLMode  string `json:"sslmode"`
+}
+
+// SQLitePath resolves the local business database. PostgreSQL settings from an
+// older installation are intentionally ignored; that database is left intact.
+// Relative configured paths are anchored to the config file, while the default
+// follows the application's data directory (including the -data flag).
+func SQLitePath(dataDir string) (path, source string, err error) {
+	path = strings.TrimSpace(os.Getenv("LIORA_SQLITE_PATH"))
+	if path != "" {
+		source = "环境变量 LIORA_SQLITE_PATH"
+	} else if path = strings.TrimSpace(Load().Database.Path); path != "" {
+		source = "配置文件 " + Path() + " (database.path)"
+		if !filepath.IsAbs(path) && path != ":memory:" {
+			path = filepath.Join(filepath.Dir(Path()), path)
+		}
+	} else {
+		if dataDir == "" {
+			dataDir = filepath.Join(BaseDir(), "data")
+		}
+		path, source = filepath.Join(dataDir, "liora.db"), "默认 SQLite 数据库"
+	}
+	if strings.Contains(path, "://") || strings.HasPrefix(path, "file:") {
+		return "", source, fmt.Errorf("database.path must be a local SQLite file path")
+	}
+	if path != ":memory:" {
+		path, err = filepath.Abs(path)
+	}
+	return path, source, err
 }
 
 // Config is the on-disk config file shape.
@@ -72,7 +101,7 @@ func isGoRunDir(dir string) bool {
 }
 
 // Path returns the config file path. Resolution order:
-//  1. env ARTEX_CONFIG (explicit override)
+//  1. env LIORA_CONFIG (explicit override)
 //  2. ./config.json in the current working directory (running from the project
 //     dir — robust no matter where `go run` placed the temp/cached binary)
 //  3. config.json next to the executable (a distributed binary keeps it beside)
@@ -80,7 +109,7 @@ func isGoRunDir(dir string) bool {
 // The first existing file wins. If none exist, the CWD path is returned so the
 // "not found" message points at the project dir the user most likely expected.
 func Path() string {
-	if v := strings.TrimSpace(os.Getenv("ARTEX_CONFIG")); v != "" {
+	if v := strings.TrimSpace(os.Getenv("LIORA_CONFIG")); v != "" {
 		return v
 	}
 	var candidates []string
@@ -110,12 +139,12 @@ func Load() Config {
 
 // SkillDir returns the skill root directory with precedence:
 //
-//	env ARTEX_SKILL_DIR  >  config file (skill_dir)  >  BaseDir()/skills
+//	env LIORA_SKILL_DIR  >  config file (skill_dir)  >  BaseDir()/skills
 //
 // The directory is created if it does not exist.
 func SkillDir() string {
 	var d string
-	if v := strings.TrimSpace(os.Getenv("ARTEX_SKILL_DIR")); v != "" {
+	if v := strings.TrimSpace(os.Getenv("LIORA_SKILL_DIR")); v != "" {
 		d = v
 	} else if v := strings.TrimSpace(Load().SkillDir); v != "" {
 		d = v
@@ -128,15 +157,15 @@ func SkillDir() string {
 
 // PostgresDSN resolves the connection string with precedence:
 //
-//	env ARTEX_PG_DSN  >  config file (database.dsn, or assembled from fields)
+//	env LIORA_PG_DSN  >  config file (database.dsn, or assembled from fields)
 //
 // There is NO built-in fallback: when neither source supplies a database config,
 // it returns an error naming the config path it inspected, so startup fails loudly
 // instead of silently connecting to a wrong default. source describes where the
 // DSN came from (for startup logging).
 func PostgresDSN() (dsn, source string, err error) {
-	if v := strings.TrimSpace(os.Getenv("ARTEX_PG_DSN")); v != "" {
-		return v, "环境变量 ARTEX_PG_DSN", nil
+	if v := strings.TrimSpace(os.Getenv("LIORA_PG_DSN")); v != "" {
+		return v, "环境变量 LIORA_PG_DSN", nil
 	}
 	db := Load().Database
 	if d := strings.TrimSpace(db.DSN); d != "" {
@@ -145,7 +174,7 @@ func PostgresDSN() (dsn, source string, err error) {
 	if db.Host != "" || db.DBName != "" || db.User != "" {
 		return db.buildDSN(), "配置文件 " + Path() + " (database 字段)", nil
 	}
-	return "", "", fmt.Errorf("未找到数据库配置：环境变量 ARTEX_PG_DSN 未设置，且配置文件 %s 未提供 database（dsn 或 host/user/dbname）。请创建该配置文件或设置环境变量后重试", Path())
+	return "", "", fmt.Errorf("未找到数据库配置：环境变量 LIORA_PG_DSN 未设置，且配置文件 %s 未提供 database（dsn 或 host/user/dbname）。请创建该配置文件或设置环境变量后重试", Path())
 }
 
 func (d Database) buildDSN() string {

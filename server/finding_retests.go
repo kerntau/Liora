@@ -12,10 +12,10 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/intercept"
 	actool "github.com/Autumn-27/norma/tool"
+	"liora/agent"
+	"liora/db"
+	"liora/intercept"
 )
 
 func (s *Server) listActiveFindingRetests(w http.ResponseWriter, r *http.Request) {
@@ -205,10 +205,8 @@ func (s *Server) seedFindingRetester() error {
 		return err
 	}
 	defer tx.Rollback()
-	// Lock this migration, including concurrent server initialization.
-	if _, err = tx.Exec(`SELECT pg_advisory_xact_lock(7337741010)`); err != nil {
-		return err
-	}
+	// SQLite transactions acquire the writer reservation at BEGIN IMMEDIATE,
+	// so this migration is serialized across server initializations.
 	var done string
 	err = tx.QueryRow(`SELECT value FROM settings WHERE key=$1`, flag).Scan(&done)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {

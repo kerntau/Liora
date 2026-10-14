@@ -11,7 +11,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/Autumn-27/artex/db"
+	"liora/db"
 )
 
 // maxChatUpload caps a single chat-attachment upload request (memory + spill).

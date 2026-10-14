@@ -14,7 +14,7 @@ import (
 func TestTaskMetadataPatchReturnsRenameAndPin(t *testing.T) {
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
+		t.Fatalf("SQLite unavailable (%v) — skipping", err)
 	}
 	defer m.Close()
 	task, err := m.CreateTask("metadata patch", "goal", nil, 0, 0)

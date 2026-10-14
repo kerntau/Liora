@@ -1,3 +1,5 @@
+> 上游历史变更记录，保留原始项目名称及历史实现描述。当前项目请参阅 README。
+
 # 更新日志
 
 本项目的重要变更记录在此文件中，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。

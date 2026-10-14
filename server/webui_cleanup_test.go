@@ -18,7 +18,8 @@ func TestEmbeddedPagesMatchCleanupScope(t *testing.T) {
 		{"/function/traffic/", 404}, {"/function/workspace/", 404},
 		{"/function/sync/", 404}, {"/function/llm-records/", 404},
 		{"/function/tasks/", 200}, {"/function/conversations/detail/", 200},
-		{"/system/settings/", 200}, {"/lingtan-logo.png", 200},
+		{"/system/settings/", 200}, {"/liora-logo.png", 200},
+		{"/liora-icon.png", 200}, {"/lingtan-logo.png", 404},
 	} {
 		t.Run(item.path, func(t *testing.T) {
 			w := httptest.NewRecorder()

@@ -13,10 +13,10 @@ import (
 	"strconv"
 	"unicode/utf8"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/evidence"
 	actool "github.com/Autumn-27/norma/tool"
+	"liora/agent"
+	"liora/db"
+	"liora/evidence"
 )
 
 func (s *Server) evidenceStore() *evidence.Store {
@@ -64,8 +64,34 @@ func (s *Server) seedFindingTrafficTools() {
 		if len(properties[name]) == 0 {
 			return
 		}
-		_, err = s.m.pg.Exec(`UPDATE tools SET schema=jsonb_set(schema,ARRAY['properties',$2::text],$3::jsonb,true),updated_at=now()
-WHERE key=$1 AND system AND NOT(COALESCE(schema->'properties','{}'::jsonb) ? $2)`, key, name, string(properties[name]))
+		// SQLite has JSON1 but no PostgreSQL jsonb_set/operator syntax. Update
+		// the decoded schema in Go and write the complete JSON document back.
+		tool, loadErr := s.m.pg.GetTool(key)
+		if loadErr != nil || tool == nil || !tool.System {
+			if loadErr != nil {
+				log.Printf("[evidence] load tool %s: %v", key, loadErr)
+			}
+			continue
+		}
+		var current map[string]any
+		if err = json.Unmarshal(tool.Schema, &current); err != nil {
+			log.Printf("[evidence] decode tool %s schema: %v", key, err)
+			return
+		}
+		currentProps := objectProperty(current, "properties")
+		if _, exists := currentProps[name]; exists {
+			continue
+		}
+		var prop any
+		if err = json.Unmarshal(properties[name], &prop); err != nil {
+			return
+		}
+		currentProps[name] = prop
+		updated, marshalErr := json.Marshal(current)
+		if marshalErr != nil {
+			return
+		}
+		_, err = s.m.pg.Exec(`UPDATE tools SET schema=$2,updated_at=strftime('%Y-%m-%d %H:%M:%f','now') WHERE key=$1 AND system`, key, string(updated))
 		if err != nil {
 			log.Printf("[evidence] upgrade tool %s: %v", key, err)
 			return

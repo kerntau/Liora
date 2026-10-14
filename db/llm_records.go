@@ -34,8 +34,8 @@ type LLMRecord struct {
 
 const llmRecordsSchema = `
 CREATE TABLE IF NOT EXISTS llm_records (
-    id            BIGSERIAL PRIMARY KEY,
-    ts            TIMESTAMPTZ DEFAULT now(),
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts            DATETIME DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now')),
     model         TEXT,
     profile_name  TEXT,
     session_id    TEXT,
@@ -58,13 +58,35 @@ CREATE INDEX IF NOT EXISTS idx_llm_records_session ON llm_records(session_id);
 `
 
 // llmRecordsMigrate adds new columns to existing tables.
-const llmRecordsMigrate = `
-ALTER TABLE llm_records ADD COLUMN IF NOT EXISTS task_id TEXT;
-ALTER TABLE llm_records ADD COLUMN IF NOT EXISTS worker TEXT;
-ALTER TABLE llm_records ADD COLUMN IF NOT EXISTS profile_name TEXT;
-ALTER TABLE llm_records ADD COLUMN IF NOT EXISTS raw_request TEXT;
-ALTER TABLE llm_records ADD COLUMN IF NOT EXISTS raw_response TEXT;
-`
+const llmRecordsMigrate = ``
+
+func migrateLLMRecords(tx *sql.Tx) error {
+	rows, err := tx.Query(`PRAGMA table_info(llm_records)`)
+	if err != nil {
+		return err
+	}
+	cols := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notnull, pk int
+		var def any
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &def, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		cols[name] = true
+	}
+	rows.Close()
+	for _, col := range []string{"task_id", "worker", "profile_name", "raw_request", "raw_response"} {
+		if !cols[col] {
+			if _, err := tx.Exec(`ALTER TABLE llm_records ADD COLUMN ` + col + ` TEXT`); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
 
 // EnsureLLMRecordsTable creates the llm_records table if it does not exist.
 func (d *DB) EnsureLLMRecordsTable() error {
@@ -79,9 +101,10 @@ func (d *DB) EnsureLLMRecordsTable() error {
 	if _, err := tx.Exec(llmRecordsSchema); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(llmRecordsMigrate); err != nil {
+	if err := migrateLLMRecords(tx); err != nil {
 		return err
 	}
+
 	return tx.Commit()
 }
 

@@ -13,17 +13,24 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/traffic"
+	"liora/db"
+	"liora/traffic"
 )
 
 type Store struct {
 	DB      *db.DB
 	Traffic *traffic.Traffic
 	Dir     string
+	// restoreMu protects installed evidence bodies from GC while a restore
+	// callback is rebuilding the corresponding metadata. It is deliberately
+	// separate from the SQLite transaction: restore callbacks open their own
+	// database transaction, which cannot be nested under SQLite's writer lock.
+	restoreMu sync.Mutex
 }
 
 func New(pg *db.DB, tr *traffic.Traffic, dir string) *Store {
@@ -112,7 +119,15 @@ func (s *Store) writeBody(r io.Reader, expectedLength int64, expectedHash string
 		return "", err
 	}
 	defer d.Close()
-	return hash, d.Sync()
+	// Windows does not support fsync on directory handles and returns
+	// ERROR_ACCESS_DENIED even though the file rename is durable enough for the
+	// application. Keep the directory fsync on Unix for crash consistency.
+	if runtime.GOOS != "windows" {
+		if err := d.Sync(); err != nil {
+			return "", err
+		}
+	}
+	return hash, nil
 }
 
 // StageFindingsExport freezes bindings/report versions and makes private body
@@ -314,44 +329,71 @@ func (s *Store) InstallSnapshots(ctx context.Context, snapshots []db.TrafficEvid
 // WithInstalledSnapshots pins installed bodies until the metadata restore finishes.
 // The callback must not acquire another evidence advisory lock.
 func (s *Store) WithInstalledSnapshots(ctx context.Context, snapshots []db.TrafficEvidenceSnapshot, source string, restore func() error) error {
-	return s.DB.WithEvidenceTx(ctx, func(*sql.Tx) error {
-		for _, v := range snapshots {
-			if v.ID != db.TrafficSnapshotID(v) {
-				return errors.New("归档证据快照元数据哈希不匹配")
-			}
-			for _, body := range []struct {
-				hash   string
-				length int64
-			}{{v.ReqHash, v.ReqLen}, {v.RespHash, v.RespLen}} {
-				if err := func() error {
-					path, err := hashPath(source, body.hash)
-					if err != nil {
-						return err
-					}
-					f, err := os.Open(path)
-					if err != nil {
-						return err
-					}
-					defer f.Close()
-					_, err = s.writeBody(f, body.length, body.hash)
-					return err
-				}(); err != nil {
+	// Do not keep a SQLite write transaction open while restore() runs. The
+	// callback writes the archive metadata in its own transaction; holding the
+	// outer transaction here would make SQLite wait on itself until busy_timeout.
+	if err := s.acquireRestoreLock(ctx); err != nil {
+		return err
+	}
+	defer s.restoreMu.Unlock()
+	for _, v := range snapshots {
+		if v.ID != db.TrafficSnapshotID(v) {
+			return errors.New("归档证据快照元数据哈希不匹配")
+		}
+		for _, body := range []struct {
+			hash   string
+			length int64
+		}{{v.ReqHash, v.ReqLen}, {v.RespHash, v.RespLen}} {
+			if err := func() error {
+				path, err := hashPath(source, body.hash)
+				if err != nil {
 					return err
 				}
+				f, err := os.Open(path)
+				if err != nil {
+					return err
+				}
+				defer f.Close()
+				_, err = s.writeBody(f, body.length, body.hash)
+				return err
+			}(); err != nil {
+				return err
 			}
 		}
-		return restore()
-	})
+	}
+	return restore()
+}
+
+func (s *Store) acquireRestoreLock(ctx context.Context) error {
+	// sync.Mutex has no context-aware acquire. Polling keeps cancellation
+	// responsive for GC callers with short deadlines while avoiding another
+	// long-lived lock primitive in Store.
+	for {
+		if s.restoreMu.TryLock() {
+			return nil
+		}
+		timer := time.NewTimer(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 func (s *Store) Collect(ctx context.Context, now time.Time) error {
+	if err := s.acquireRestoreLock(ctx); err != nil {
+		return err
+	}
+	defer s.restoreMu.Unlock()
 	return s.DB.WithEvidenceTx(ctx, func(tx *sql.Tx) error {
-		if _, err := tx.Exec(`UPDATE traffic_evidence_snapshots s SET unreferenced_at=$1
-WHERE unreferenced_at IS NULL AND NOT EXISTS(SELECT 1 FROM finding_traffic_bindings b WHERE b.snapshot_id=s.id)`, now); err != nil {
+		if _, err := tx.Exec(`UPDATE traffic_evidence_snapshots SET unreferenced_at=$1
+WHERE unreferenced_at IS NULL AND NOT EXISTS(SELECT 1 FROM finding_traffic_bindings b WHERE b.snapshot_id=traffic_evidence_snapshots.id)`, now); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`DELETE FROM traffic_evidence_snapshots s WHERE unreferenced_at<$1
-AND NOT EXISTS(SELECT 1 FROM finding_traffic_bindings b WHERE b.snapshot_id=s.id)`, now.Add(-24*time.Hour)); err != nil {
+		if _, err := tx.Exec(`DELETE FROM traffic_evidence_snapshots WHERE unreferenced_at<$1
+AND NOT EXISTS(SELECT 1 FROM finding_traffic_bindings b WHERE b.snapshot_id=traffic_evidence_snapshots.id)`, now.Add(-24*time.Hour)); err != nil {
 			return err
 		}
 		rows, err := tx.Query(`SELECT req_hash FROM traffic_evidence_snapshots UNION SELECT resp_hash FROM traffic_evidence_snapshots`)
