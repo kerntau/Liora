@@ -1,15 +1,17 @@
 import * as React from "react";
-import { Button, Chip, ListBox, Popover, TextArea, TextField } from "@heroui/react";
+import { Button, Chip, IconButton, List, ListItemButton, Popover, TextField } from "@mui/material";
 import { AtSignIcon, ChevronRightIcon, Loader2Icon, XIcon } from "lucide-react";
 import { api } from "@/lib/api";
 import { activeMention, type ChatMention, mentionKinds, mentionSearch, mentionToken, selectedMentions, } from "@/lib/chat-mentions";
 import { cn } from "@/lib/utils";
+const MUITextField = TextField as React.ComponentType<any>;
 type Props = Omit<React.ComponentProps<"textarea">, "value" | "onChange" | "ref"> & {
     value: string;
     onValueChange: (value: string) => void;
     inputGroup?: boolean;
 };
 export function MentionTextarea({ value, onValueChange, onKeyDown, className, inputGroup, disabled, ...props }: Props) {
+    const { color: _htmlColor, ...textProps } = props;
     const textarea = React.useRef<HTMLTextAreaElement>(null);
     const composing = React.useRef(false);
     const pendingKeyboardIndex = React.useRef<number | null>(null);
@@ -162,21 +164,19 @@ export function MentionTextarea({ value, onValueChange, onKeyDown, className, in
         onKeyDown?.(event);
     }
     return (<div className="relative min-w-0 flex-1 self-stretch">
-      <TextField isDisabled={disabled} className="contents">
-        <TextArea {...props} ref={textarea} value={value} className={cn("w-full resize-none", className)} aria-label={props["aria-label"] ?? "消息，输入 @ 引用记录"} aria-autocomplete="list" aria-controls={open ? listId : undefined} aria-expanded={open} aria-activedescendant={open && count ? listId + "-" + Math.min(activeIndex, count - 1) : undefined} onChange={(event) => {
+      <MUITextField {...textProps} disabled={disabled} multiline minRows={1} inputRef={textarea} value={value} className={cn("w-full", className)} aria-label={props["aria-label"] ?? "消息，输入 @ 引用记录"} aria-autocomplete="list" aria-controls={open ? listId : undefined} aria-expanded={open} aria-activedescendant={open && count ? listId + "-" + Math.min(activeIndex, count - 1) : undefined} onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) => {
             pendingKeyboardIndex.current = null;
             onValueChange(event.target.value);
             setCursor(event.target.selectionStart);
             setDismissed(false);
             setActiveIndex(0);
-        }} onSelect={(event) => setCursor(event.currentTarget.selectionStart)} onCompositionStart={() => {
+        }} onSelect={(event: React.SyntheticEvent<HTMLTextAreaElement>) => setCursor((event.target as HTMLTextAreaElement).selectionStart)} onCompositionStart={() => {
             composing.current = true;
         }} onCompositionEnd={() => {
             composing.current = false;
-        }} onKeyDown={keyDown}/>
-      </TextField>
-      <Popover isOpen={open} onOpenChange={(nextOpen) => setDismissed(!nextOpen)}>
-        <Popover.Content triggerRef={textarea} isNonModal placement="top start" className="w-[min(28rem,calc(100vw-2rem))] p-2" onMouseDown={(event) => event.preventDefault()}>
+        }} slotProps={{ htmlInput: { className: "resize-none", onSelect: (event: React.SyntheticEvent<HTMLTextAreaElement>) => setCursor(event.currentTarget.selectionStart), onKeyDown: keyDown } }} />
+      <Popover open={open} anchorEl={textarea.current} onClose={() => setDismissed(true)} anchorOrigin={{ vertical: "top", horizontal: "left" }} transformOrigin={{ vertical: "bottom", horizontal: "left" }}>
+        <div className="w-[min(28rem,calc(100vw-2rem))] p-2" onMouseDown={(event) => event.preventDefault()}>
           <div className="flex justify-between gap-2 border-b border-border p-2 text-muted text-xs">
             <span>
               {categories.length
@@ -185,27 +185,25 @@ export function MentionTextarea({ value, onValueChange, onKeyDown, className, in
             </span>
             <span>↑↓ 选择 · Enter 确认 · Esc 关闭</span>
           </div>
-          <ListBox id={listId} aria-label="引用候选" className="max-h-60 overflow-y-auto" data-scrollbar="thin" selectionMode="single" selectedKeys={new Set(count ? [listId + "-" + Math.min(activeIndex, count - 1)] : [])} onAction={(key) => choose(Number(String(key).slice(listId.length + 1)))} onScroll={(event) => {
+          <List id={listId} aria-label="引用候选" className="max-h-60 overflow-y-auto" data-scrollbar="thin" onScroll={(event) => {
             const list = event.currentTarget;
             if (list.scrollHeight - list.scrollTop - list.clientHeight < 64)
                 loadMore();
         }}>
-            {categories.map((kind, index) => (<ListBox.Item key={kind.kind} id={listId + "-" + index} textValue={kind.label}>
+            {categories.map((kind, index) => (<ListItemButton key={kind.kind} id={listId + "-" + index} selected={activeIndex === index} onClick={() => choose(index)}>
                 <AtSignIcon className="size-4"/>
                 <span>{kind.label}</span>
                 <ChevronRightIcon className="ml-auto size-4"/>
-              </ListBox.Item>))}
-            {items.map((item, index) => (<ListBox.Item key={item.kind + ":" + item.id} id={listId + "-" + index} textValue={item.label + " " + item.description}>
+              </ListItemButton>))}
+            {items.map((item, index) => (<ListItemButton key={item.kind + ":" + item.id} id={listId + "-" + index} selected={activeIndex === index} onClick={() => choose(index)}>
                 <div className="flex items-center gap-2">
-                  <Chip size="sm" variant="soft">
-                    {mentionKinds.find((kind) => kind.kind === item.kind)?.label}
-                  </Chip>
+                  <Chip size="small" label={mentionKinds.find((kind) => kind.kind === item.kind)?.label} />
                   <span className="truncate">{item.label}</span>
                   <span className="ml-auto text-muted text-xs">#{item.id}</span>
                 </div>
                 <span className="block truncate text-muted text-xs">{item.description}</span>
-              </ListBox.Item>))}
-          </ListBox>
+              </ListItemButton>))}
+          </List>
           {!categories.length && loading && (<p role="status" className="flex items-center gap-2 p-3 text-muted text-sm">
               <Loader2Icon className="size-4 animate-spin"/>
               搜索中…
@@ -218,7 +216,7 @@ export function MentionTextarea({ value, onValueChange, onKeyDown, className, in
             </p>)}
           {!categories.length && (<div className="border-t border-border p-2 text-muted text-xs">
               {loadingMore && <span role="status">正在加载更多…</span>}
-              {!loadingMore && nextCursor && (<Button variant="ghost" size="sm" onPress={loadMore}>
+              {!loadingMore && nextCursor && (<Button variant="text" size="small" onClick={loadMore}>
                   {pageError ? "加载失败，点击重试" : "已显示 " + items.length + " 条，向下滚动加载更多"}
                 </Button>)}
               {!loadingMore &&
@@ -228,20 +226,13 @@ export function MentionTextarea({ value, onValueChange, onKeyDown, className, in
                 items.length > 0 &&
                 "已显示全部 " + items.length + " 条"}
             </div>)}
-        </Popover.Content>
+        </div>
       </Popover>
       {selected.length > 0 && (<div className="flex flex-wrap items-center gap-1.5 px-1 pt-1.5">
-          {selected.map((item) => (<Chip key={item.start} size="sm" color="accent" variant="soft">
-              <Chip.Label className="max-w-64 truncate" title={item.label}>
-                {item.label}
-              </Chip.Label>
-              <Button size="sm" variant="ghost" isIconOnly isDisabled={disabled} aria-label={"移除引用 " + item.label} className="size-4 min-w-0 p-0" onPress={() => {
+          {selected.map((item) => (<Chip key={item.start} size="small" color="primary" label={item.label} title={item.label} onDelete={disabled ? undefined : () => {
                     onValueChange(value.slice(0, item.start) + value.slice(item.start + item.token.length));
                     setCursor(null);
-                }}>
-                <XIcon className="size-3"/>
-              </Button>
-            </Chip>))}
+                }} />))}
           <span className="text-muted text-xs">发送时读取最新详情 · 最多 10 条</span>
         </div>)}
     </div>);
