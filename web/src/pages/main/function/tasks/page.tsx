@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Button, Card, Checkbox, Disclosure, ListBox, SearchField, Select, Spinner, Table, Tabs } from "@heroui/react";
+import { Button, Card, Checkbox, Disclosure, ListBox, SearchField, Select, Spinner, Table, Tabs } from "@/components/mui-compat";
 import { ArchiveIcon, PauseIcon, PlayIcon, SearchIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 import { TablePagination } from "@/components/table-pagination";
@@ -154,7 +154,7 @@ export default function TasksPage() {
     const loadCategories = React.useCallback(() => {
         api
             .taskCategories()
-            .then((next) => {
+            .then((next: any) => {
             setCategories(next);
             setCategoriesLoaded(true);
         })
@@ -186,7 +186,7 @@ export default function TasksPage() {
             return;
         if (categoryFilter === "all" || categoryFilter === UNCATEGORIZED_VALUE)
             return;
-        if (!categories.some((category) => String(category.id) === categoryFilter))
+        if (!categories.some((category: any) => String(category.id) === categoryFilter))
             setCategoryFilter("all");
     }, [categories, categoriesLoaded, categoryFilter]);
     // 只在确有 running 任务时才每秒 tick——其余情况「运行时长」是静态值,空转的 tick 会白白
@@ -423,7 +423,7 @@ export default function TasksPage() {
             setMovingCategory(false);
         }
     }, [movingCategory, refreshCategoriesAndTasks, selectedIds]);
-    return (<Tabs selectedKey={activeTab} className="gap-4" onSelectionChange={(key) => setActiveTab(String(key))}>
+    return (<Tabs selectedKey={activeTab} className="gap-4" onSelectionChange={(key: any) => setActiveTab(String(key))}>
       <Tabs.ListContainer>
         <Tabs.List className="mx-4 lg:mx-6">
           <Tabs.Tab id="current">
@@ -442,7 +442,7 @@ export default function TasksPage() {
             <div className="flex flex-wrap items-center gap-2 px-4 lg:px-6">
               <div className="relative w-full sm:max-w-xs">
                 <SearchIcon className="text-muted pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2"/>
-                <SearchField value={query} className="pl-8" onChange={(nextValue) => setQuery(nextValue)} aria-label={"搜索描述 / 目标 / ID"}>
+                <SearchField value={query} className="pl-8" onChange={(nextValue: any) => setQuery(nextValue)} aria-label={"搜索描述 / 目标 / ID"}>
                   <SearchField.Group>
                     <SearchField.SearchIcon />
                     <SearchField.Input placeholder={"搜索描述 / 目标 / ID"}/>
@@ -453,9 +453,9 @@ export default function TasksPage() {
                     <XIcon className="size-4"/>
                   </Button>)}
               </div>
-              <Select selectedKey={statusFilter} aria-label="选择选项" onSelectionChange={(key) => {
+              <Select selectedKey={statusFilter} aria-label="选择选项" onSelectionChange={(key: any) => {
             if (key !== null)
-                ((v) => setStatusFilter(v as TaskStatus | "all"))(String(key));
+                ((v: any) => setStatusFilter(v as TaskStatus | "all"))(String(key));
         }}>
                 <Select.Trigger className="w-36">
                   <Select.Value />
@@ -473,7 +473,7 @@ export default function TasksPage() {
                   </ListBox>
                 </Select.Popover>
               </Select>
-              <Select selectedKey={categoryFilter} aria-label="选择选项" onSelectionChange={(key) => {
+              <Select selectedKey={categoryFilter} aria-label="选择选项" onSelectionChange={(key: any) => {
             if (key !== null)
                 setCategoryFilter(String(key));
         }}>
@@ -489,7 +489,7 @@ export default function TasksPage() {
                       <ListBox.Item id={UNCATEGORIZED_VALUE} textValue="未分类">
                         未分类
                       </ListBox.Item>
-                      {categories.map((category) => (<ListBox.Item key={category.id} id={String(category.id)}>
+                      {categories.map((category: any) => (<ListBox.Item key={category.id} id={String(category.id)}>
                           {category.name}
                         </ListBox.Item>))}
                     </>
@@ -541,10 +541,10 @@ export default function TasksPage() {
                 没有匹配的任务。
               </div>) : (<Table>
                 <Table.ScrollContainer>
-                  <Table.Content className="**:data-[slot='table-cell']:px-4 **:data-[slot='table-head']:px-4" aria-label="任务列表" sortDescriptor={{ column: sortField, direction: sortDirection === "asc" ? "ascending" : "descending" }} onSortChange={(descriptor) => sortTasksBy(descriptor.column as TaskSortField)} selectionMode="multiple" selectedKeys={selectedIds} onSelectionChange={(keys) => setSelectedIds(new Set(keys === "all" ? paginated.map((task) => task.id) : Array.from(keys).map(String)))}>
+                  <Table.Content className="**:data-[slot='table-cell']:px-4 **:data-[slot='table-head']:px-4" aria-label="任务列表" sortDescriptor={{ column: sortField, direction: sortDirection === "asc" ? "ascending" : "descending" }} onSortChange={(descriptor: any) => sortTasksBy(descriptor.column as TaskSortField)} selectionMode="multiple" selectedKeys={selectedIds} onSelectionChange={(keys: any) => setSelectedIds(new Set(keys === "all" ? paginated.map((task) => task.id) : Array.from(keys).map(String)))}>
                     <Table.Header className="[&_tr]:border-t">
                       <Table.Column className="w-10" id="column-33570" isRowHeader>
-                        <Checkbox slot={null} onChange={(checked) => toggleSelectedPage(checked === true)} aria-label="选择本页全部任务" isSelected={headerChecked === true} isIndeterminate={headerChecked === "indeterminate"}>
+                        <Checkbox slot={null} onChange={(checked: any) => toggleSelectedPage(checked === true)} aria-label="选择本页全部任务" isSelected={headerChecked === true} isIndeterminate={headerChecked === "indeterminate"}>
                           <Checkbox.Content>
                             <Checkbox.Control>
                               <Checkbox.Indicator />

@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Link } from "react-router";
-import { AlertDialog, Button, buttonVariants, Card, Checkbox, Chip, Description, Fieldset, Input, Label, ListBox, Meter, Modal, NumberField, SearchField, Select, Spinner, Surface, Switch, Table, TextField, Tooltip, } from "@heroui/react";
+import { AlertDialog, Button, buttonVariants, Card, Checkbox, Chip, Description, Fieldset, Input, Label, ListBox, Meter, Modal, NumberField, SearchField, Select, Spinner, Surface, Switch, Table, TextField, Tooltip, } from "@/components/mui-compat";
 import { ArchiveIcon, ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon, EyeIcon, FolderInputIcon, Loader2Icon, PauseIcon, PencilIcon, PinIcon, PinOffIcon, PlayIcon, SearchIcon, SlidersHorizontalIcon, StarIcon, Trash2Icon, Undo2Icon, } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/status-badge";
@@ -35,7 +35,7 @@ export function SortableTaskHead({ field, label, activeField, direction, align =
     if (active)
         actionLabel = `${label}当前${direction === "asc" ? "正序" : "倒序"}，点击切换排序方向`;
     return (<Table.Column id={field} allowsSorting isRowHeader={field === "id"} className={className} aria-label={label}>
-      {({ sortDirection }) => (<Table.SortableColumnHeader sortDirection={sortDirection} className={cn("cursor-pointer", align === "right" && "justify-end")}>
+      {({ sortDirection }: { sortDirection?: "ascending" | "descending" }) => (<Table.SortableColumnHeader sortDirection={sortDirection} className={cn("cursor-pointer", align === "right" && "justify-end")}>
           {label}
         </Table.SortableColumnHeader>)}
     </Table.Column>);
@@ -106,7 +106,7 @@ export function ConcurrencySettingsDialog() {
               </div>
               {enabled && (<div className="grid gap-2">
                   <Label htmlFor="task-concurrency-limit">同时运行上限</Label>
-                  <NumberField id="task-concurrency-limit" minValue={1} className="w-32" isDisabled={loading} onChange={(nextValue) => setLimit(Number.isNaN(nextValue) ? "" : String(nextValue))} aria-label={"task-concurrency-limit"} value={String(limit) === "" ? NaN : Number(limit)}>
+                  <NumberField id="task-concurrency-limit" minValue={1} className="w-32" isDisabled={loading} onChange={(nextValue: any) => setLimit(Number.isNaN(nextValue) ? "" : String(nextValue))} aria-label={"task-concurrency-limit"} value={String(limit) === "" ? NaN : Number(limit)}>
                     <NumberField.Group>
                       <NumberField.DecrementButton />
                       <NumberField.Input />
@@ -141,7 +141,7 @@ export const TaskRow = React.memo(function TaskRow({ task, nowSec, onDelete, onC
 }) {
     return (<Table.Row className="group border-border/60" data-state={selected ? "selected" : undefined} id={task.id}>
       <Table.Cell>
-        <Checkbox slot={null} onChange={(checked) => onSelectedChange(task.id, checked === true)} aria-label={`选择任务 ${task.id}`} isSelected={selected === true}>
+        <Checkbox slot={null} onChange={(checked: any) => onSelectedChange(task.id, checked === true)} aria-label={`选择任务 ${task.id}`} isSelected={selected === true}>
           <Checkbox.Content>
             <Checkbox.Control>
               <Checkbox.Indicator />
@@ -252,7 +252,7 @@ export function TaskNameEditor({ task, onRename, }: {
     if (editing) {
         return (<div className="flex min-w-0 items-center gap-1">
         <TextField className="contents" aria-label={`任务 #${task.id} 名称`} isDisabled={saving}>
-          <Input ref={inputRef} value={name} maxLength={200} autoFocus aria-label={`任务 #${task.id} 名称`} className="h-7 min-w-28 max-w-48 px-2 font-medium" onFocus={(event) => event.currentTarget.select()} onChange={(event) => setName(event.target.value)} onBlur={() => void finishEditing()} onKeyDown={(event) => {
+          <Input ref={inputRef} value={name} maxLength={200} autoFocus aria-label={`任务 #${task.id} 名称`} className="h-7 min-w-28 max-w-48 px-2 font-medium" onFocus={(event: any) => event.currentTarget.select()} onChange={(event: any) => setName(event.target.value)} onBlur={() => void finishEditing()} onKeyDown={(event: any) => {
                 if (event.key === "Enter") {
                     event.preventDefault();
                     event.currentTarget.blur();
@@ -349,7 +349,7 @@ export function ArchiveConfirmDialog({ count, trigger, onConfirm, }: {
 }) {
     const [open, setOpen] = React.useState(false);
     const [pending, setPending] = React.useState(false);
-    return (<AlertDialog isOpen={open} onOpenChange={(next) => !pending && setOpen(next)}>
+    return (<AlertDialog isOpen={open} onOpenChange={(next: any) => !pending && setOpen(next)}>
       {trigger}
       <AlertDialog.Backdrop>
         <AlertDialog.Container>
@@ -365,7 +365,7 @@ export function ArchiveConfirmDialog({ count, trigger, onConfirm, }: {
               <Button isDisabled={pending} slot="close" variant={"outline"}>
                 取消
               </Button>
-              <Button isDisabled={pending} onClick={async (event) => {
+              <Button isDisabled={pending} onClick={async (event: any) => {
             event.preventDefault();
             setPending(true);
             try {
@@ -471,7 +471,7 @@ export function ArchiveDeleteDialog({ archives, onConfirm, trigger, }: {
     const [pending, setPending] = React.useState(false);
     const rows = archives.reduce((sum, archive) => sum + archiveDataTotal(archive), 0);
     const bytes = archives.reduce((sum, archive) => sum + archive.compressed_size, 0);
-    return (<AlertDialog isOpen={open} onOpenChange={(next) => !pending && setOpen(next)}>
+    return (<AlertDialog isOpen={open} onOpenChange={(next: any) => !pending && setOpen(next)}>
       {trigger}
       <AlertDialog.Backdrop>
         <AlertDialog.Container>
@@ -487,7 +487,7 @@ export function ArchiveDeleteDialog({ archives, onConfirm, trigger, }: {
               <Button isDisabled={pending} slot="close" variant={"outline"}>
                 取消
               </Button>
-              <Button isDisabled={pending} variant={"danger"} onClick={async (event) => {
+              <Button isDisabled={pending} variant={"danger"} onClick={async (event: any) => {
             event.preventDefault();
             setPending(true);
             try {
@@ -650,7 +650,7 @@ export function TaskArchivesPanel({ onChanged }: {
         <div className="flex flex-wrap items-center gap-2 px-4 lg:px-6">
           <div className="relative w-full sm:max-w-xs">
             <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted"/>
-            <SearchField value={query} className="pl-8" onChange={(nextValue) => {
+            <SearchField value={query} className="pl-8" onChange={(nextValue: any) => {
             setQuery(nextValue);
             setPage(1);
         }} aria-label={"搜索任务名称 / 描述 / ID"}>
@@ -661,7 +661,7 @@ export function TaskArchivesPanel({ onChanged }: {
               </SearchField.Group>
             </SearchField>
           </div>
-          <Select selectedKey={stateFilter} aria-label="选择选项" onSelectionChange={(key) => {
+          <Select selectedKey={stateFilter} aria-label="选择选项" onSelectionChange={(key: any) => {
             if (key !== null)
                 ((value) => {
                     setStateFilter(value);
@@ -736,7 +736,7 @@ export function TaskArchivesPanel({ onChanged }: {
               <Table.Content className="**:data-[slot='table-cell']:px-4 **:data-[slot='table-head']:px-4" aria-label="数据表">
                 <Table.Header className="[&_tr]:border-t">
                   <Table.Column className="w-10" id="column-66100" isRowHeader>
-                    <Checkbox slot={null} onChange={(checked) => setSelected(checked === true ? new Set(selectable.map((archive) => archive.id)) : new Set())} aria-label="选择当前页归档" isSelected={(selectedAll || (selectedSome ? "indeterminate" : false)) === true} isIndeterminate={(selectedAll || (selectedSome ? "indeterminate" : false)) === "indeterminate"}>
+                    <Checkbox slot={null} onChange={(checked: any) => setSelected(checked === true ? new Set(selectable.map((archive) => archive.id)) : new Set())} aria-label="选择当前页归档" isSelected={(selectedAll || (selectedSome ? "indeterminate" : false)) === true} isIndeterminate={(selectedAll || (selectedSome ? "indeterminate" : false)) === "indeterminate"}>
                       <Checkbox.Content>
                         <Checkbox.Control>
                           <Checkbox.Indicator />
@@ -776,7 +776,7 @@ export function TaskArchivesPanel({ onChanged }: {
                 const canDelete = archive.state === "ready" || archive.state === "delete_failed";
                 return (<Table.Row key={archive.id} data-state={selected.has(archive.id) ? "selected" : undefined} id={archive.id}>
                         <Table.Cell>
-                          <Checkbox slot={null} isDisabled={processing} onChange={(checked) => setSelected((current) => {
+                          <Checkbox slot={null} isDisabled={processing} onChange={(checked: any) => setSelected((current) => {
                         const next = new Set(current);
                         if (checked === true)
                             next.add(archive.id);
@@ -879,7 +879,7 @@ export function DeleteOptionFields({ idPrefix, options, onOptionsChange, disable
     onOptionsChange: React.Dispatch<React.SetStateAction<DeleteTaskOptions>>;
     disabled: boolean;
 }) {
-    const selectedCount = deleteOptionKeys.filter((key) => options[key]).length;
+    const selectedCount = deleteOptionKeys.filter((key: keyof DeleteTaskOptions) => options[key]).length;
     let allChecked: boolean | "indeterminate" = false;
     if (selectedCount === deleteOptionKeys.length) {
         allChecked = true;
@@ -903,7 +903,7 @@ export function DeleteOptionFields({ idPrefix, options, onOptionsChange, disable
       <legend className="text-sm font-medium">同时清理关联数据</legend>
       <div className={`flex flex-col gap-4 ${"gap-3"}`}>
         <div className="flex items-center gap-2">
-          <Checkbox id={`delete-all-${idPrefix}`} onChange={(checked) => updateAllOptions(checked === true)} aria-label={`delete-all-${idPrefix}`} isSelected={allChecked === true} isIndeterminate={allChecked === "indeterminate"}>
+          <Checkbox id={`delete-all-${idPrefix}`} onChange={(checked: any) => updateAllOptions(checked === true)} aria-label={`delete-all-${idPrefix}`} isSelected={allChecked === true} isIndeterminate={allChecked === "indeterminate"}>
             <Checkbox.Content>
               <Checkbox.Control>
                 <Checkbox.Indicator />
@@ -916,7 +916,7 @@ export function DeleteOptionFields({ idPrefix, options, onOptionsChange, disable
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Checkbox id={`delete-assets-${idPrefix}`} onChange={(checked) => updateOption("delete_assets", checked === true)} aria-label={`delete-assets-${idPrefix}`} isSelected={options.delete_assets === true}>
+          <Checkbox id={`delete-assets-${idPrefix}`} onChange={(checked: any) => updateOption("delete_assets", checked === true)} aria-label={`delete-assets-${idPrefix}`} isSelected={options.delete_assets === true}>
             <Checkbox.Content>
               <Checkbox.Control>
                 <Checkbox.Indicator />
@@ -929,7 +929,7 @@ export function DeleteOptionFields({ idPrefix, options, onOptionsChange, disable
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Checkbox id={`delete-traffic-${idPrefix}`} onChange={(checked) => updateOption("delete_traffic", checked === true)} aria-label={`delete-traffic-${idPrefix}`} isSelected={options.delete_traffic === true}>
+          <Checkbox id={`delete-traffic-${idPrefix}`} onChange={(checked: any) => updateOption("delete_traffic", checked === true)} aria-label={`delete-traffic-${idPrefix}`} isSelected={options.delete_traffic === true}>
             <Checkbox.Content>
               <Checkbox.Control>
                 <Checkbox.Indicator />
@@ -942,7 +942,7 @@ export function DeleteOptionFields({ idPrefix, options, onOptionsChange, disable
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Checkbox id={`delete-files-${idPrefix}`} onChange={(checked) => updateOption("delete_files", checked === true)} aria-label={`delete-files-${idPrefix}`} isSelected={options.delete_files === true}>
+          <Checkbox id={`delete-files-${idPrefix}`} onChange={(checked: any) => updateOption("delete_files", checked === true)} aria-label={`delete-files-${idPrefix}`} isSelected={options.delete_files === true}>
             <Checkbox.Content>
               <Checkbox.Control>
                 <Checkbox.Indicator />
@@ -955,7 +955,7 @@ export function DeleteOptionFields({ idPrefix, options, onOptionsChange, disable
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Checkbox id={`delete-findings-${idPrefix}`} onChange={(checked) => updateOption("delete_findings", checked === true)} aria-label={`delete-findings-${idPrefix}`} isSelected={options.delete_findings === true}>
+          <Checkbox id={`delete-findings-${idPrefix}`} onChange={(checked: any) => updateOption("delete_findings", checked === true)} aria-label={`delete-findings-${idPrefix}`} isSelected={options.delete_findings === true}>
             <Checkbox.Content>
               <Checkbox.Control>
                 <Checkbox.Indicator />
@@ -968,7 +968,7 @@ export function DeleteOptionFields({ idPrefix, options, onOptionsChange, disable
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Checkbox id={`delete-llm-records-${idPrefix}`} onChange={(checked) => updateOption("delete_llm_records", checked === true)} aria-label={`delete-llm-records-${idPrefix}`} isSelected={options.delete_llm_records === true}>
+          <Checkbox id={`delete-llm-records-${idPrefix}`} onChange={(checked: any) => updateOption("delete_llm_records", checked === true)} aria-label={`delete-llm-records-${idPrefix}`} isSelected={options.delete_llm_records === true}>
             <Checkbox.Content>
               <Checkbox.Control>
                 <Checkbox.Indicator />
@@ -1034,7 +1034,7 @@ export function DeleteTaskDialog({ task, onDelete, }: {
               <Button isDisabled={deleting} slot="close" variant={"outline"}>
                 取消
               </Button>
-              <Button isDisabled={deleting} variant={"danger"} onClick={(event) => {
+              <Button isDisabled={deleting} variant={"danger"} onClick={(event: any) => {
             event.preventDefault();
             void handleDelete();
         }}>
@@ -1078,7 +1078,7 @@ export function MoveTasksCategoryDialog({ categories, count, moving, onMove, }: 
             </Modal.Header>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="bulk-category">目标分类</Label>
-              <Select selectedKey={target} isDisabled={moving} aria-label="选择选项" onSelectionChange={(key) => {
+              <Select selectedKey={target} isDisabled={moving} aria-label="选择选项" onSelectionChange={(key: any) => {
             if (key !== null)
                 setTarget(String(key));
         }}>
@@ -1091,7 +1091,7 @@ export function MoveTasksCategoryDialog({ categories, count, moving, onMove, }: 
                       <ListBox.Item id={UNCATEGORIZED_VALUE} textValue="未分类">
                         未分类
                       </ListBox.Item>
-                      {categories.map((category) => (<ListBox.Item key={category.id} id={String(category.id)}>
+                      {categories.map((category: any) => (<ListBox.Item key={category.id} id={String(category.id)}>
                           {category.name}
                         </ListBox.Item>))}
                     </>
@@ -1172,7 +1172,7 @@ export function BulkDeleteTasksDialog({ ids, onDelete, }: {
               <Button isDisabled={deleting} slot="close" variant={"outline"}>
                 取消
               </Button>
-              <Button isDisabled={deleting} variant={"danger"} onClick={(event) => {
+              <Button isDisabled={deleting} variant={"danger"} onClick={(event: any) => {
             event.preventDefault();
             void handleDelete();
         }}>

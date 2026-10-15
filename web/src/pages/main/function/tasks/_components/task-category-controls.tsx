@@ -1,7 +1,7 @@
 import * as React from "react";
 import { Link } from "react-router";
 import { DndContext, type DragEndEvent, DragOverlay, type DragStartEvent, KeyboardSensor, PointerSensor, useDraggable, useDroppable, useSensor, useSensors, } from "@dnd-kit/core";
-import { AlertDialog, Button, ComboBox, Description, Disclosure, Drawer, Input, Label, ListBox, NumberField, ScrollShadow, Select, Spinner, Surface, TextArea, TextField, } from "@heroui/react";
+import { AlertDialog, Button, ComboBox, Description, Disclosure, Drawer, Input, Label, ListBox, NumberField, ScrollShadow, Select, Spinner, Surface, TextArea, TextField, } from "@/components/mui-compat";
 import { ChevronRightIcon, GripVerticalIcon, Loader2Icon, PaperclipIcon, PlusIcon, SaveIcon, TagsIcon, Trash2Icon, } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/status-badge";
@@ -66,12 +66,12 @@ export function CategoryPicker({ categories, value, onValueChange, onCategoryCre
             setCreating(false);
         }
     };
-    return (<ComboBox selectionMode="single" aria-label="任务分类" selectedKey={value == null ? null : String(value)} inputValue={inputValue} onInputChange={setInputValue} onSelectionChange={(key) => {
+    return (<ComboBox selectionMode="single" aria-label="任务分类" selectedKey={value == null ? null : String(value)} inputValue={inputValue} onInputChange={setInputValue} onSelectionChange={(key: any) => {
             onValueChange(key == null ? undefined : Number(key));
             setInputValue("");
         }} allowsCustomValue>
       <ComboBox.InputGroup>
-        <Input id="task-category" placeholder={selectedIDs.length ? byID.get(selectedIDs[0])?.name : "搜索分类，或输入新名称后回车创建"} onKeyDown={(event) => {
+        <Input id="task-category" placeholder={selectedIDs.length ? byID.get(selectedIDs[0])?.name : "搜索分类，或输入新名称后回车创建"} onKeyDown={(event: any) => {
             if (event.key === "Enter" && matchCount === 0 && trimmed) {
                 event.preventDefault();
                 void createAndSelect();
@@ -81,7 +81,7 @@ export function CategoryPicker({ categories, value, onValueChange, onCategoryCre
       </ComboBox.InputGroup>
       <ComboBox.Popover>
         <ListBox items={allCategories} renderEmptyState={() => <span className="p-3 text-muted text-sm">没有匹配的分类</span>}>
-          {(category) => (<ListBox.Item id={String(category.id)} textValue={category.name}>
+          {(category: any) => (<ListBox.Item id={String(category.id)} textValue={category.name}>
               {category.name}
             </ListBox.Item>)}
         </ListBox>
@@ -186,7 +186,7 @@ export function CategoryManagementSheet({ categories, tasks, onChanged, onTaskMo
         }
         wasOpen.current = open;
     }, [categories, open, tasks]);
-    const selectedCategory = React.useMemo(() => typeof selectedView === "number" ? (categories.find((category) => category.id === selectedView) ?? null) : null, [categories, selectedView]);
+    const selectedCategory = React.useMemo(() => typeof selectedView === "number" ? (categories.find((category: any) => category.id === selectedView) ?? null) : null, [categories, selectedView]);
     const uncategorizedCount = React.useMemo(() => tasks.filter((task) => task.category_id == null).length, [tasks]);
     const visibleTasks = React.useMemo(() => {
         if (selectedView === "uncategorized")
@@ -241,7 +241,7 @@ export function CategoryManagementSheet({ categories, tasks, onChanged, onTaskMo
         setDeleting(true);
         try {
             await api.deleteTaskCategory(deletedID);
-            const next = categories.find((category) => category.id !== deletedID);
+            const next = categories.find((category: any) => category.id !== deletedID);
             if (next)
                 selectCategory(next);
             else
@@ -325,7 +325,7 @@ export function CategoryManagementSheet({ categories, tasks, onChanged, onTaskMo
                     <ScrollShadow className="mt-2 max-h-44 lg:max-h-none lg:flex-1" data-slot="scroll-shadow" data-scrollbar="thin">
                       <div className="flex flex-col gap-1 pr-2">
                         <CategoryDropTarget value="uncategorized" name="未分类" count={uncategorizedCount} selected={selectedView === "uncategorized"} disabled={movingTaskID != null} onSelect={selectUncategorized}/>
-                        {categories.map((category) => (<CategoryDropTarget key={category.id} value={String(category.id)} name={category.name} count={category.task_count} selected={selectedView === category.id} disabled={movingTaskID != null} onSelect={() => selectCategory(category)}/>))}
+                        {categories.map((category: any) => (<CategoryDropTarget key={category.id} value={String(category.id)} name={category.name} count={category.task_count} selected={selectedView === category.id} disabled={movingTaskID != null} onSelect={() => selectCategory(category)}/>))}
                       </div>
                     </ScrollShadow>
                   </div>
@@ -334,7 +334,7 @@ export function CategoryManagementSheet({ categories, tasks, onChanged, onTaskMo
                       {selectedView !== "uncategorized" && (<div className="flex flex-col gap-1.5">
                           <Label htmlFor="task-category-name">分类名称</Label>
                           <TextField className="contents" aria-label={"例如：外网评估"}>
-                            <Input id="task-category-name" value={draftName} onChange={(event) => setDraftName(event.target.value)} placeholder="例如：外网评估" maxLength={80} onKeyDown={(event) => {
+                            <Input id="task-category-name" value={draftName} onChange={(event: any) => setDraftName(event.target.value)} placeholder="例如：外网评估" maxLength={80} onKeyDown={(event: any) => {
                 if (event.key === "Enter")
                     void saveCategory();
             }}/>
@@ -403,7 +403,7 @@ export function CategoryManagementSheet({ categories, tasks, onChanged, onTaskMo
                 <Button isDisabled={deleting} slot="close" variant={"outline"}>
                   取消
                 </Button>
-                <Button isDisabled={deleting} variant={"danger"} onClick={(event) => {
+                <Button isDisabled={deleting} variant={"danger"} onClick={(event: any) => {
             event.preventDefault();
             void deleteCategory();
         }}>
@@ -537,18 +537,18 @@ export function CreateTaskSheet({ categories, onCreated, onCategoriesChanged, }:
                   <div className="grid gap-2">
                     <Label htmlFor="name">名称（可选）</Label>
                     <TextField className="contents" aria-label={"例如：官网安全测试"}>
-                      <Input id="name" placeholder="例如：官网安全测试" value={name} onChange={(e) => setName(e.target.value)}/>
+                      <Input id="name" placeholder="例如：官网安全测试" value={name} onChange={(e: any) => setName(e.target.value)}/>
                     </TextField>
                   </div>
 
                   <div className="grid gap-2">
                     <Label htmlFor="description">描述</Label>
                     <TextField className="contents" aria-label={"测试对象与背景，例如：测试 example.com 这个站点"}>
-                      <TextArea id="description" className="min-h-32" placeholder="测试对象与背景，例如：测试 example.com 这个站点" value={description} onChange={(e) => setDescription(e.target.value)}/>
+                      <TextArea id="description" className="min-h-32" placeholder="测试对象与背景，例如：测试 example.com 这个站点" value={description} onChange={(e: any) => setDescription(e.target.value)}/>
                     </TextField>
                     {/* 上传文件(可多选):暂存到 drafts/,把绝对路径追加进上方描述,worker 据此 Read/Bash 打开。 */}
                     <div className="flex flex-wrap items-center gap-2">
-                      <input ref={fileInputRef} type="file" multiple className="hidden" onChange={(e) => void pickFiles(e.target.files)}/>
+                      <input ref={fileInputRef} type="file" multiple className="hidden" onChange={(e: any) => void pickFiles(e.target.files)}/>
                       <Button type="button" size="sm" onPress={() => fileInputRef.current?.click()} isDisabled={uploading} variant={"outline"}>
                         {uploading ? <Loader2Icon className="animate-spin"/> : <PaperclipIcon />}
                         上传文件
@@ -563,12 +563,12 @@ export function CreateTaskSheet({ categories, onCreated, onCategoriesChanged, }:
                   <div className="grid gap-2">
                     <Label htmlFor="goal">目标</Label>
                     <TextField className="contents" aria-label={"例如：检查 SQL 注入和 XSS，验证发现并生成报告"}>
-                      <TextArea id="goal" className="min-h-32" placeholder="例如：检查 SQL 注入和 XSS，验证发现并生成报告" value={goal} onChange={(e) => setGoal(e.target.value)}/>
+                      <TextArea id="goal" className="min-h-32" placeholder="例如：检查 SQL 注入和 XSS，验证发现并生成报告" value={goal} onChange={(e: any) => setGoal(e.target.value)}/>
                     </TextField>
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="task-model">AI 配置</Label>
-                    <Select selectedKey={llmProfileID} aria-label="选择选项" onSelectionChange={(key) => {
+                    <Select selectedKey={llmProfileID} aria-label="选择选项" onSelectionChange={(key: any) => {
             if (key !== null)
                 setLLMProfileID(String(key));
         }}>
@@ -605,7 +605,7 @@ export function CreateTaskSheet({ categories, onCreated, onCategoriesChanged, }:
                       </div>
                       <div className="grid gap-2">
                         <Label htmlFor="timeout-min">任务超时（分钟，可选）</Label>
-                        <NumberField id="timeout-min" minValue={0} className="w-40" onChange={(nextValue) => setTimeoutMin(Number.isNaN(nextValue) ? "" : String(nextValue))} aria-label={"留空 = 不限时"} value={String(timeoutMin) === "" ? NaN : Number(timeoutMin)}>
+                        <NumberField id="timeout-min" minValue={0} className="w-40" onChange={(nextValue: any) => setTimeoutMin(Number.isNaN(nextValue) ? "" : String(nextValue))} aria-label={"留空 = 不限时"} value={String(timeoutMin) === "" ? NaN : Number(timeoutMin)}>
                           <NumberField.Group>
                             <NumberField.DecrementButton />
                             <NumberField.Input />

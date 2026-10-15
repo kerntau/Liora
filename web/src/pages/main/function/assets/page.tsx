@@ -1,5 +1,5 @@
 import * as React from "react";
-import { AlertDialog, Avatar, Button, Card, Checkbox, Chip, Description, Drawer, Input, Label, ListBox, Modal, ScrollShadow, Select, Table, Tabs, TextField, } from "@heroui/react";
+import { AlertDialog, Avatar, Button, Card, Checkbox, Chip, Description, Drawer, Input, Label, ListBox, Modal, ScrollShadow, Select, Table, Tabs, TextField, } from "@/components/mui-compat";
 import { BuildingIcon, ChevronLeftIcon, ChevronRightIcon, GlobeIcon, KeyRoundIcon, LayoutTemplateIcon, LinkIcon, type LucideIcon, NetworkIcon, RefreshCwIcon, SmartphoneIcon, Trash2Icon, } from "lucide-react";
 import { toast } from "sonner";
 import { AssetDslSearch } from "@/components/asset-dsl-search";
@@ -261,7 +261,7 @@ export default function AssetsPage() {
         </div>
       </div>
 
-      <Tabs selectedKey={tab} className="flex min-h-0 flex-1 flex-col gap-4" onSelectionChange={(key) => setTab(String(key))}>
+      <Tabs selectedKey={tab} className="flex min-h-0 flex-1 flex-col gap-4" onSelectionChange={(key: any) => setTab(String(key))}>
         <div className="overflow-x-auto overflow-y-hidden">
           <Tabs.ListContainer>
             <Tabs.List>
@@ -577,7 +577,7 @@ export default function AssetsPage() {
                 <Button isDisabled={deleting} slot="close" variant={"outline"}>
                   取消
                 </Button>
-                <Button isDisabled={deleting} className="bg-danger text-danger-foreground hover:bg-danger/90" onClick={(e) => {
+                <Button isDisabled={deleting} className="bg-danger text-danger-foreground hover:bg-danger/90" onClick={(e: any) => {
             e.preventDefault();
             void confirmDelete();
         }}>
@@ -590,7 +590,7 @@ export default function AssetsPage() {
       
 
       
-        <AlertDialog.Backdrop isOpen={!!companyDeleteTarget} onOpenChange={(o) => {
+        <AlertDialog.Backdrop isOpen={!!companyDeleteTarget} onOpenChange={(o: any) => {
             if (!o) {
                 setCompanyDeleteTarget(null);
                 setCompanyDeleteAssets(false);
@@ -603,7 +603,7 @@ export default function AssetsPage() {
                 <AlertDialog.Body>
                   <div className="space-y-3">
                     <p>此操作将永久删除该企业及其资产范围配置，不可撤销。</p>
-                    <Checkbox id="delete-assets-opt" onChange={(v) => setCompanyDeleteAssets(!!v)} aria-label={"delete-assets-opt"} isSelected={companyDeleteAssets === true}>
+                    <Checkbox id="delete-assets-opt" onChange={(v: any) => setCompanyDeleteAssets(!!v)} aria-label={"delete-assets-opt"} isSelected={companyDeleteAssets === true}>
                       <Checkbox.Content className="flex cursor-pointer items-center gap-2.5 rounded-md border p-3 hover:bg-surface-secondary/50">
                         <Checkbox.Control>
                           <Checkbox.Indicator />
@@ -623,7 +623,7 @@ export default function AssetsPage() {
                 <Button isDisabled={companyDeleting} slot="close" variant={"outline"}>
                   取消
                 </Button>
-                <Button isDisabled={companyDeleting} className="bg-danger text-danger-foreground hover:bg-danger/90" onClick={(e) => {
+                <Button isDisabled={companyDeleting} className="bg-danger text-danger-foreground hover:bg-danger/90" onClick={(e: any) => {
             e.preventDefault();
             void confirmDeleteCompany();
         }}>
@@ -686,9 +686,9 @@ function AssetCard({ cols, loaded, total, page, size, onSize, onPage, rows: data
         </Table>
       </div>
       {total > 0 && (<div className="flex shrink-0 items-center gap-2 border-t px-3 py-1.5 text-xs text-muted">
-          <Select selectedKey={String(size)} aria-label="选择选项" onSelectionChange={(key) => {
+          <Select selectedKey={String(size)} aria-label="选择选项" onSelectionChange={(key: any) => {
                 if (key !== null)
-                    ((v) => onSize(Number(v)))(String(key));
+                    ((v: any) => onSize(Number(v)))(String(key));
             }}>
             <Select.Trigger className="h-7 w-24">
               <Select.Value />
@@ -826,7 +826,7 @@ function CompanyDialog({ onSaved }: {
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="cn-name">企业名称</Label>
                   <TextField className="contents" aria-label={"如 Acme Corp（名称唯一）"}>
-                    <Input id="cn-name" placeholder="如 Acme Corp（名称唯一）" value={name} onChange={(e) => setName(e.target.value)}/>
+                    <Input id="cn-name" placeholder="如 Acme Corp（名称唯一）" value={name} onChange={(e: any) => setName(e.target.value)}/>
                   </TextField>
                 </div>
                 <ScopeTextEditor id="cn-scope" value={scopeText} onValueChange={setScopeText} parsed={parsedScope}/>
@@ -905,7 +905,7 @@ function EditScopeDialog({ company, onSaved }: {
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="es-reason">归属依据（可选）</Label>
                 <TextField className="contents" aria-label={"如 证书 / whois / ASN 佐证"}>
-                  <Input id="es-reason" placeholder="如 证书 / whois / ASN 佐证" value={reason} onChange={(e) => setReason(e.target.value)}/>
+                  <Input id="es-reason" placeholder="如 证书 / whois / ASN 佐证" value={reason} onChange={(e: any) => setReason(e.target.value)}/>
                 </TextField>
               </div>
             </div>
@@ -985,7 +985,7 @@ function AppendScopeDialog({ company, onSaved }: {
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="as-reason">归属依据（可选）</Label>
                 <TextField className="contents" aria-label={"如 证书 / whois / ASN 佐证"}>
-                  <Input id="as-reason" placeholder="如 证书 / whois / ASN 佐证" value={reason} onChange={(e) => setReason(e.target.value)}/>
+                  <Input id="as-reason" placeholder="如 证书 / whois / ASN 佐证" value={reason} onChange={(e: any) => setReason(e.target.value)}/>
                 </TextField>
               </div>
             </div>

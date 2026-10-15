@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Link } from "react-router";
-import { Button, buttonVariants, Card, Description, InputGroup, Label, ListBox, Modal, Radio, RadioGroup, Select, Spinner, Tabs, TextArea, TextField, ToggleButton, ToggleButtonGroup, } from "@heroui/react";
+import { Button, buttonVariants, Card, Description, InputGroup, Label, ListBox, Modal, Radio, RadioGroup, Select, Spinner, Tabs, TextArea, TextField, ToggleButton, ToggleButtonGroup, } from "@/components/mui-compat";
 import { ArrowUpRightIcon, BugIcon, ChevronRightIcon, ClockIcon, DownloadIcon, InfoIcon, SearchIcon, ShieldAlertIcon, TriangleAlertIcon, } from "lucide-react";
 import { toast } from "sonner";
 import { FindingRetestDialog } from "@/components/finding-retest-dialog";
@@ -728,7 +728,7 @@ export default function FindingsPage() {
           <h1 className="text-xl font-semibold tracking-tight">发现</h1>
           <p className="text-muted text-sm">跨任务漏洞汇总</p>
         </div>
-        <Tabs selectedKey={view} onSelectionChange={(key) => ((v) => setView(v as FindingView))(String(key))}>
+        <Tabs selectedKey={view} onSelectionChange={(key: any) => ((v: any) => setView(v as FindingView))(String(key))}>
           <Tabs.ListContainer>
             <Tabs.List>
               <Tabs.Tab id="flat">
@@ -765,13 +765,13 @@ export default function FindingsPage() {
 
         <div className="flex flex-wrap items-center gap-2">
           <InputGroup className="w-full sm:w-72">
-            <InputGroup.Input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="检索漏洞内容" aria-label="检索漏洞内容"/>
+            <InputGroup.Input type="search" value={search} onChange={(event: any) => setSearch(event.target.value)} placeholder="检索漏洞内容" aria-label="检索漏洞内容"/>
             <div className="flex shrink-0 items-center px-2 text-muted">
               <SearchIcon aria-hidden="true"/>
             </div>
           </InputGroup>
 
-          <ToggleButtonGroup size="sm" selectionMode="single" selectedKeys={new Set([severity])} onSelectionChange={(keys) => ((value) => value && setSeverity(value as "all" | Severity))(Array.from(keys)[0] ?? "")}>
+          <ToggleButtonGroup size="sm" selectionMode="single" selectedKeys={new Set([severity])} onSelectionChange={(keys: any) => ((value) => value && setSeverity(value as "all" | Severity))(Array.from(keys)[0] ?? "")}>
             {([
             ["all", "全部"],
             ["critical", "严重"],
@@ -783,9 +783,9 @@ export default function FindingsPage() {
               </ToggleButton>))}
           </ToggleButtonGroup>
 
-          <Select selectedKey={status} aria-label="选择选项" onSelectionChange={(key) => {
+          <Select selectedKey={status} aria-label="选择选项" onSelectionChange={(key: any) => {
             if (key !== null)
-                ((v) => setStatus(v as "all" | FindingStatus))(String(key));
+                ((v: any) => setStatus(v as "all" | FindingStatus))(String(key));
         }}>
             <Select.Trigger className="w-32">
               <Select.Value />
@@ -802,7 +802,7 @@ export default function FindingsPage() {
             </Select.Popover>
           </Select>
 
-          <Select selectedKey={vulnclass} aria-label="选择选项" onSelectionChange={(key) => {
+          <Select selectedKey={vulnclass} aria-label="选择选项" onSelectionChange={(key: any) => {
             if (key !== null)
                 setVulnclass(String(key));
         }}>
@@ -821,7 +821,7 @@ export default function FindingsPage() {
             </Select.Popover>
           </Select>
 
-          <Select selectedKey={task} aria-label="选择选项" onSelectionChange={(key) => {
+          <Select selectedKey={task} aria-label="选择选项" onSelectionChange={(key: any) => {
             if (key !== null)
                 setTask(String(key));
         }}>
@@ -855,9 +855,9 @@ export default function FindingsPage() {
             </Select.Popover>
           </Select>
 
-          <Select selectedKey={sort} aria-label="选择选项" onSelectionChange={(key) => {
+          <Select selectedKey={sort} aria-label="选择选项" onSelectionChange={(key: any) => {
             if (key !== null)
-                ((v) => setSort(v as "severity" | "time"))(String(key));
+                ((v: any) => setSort(v as "severity" | "time"))(String(key));
         }}>
             <Select.Trigger className="w-36">
               <Select.Value />
@@ -992,7 +992,7 @@ export default function FindingsPage() {
             }} onClose={() => setRetestFinding(null)}/>) : null}
 
       
-        <Modal.Backdrop isOpen={deepenFinding !== null} onOpenChange={(open) => {
+        <Modal.Backdrop isOpen={deepenFinding !== null} onOpenChange={(open: any) => {
             if (open || deepening)
                 return;
             setDeepenFinding(null);
@@ -1012,7 +1012,7 @@ export default function FindingsPage() {
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="finding-deepen-description">利用描述</Label>
                   <TextField className="contents" aria-label={"描述需要验证的利用路径、边界条件、目标或期望证据"} isDisabled={deepening}>
-                    <TextArea id="finding-deepen-description" value={deepenDescription} onChange={(event) => setDeepenDescription(event.target.value)} maxLength={4000} placeholder="描述需要验证的利用路径、边界条件、目标或期望证据"/>
+                    <TextArea id="finding-deepen-description" value={deepenDescription} onChange={(event: any) => setDeepenDescription(event.target.value)} maxLength={4000} placeholder="描述需要验证的利用路径、边界条件、目标或期望证据"/>
                   </TextField>
                   <Description className="flex justify-between gap-3">
                     <span>新意图会继承该漏洞的资产锚点。</span>
@@ -1050,7 +1050,7 @@ export default function FindingsPage() {
               <div className="flex flex-col gap-5 py-1">
                 <div className="flex flex-col gap-2">
                   <span className="text-xs text-muted">导出范围</span>
-                  <RadioGroup value={exportScope} onChange={(v) => setExportScope(v as typeof exportScope)}>
+                  <RadioGroup value={exportScope} onChange={(v: any) => setExportScope(v as typeof exportScope)}>
                     <Radio id="export-scope-filtered" value="filtered" aria-label={"filtered"}>
                       <Radio.Content className="flex items-center gap-2 text-sm">
                         <Radio.Control>
@@ -1080,7 +1080,7 @@ export default function FindingsPage() {
 
                 <div className="flex flex-col gap-2">
                   <span className="text-xs text-muted">导出格式</span>
-                  <RadioGroup value={exportFormat} onChange={(v) => setExportFormat(v as typeof exportFormat)}>
+                  <RadioGroup value={exportFormat} onChange={(v: any) => setExportFormat(v as typeof exportFormat)}>
                     <Radio id="export-format-md-single" value="md-single" aria-label={"md-single"}>
                       <Radio.Content className="flex items-center gap-2 text-sm">
                         <Radio.Control>
