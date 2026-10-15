@@ -1,239 +1,343 @@
 import * as React from "react";
-import { Button, Chip, IconButton, List, ListItemButton, Popover, TextField } from "@mui/material";
+
+import { Button, Chip, List, ListItemButton, Paper, Popper, TextField } from "@mui/material";
 import { AtSignIcon, ChevronRightIcon, Loader2Icon, XIcon } from "lucide-react";
+
 import { api } from "@/lib/api";
-import { activeMention, type ChatMention, mentionKinds, mentionSearch, mentionToken, selectedMentions, } from "@/lib/chat-mentions";
+import {
+  activeMention,
+  type ChatMention,
+  mentionKinds,
+  mentionSearch,
+  mentionToken,
+  selectedMentions,
+} from "@/lib/chat-mentions";
 import { cn } from "@/lib/utils";
-const MUITextField = TextField as React.ComponentType<any>;
+
 type Props = Omit<React.ComponentProps<"textarea">, "value" | "onChange" | "ref"> & {
-    value: string;
-    onValueChange: (value: string) => void;
-    inputGroup?: boolean;
+  value: string;
+  onValueChange: (value: string) => void;
+  inputGroup?: boolean;
 };
 export function MentionTextarea({ value, onValueChange, onKeyDown, className, inputGroup, disabled, ...props }: Props) {
-    const { color: _htmlColor, ...textProps } = props;
-    const textarea = React.useRef<HTMLTextAreaElement>(null);
-    const composing = React.useRef(false);
-    const pendingKeyboardIndex = React.useRef<number | null>(null);
-    const [cursor, setCursor] = React.useState<number | null>(null);
-    const [dismissed, setDismissed] = React.useState(false);
-    const [activeIndex, setActiveIndex] = React.useState(0);
-    const [result, setResult] = React.useState<{
-        key: string;
-        items: ChatMention[];
-        next_cursor?: string;
-        error?: string;
-        loadingMore?: boolean;
-        pageError?: string;
-    } | null>(null);
-    const request = React.useRef<{
-        key: string;
-        controller: AbortController;
-        loadingMore: boolean;
-    } | null>(null);
-    const listId = React.useId();
-    const active = cursor === null ? null : activeMention(value, cursor);
-    const search = mentionSearch(active?.query ?? "");
-    const open = !!active && !dismissed && !disabled;
-    const categories = search.categories;
-    const requestKey = open && !categories.length ? `${search.kind}:${search.query}` : "";
-    const loading = !!requestKey && result?.key !== requestKey;
-    const items = result?.key === requestKey ? result.items : [];
-    const error = result?.key === requestKey ? result.error : undefined;
-    const nextCursor = result?.key === requestKey ? result.next_cursor : undefined;
-    const loadingMore = result?.key === requestKey && result.loadingMore;
-    const pageError = result?.key === requestKey ? result.pageError : undefined;
-    const count = categories.length || items.length;
-    const selected = selectedMentions(value);
-    React.useEffect(() => {
-        if (!requestKey)
-            return;
-        setResult(null);
-        const controller = new AbortController();
-        request.current = { key: requestKey, controller, loadingMore: false };
-        const timer = setTimeout(() => {
-            api.chatMentions(search.kind, search.query, controller.signal).then((page) => {
-                if (!controller.signal.aborted)
-                    setResult({ key: requestKey, ...page });
-            }, (error: Error) => {
-                if (!controller.signal.aborted)
-                    setResult({ key: requestKey, items: [], error: error.message });
-            });
-        }, 180);
-        return () => {
-            clearTimeout(timer);
-            controller.abort();
-        };
-    }, [requestKey, search.kind, search.query]);
-    function loadMore() {
-        const session = request.current;
-        if (!nextCursor ||
-            !session ||
-            session.key !== requestKey ||
-            session.controller.signal.aborted ||
-            session.loadingMore)
-            return;
-        session.loadingMore = true;
-        setResult((current) => current?.key === requestKey ? { ...current, loadingMore: true, pageError: undefined } : current);
-        api
-            .chatMentions(search.kind, search.query, session.controller.signal, nextCursor)
-            .then((page) => {
-            if (session.controller.signal.aborted)
-                return;
-            setResult((current) => {
-                if (current?.key !== session.key)
-                    return current;
-                const seen = new Set(current.items.map((item) => `${item.kind}:${item.id}`));
-                return {
-                    ...current,
-                    items: [...current.items, ...page.items.filter((item) => !seen.has(`${item.kind}:${item.id}`))],
-                    next_cursor: page.next_cursor,
-                    loadingMore: false,
-                };
-            });
-        }, (error: Error) => {
-            if (!session.controller.signal.aborted)
-                setResult((current) => current?.key === session.key ? { ...current, loadingMore: false, pageError: error.message } : current);
-        })
-            .finally(() => {
-            session.loadingMore = false;
-        });
+  const { color: _htmlColor, rows, autoFocus, ...textProps } = props;
+  const textarea = React.useRef<HTMLTextAreaElement>(null);
+  const composing = React.useRef(false);
+  const pendingKeyboardIndex = React.useRef<number | null>(null);
+  const [cursor, setCursor] = React.useState<number | null>(null);
+  const [dismissed, setDismissed] = React.useState(false);
+  const [activeIndex, setActiveIndex] = React.useState(0);
+  const [result, setResult] = React.useState<{
+    key: string;
+    items: ChatMention[];
+    next_cursor?: string;
+    error?: string;
+    loadingMore?: boolean;
+    pageError?: string;
+  } | null>(null);
+  const request = React.useRef<{
+    key: string;
+    controller: AbortController;
+    loadingMore: boolean;
+  } | null>(null);
+  const listId = React.useId();
+  const active = cursor === null ? null : activeMention(value, cursor);
+  const search = mentionSearch(active?.query ?? "");
+  const open = !!active && !dismissed && !disabled;
+  const categories = search.categories;
+  const requestKey = open && !categories.length ? `${search.kind}:${search.query}` : "";
+  const loading = !!requestKey && result?.key !== requestKey;
+  const items = result?.key === requestKey ? result.items : [];
+  const error = result?.key === requestKey ? result.error : undefined;
+  const nextCursor = result?.key === requestKey ? result.next_cursor : undefined;
+  const loadingMore = result?.key === requestKey && result.loadingMore;
+  const pageError = result?.key === requestKey ? result.pageError : undefined;
+  const count = categories.length || items.length;
+  const selected = selectedMentions(value);
+  React.useEffect(() => {
+    if (!requestKey) return;
+    setResult(null);
+    const controller = new AbortController();
+    request.current = { key: requestKey, controller, loadingMore: false };
+    const timer = setTimeout(() => {
+      api.chatMentions(search.kind, search.query, controller.signal).then(
+        (page) => {
+          if (!controller.signal.aborted) setResult({ key: requestKey, ...page });
+        },
+        (error: Error) => {
+          if (!controller.signal.aborted) setResult({ key: requestKey, items: [], error: error.message });
+        },
+      );
+    }, 180);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [requestKey, search.kind, search.query]);
+  function loadMore() {
+    const session = request.current;
+    if (
+      !nextCursor ||
+      !session ||
+      session.key !== requestKey ||
+      session.controller.signal.aborted ||
+      session.loadingMore
+    )
+      return;
+    session.loadingMore = true;
+    setResult((current) =>
+      current?.key === requestKey ? { ...current, loadingMore: true, pageError: undefined } : current,
+    );
+    api
+      .chatMentions(search.kind, search.query, session.controller.signal, nextCursor)
+      .then(
+        (page) => {
+          if (session.controller.signal.aborted) return;
+          setResult((current) => {
+            if (current?.key !== session.key) return current;
+            const seen = new Set(current.items.map((item) => `${item.kind}:${item.id}`));
+            return {
+              ...current,
+              items: [...current.items, ...page.items.filter((item) => !seen.has(`${item.kind}:${item.id}`))],
+              next_cursor: page.next_cursor,
+              loadingMore: false,
+            };
+          });
+        },
+        (error: Error) => {
+          if (!session.controller.signal.aborted)
+            setResult((current) =>
+              current?.key === session.key ? { ...current, loadingMore: false, pageError: error.message } : current,
+            );
+        },
+      )
+      .finally(() => {
+        session.loadingMore = false;
+      });
+  }
+  React.useEffect(() => {
+    if (open) document.getElementById(`${listId}-${activeIndex}`)?.scrollIntoView({ block: "nearest" });
+  }, [activeIndex, listId, open]);
+  React.useEffect(() => {
+    if (open && pendingKeyboardIndex.current !== null && pendingKeyboardIndex.current < count) {
+      document.getElementById(`${listId}-${pendingKeyboardIndex.current}`)?.scrollIntoView({ block: "nearest" });
+      pendingKeyboardIndex.current = null;
     }
-    React.useEffect(() => {
-        if (open)
-            document.getElementById(`${listId}-${activeIndex}`)?.scrollIntoView({ block: "nearest" });
-    }, [activeIndex, listId, open]);
-    React.useEffect(() => {
-        if (open && pendingKeyboardIndex.current !== null && pendingKeyboardIndex.current < count) {
-            document.getElementById(`${listId}-${pendingKeyboardIndex.current}`)?.scrollIntoView({ block: "nearest" });
-            pendingKeyboardIndex.current = null;
+  }, [count, listId, open]);
+  function replaceActive(text: string, close: boolean) {
+    if (!active) return;
+    const next = value.slice(0, active.start) + text + value.slice(active.end);
+    const caret = active.start + text.length;
+    onValueChange(next);
+    setCursor(caret);
+    setDismissed(close);
+    setActiveIndex(0);
+    requestAnimationFrame(() => {
+      textarea.current?.focus();
+      textarea.current?.setSelectionRange(caret, caret);
+    });
+  }
+  function choose(index: number) {
+    if (categories[index]) replaceActive(`@${categories[index].label} `, false);
+    else if (items[index]) replaceActive(`${mentionToken(items[index])} `, true);
+  }
+  function keyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (composing.current || event.nativeEvent.isComposing || event.keyCode === 229) return;
+    if (open) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setDismissed(true);
+        return;
+      }
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        if (event.key === "ArrowDown" && count && activeIndex >= count - 1 && nextCursor) {
+          pendingKeyboardIndex.current = count;
+          setActiveIndex(count);
+          loadMore();
+          return;
         }
-    }, [count, listId, open]);
-    function replaceActive(text: string, close: boolean) {
-        if (!active)
-            return;
-        const next = value.slice(0, active.start) + text + value.slice(active.end);
-        const caret = active.start + text.length;
-        onValueChange(next);
-        setCursor(caret);
-        setDismissed(close);
-        setActiveIndex(0);
-        requestAnimationFrame(() => {
-            textarea.current?.focus();
-            textarea.current?.setSelectionRange(caret, caret);
-        });
-    }
-    function choose(index: number) {
-        if (categories[index])
-            replaceActive(`@${categories[index].label} `, false);
-        else if (items[index])
-            replaceActive(`${mentionToken(items[index])} `, true);
-    }
-    function keyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
-        if (composing.current || event.nativeEvent.isComposing || event.keyCode === 229)
-            return;
-        if (open) {
-            if (event.key === "Escape") {
-                event.preventDefault();
-                setDismissed(true);
-                return;
-            }
-            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                event.preventDefault();
-                if (event.key === "ArrowDown" && count && activeIndex >= count - 1 && nextCursor) {
-                    pendingKeyboardIndex.current = count;
-                    setActiveIndex(count);
-                    loadMore();
-                    return;
-                }
-                if (count)
-                    setActiveIndex((index) => (index + (event.key === "ArrowDown" ? 1 : count - 1)) % count);
-                return;
-            }
-            if ((event.key === "Enter" || event.key === "Tab") && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
-                if (event.key === "Tab" && (loading || !count)) {
-                    setDismissed(true);
-                    return;
-                }
-                event.preventDefault();
-                if (!loading && count)
-                    choose(Math.min(activeIndex, count - 1));
-                return;
-            }
+        if (count) setActiveIndex((index) => (index + (event.key === "ArrowDown" ? 1 : count - 1)) % count);
+        return;
+      }
+      if ((event.key === "Enter" || event.key === "Tab") && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
+        if (event.key === "Tab" && (loading || !count)) {
+          setDismissed(true);
+          return;
         }
-        onKeyDown?.(event);
+        event.preventDefault();
+        if (!loading && count) choose(Math.min(activeIndex, count - 1));
+        return;
+      }
     }
-    return (<div className="relative min-w-0 flex-1 self-stretch">
-      <MUITextField {...textProps} disabled={disabled} multiline minRows={1} inputRef={textarea} value={value} className={cn("w-full", className)} aria-label={props["aria-label"] ?? "消息，输入 @ 引用记录"} aria-autocomplete="list" aria-controls={open ? listId : undefined} aria-expanded={open} aria-activedescendant={open && count ? listId + "-" + Math.min(activeIndex, count - 1) : undefined} onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) => {
-            pendingKeyboardIndex.current = null;
-            onValueChange(event.target.value);
-            setCursor(event.target.selectionStart);
-            setDismissed(false);
-            setActiveIndex(0);
-        }} onSelect={(event: React.SyntheticEvent<HTMLTextAreaElement>) => setCursor((event.target as HTMLTextAreaElement).selectionStart)} onCompositionStart={() => {
-            composing.current = true;
-        }} onCompositionEnd={() => {
-            composing.current = false;
-        }} slotProps={{ htmlInput: { className: "resize-none", onSelect: (event: React.SyntheticEvent<HTMLTextAreaElement>) => setCursor(event.currentTarget.selectionStart), onKeyDown: keyDown } }} />
-      <Popover open={open} anchorEl={textarea.current} onClose={() => setDismissed(true)} anchorOrigin={{ vertical: "top", horizontal: "left" }} transformOrigin={{ vertical: "bottom", horizontal: "left" }}>
-        <div className="w-[min(28rem,calc(100vw-2rem))] p-2" onMouseDown={(event) => event.preventDefault()}>
+    onKeyDown?.(event);
+  }
+  return (
+    <div className="relative min-w-0 flex-1 self-stretch">
+      <TextField
+        disabled={disabled}
+        autoFocus={autoFocus}
+        multiline
+        minRows={rows ?? 1}
+        maxRows={6}
+        size="small"
+        fullWidth
+        inputRef={textarea}
+        value={value}
+        className={cn("w-full", className)}
+        sx={inputGroup ? { "& .MuiOutlinedInput-notchedOutline": { border: 0 } } : undefined}
+        onChange={(event) => {
+          pendingKeyboardIndex.current = null;
+          onValueChange(event.target.value);
+          setCursor(event.target.selectionStart);
+          setDismissed(false);
+          setActiveIndex(0);
+        }}
+        slotProps={{
+          htmlInput: {
+            ...textProps,
+            className: "resize-none",
+            role: "combobox",
+            "aria-label": props["aria-label"] ?? "消息，输入 @ 引用记录",
+            "aria-autocomplete": "list",
+            "aria-haspopup": "listbox",
+            "aria-controls": open ? listId : undefined,
+            "aria-expanded": open,
+            "aria-activedescendant": open && count ? listId + "-" + Math.min(activeIndex, count - 1) : undefined,
+            onSelect: (event: React.SyntheticEvent<HTMLTextAreaElement>) =>
+              setCursor(event.currentTarget.selectionStart),
+            onBlur: (event: React.FocusEvent<HTMLTextAreaElement>) => {
+              setDismissed(true);
+              props.onBlur?.(event);
+            },
+            onKeyDown: keyDown,
+            onCompositionStart: () => {
+              composing.current = true;
+            },
+            onCompositionEnd: () => {
+              composing.current = false;
+            },
+          },
+        }}
+      />
+      <Popper
+        open={open}
+        anchorEl={textarea.current}
+        placement="top-start"
+        sx={{ zIndex: (theme) => theme.zIndex.modal + 1 }}
+      >
+        <Paper
+          elevation={4}
+          className="w-[min(28rem,calc(100vw-2rem))] p-2"
+          onMouseDown={(event) => event.preventDefault()}
+        >
           <div className="flex justify-between gap-2 border-b border-border p-2 text-muted text-xs">
             <span>
               {categories.length
-            ? "选择引用类型"
-            : "搜索 " + (mentionKinds.find((kind) => kind.kind === search.kind)?.label ?? "全部记录")}
+                ? "选择引用类型"
+                : "搜索 " + (mentionKinds.find((kind) => kind.kind === search.kind)?.label ?? "全部记录")}
             </span>
             <span>↑↓ 选择 · Enter 确认 · Esc 关闭</span>
           </div>
-          <List id={listId} aria-label="引用候选" className="max-h-60 overflow-y-auto" data-scrollbar="thin" onScroll={(event) => {
-            const list = event.currentTarget;
-            if (list.scrollHeight - list.scrollTop - list.clientHeight < 64)
-                loadMore();
-        }}>
-            {categories.map((kind, index) => (<ListItemButton key={kind.kind} id={listId + "-" + index} selected={activeIndex === index} onClick={() => choose(index)}>
-                <AtSignIcon className="size-4"/>
+          <List
+            id={listId}
+            role="listbox"
+            aria-label="引用候选"
+            className="max-h-60 overflow-y-auto"
+            data-scrollbar="thin"
+            onScroll={(event) => {
+              const list = event.currentTarget;
+              if (list.scrollHeight - list.scrollTop - list.clientHeight < 64) loadMore();
+            }}
+          >
+            {categories.map((kind, index) => (
+              <ListItemButton
+                key={kind.kind}
+                id={listId + "-" + index}
+                role="option"
+                aria-selected={activeIndex === index}
+                selected={activeIndex === index}
+                onClick={() => choose(index)}
+              >
+                <AtSignIcon className="size-4" />
                 <span>{kind.label}</span>
-                <ChevronRightIcon className="ml-auto size-4"/>
-              </ListItemButton>))}
-            {items.map((item, index) => (<ListItemButton key={item.kind + ":" + item.id} id={listId + "-" + index} selected={activeIndex === index} onClick={() => choose(index)}>
+                <ChevronRightIcon className="ml-auto size-4" />
+              </ListItemButton>
+            ))}
+            {items.map((item, index) => (
+              <ListItemButton
+                key={item.kind + ":" + item.id}
+                id={listId + "-" + index}
+                role="option"
+                aria-selected={activeIndex === index}
+                selected={activeIndex === index}
+                onClick={() => choose(index)}
+              >
                 <div className="flex items-center gap-2">
                   <Chip size="small" label={mentionKinds.find((kind) => kind.kind === item.kind)?.label} />
                   <span className="truncate">{item.label}</span>
                   <span className="ml-auto text-muted text-xs">#{item.id}</span>
                 </div>
                 <span className="block truncate text-muted text-xs">{item.description}</span>
-              </ListItemButton>))}
+              </ListItemButton>
+            ))}
           </List>
-          {!categories.length && loading && (<p role="status" className="flex items-center gap-2 p-3 text-muted text-sm">
-              <Loader2Icon className="size-4 animate-spin"/>
+          {!categories.length && loading && (
+            <p role="status" className="flex items-center gap-2 p-3 text-muted text-sm">
+              <Loader2Icon className="size-4 animate-spin" />
               搜索中…
-            </p>)}
-          {!categories.length && !loading && error && (<p role="alert" className="p-3 text-danger text-sm">
+            </p>
+          )}
+          {!categories.length && !loading && error && (
+            <p role="alert" className="p-3 text-danger text-sm">
               搜索失败：{error}。请重新输入重试。
-            </p>)}
-          {!categories.length && !loading && !error && !items.length && (<p role="status" className="p-3 text-muted text-sm">
+            </p>
+          )}
+          {!categories.length && !loading && !error && !items.length && (
+            <p role="status" className="p-3 text-muted text-sm">
               没有匹配记录，请更换名称、地址或 ID
-            </p>)}
-          {!categories.length && (<div className="border-t border-border p-2 text-muted text-xs">
+            </p>
+          )}
+          {!categories.length && (
+            <div className="border-t border-border p-2 text-muted text-xs">
               {loadingMore && <span role="status">正在加载更多…</span>}
-              {!loadingMore && nextCursor && (<Button variant="text" size="small" onClick={loadMore}>
+              {!loadingMore && nextCursor && (
+                <Button variant="text" size="small" onClick={loadMore}>
                   {pageError ? "加载失败，点击重试" : "已显示 " + items.length + " 条，向下滚动加载更多"}
-                </Button>)}
+                </Button>
+              )}
               {!loadingMore &&
                 !nextCursor &&
                 !loading &&
                 !error &&
                 items.length > 0 &&
                 "已显示全部 " + items.length + " 条"}
-            </div>)}
-        </div>
-      </Popover>
-      {selected.length > 0 && (<div className="flex flex-wrap items-center gap-1.5 px-1 pt-1.5">
-          {selected.map((item) => (<Chip key={item.start} size="small" color="primary" label={item.label} title={item.label} onDelete={disabled ? undefined : () => {
-                    onValueChange(value.slice(0, item.start) + value.slice(item.start + item.token.length));
-                    setCursor(null);
-                }} />))}
+            </div>
+          )}
+        </Paper>
+      </Popper>
+      {selected.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 px-1 pt-1.5">
+          {selected.map((item) => (
+            <Chip
+              key={item.start}
+              size="small"
+              color="primary"
+              label={item.label}
+              title={item.label}
+              onDelete={
+                disabled
+                  ? undefined
+                  : () => {
+                      onValueChange(value.slice(0, item.start) + value.slice(item.start + item.token.length));
+                      setCursor(null);
+                    }
+              }
+            />
+          ))}
           <span className="text-muted text-xs">发送时读取最新详情 · 最多 10 条</span>
-        </div>)}
-    </div>);
+        </div>
+      )}
+    </div>
+  );
 }
