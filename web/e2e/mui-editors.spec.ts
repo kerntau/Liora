@@ -1,6 +1,6 @@
 import { type APIRequestContext, expect, type Page, test } from "@playwright/test";
 
-import type { Agent, AgentDetail, Tool } from "../src/lib/types";
+import type { Agent, AgentDetail, AgentTrigger, MCPServer, Tool } from "../src/lib/types";
 
 async function login(page: Page, request: APIRequestContext) {
   const password = "liora-e2e-password";
@@ -31,6 +31,182 @@ function fixtureTools(): Tool[] {
     { key: "traffic_search", system: true, enabled: true, description: "Traffic fixture", agents: [], schema: {} },
   ];
 }
+
+test("custom agent triggers preserve strategy saves, condition validation and editing", async ({
+  page,
+  request,
+}, testInfo) => {
+  const headers = await login(page, request);
+  const key = `mui_triggers_${testInfo.project.name}`;
+  const created = await request.post("/api/agents", {
+    headers,
+    data: { key, name: "Fixture trigger agent", description: "No external execution" },
+  });
+  expect(created.ok()).toBe(true);
+  const triggers: AgentTrigger[] = [];
+  await page.route("**/api/tools", (route) => route.fulfill({ json: { tools: fixtureTools() } }));
+  await page.route(`**/api/agents/${key}/triggers`, async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({ json: { triggers } });
+      return;
+    }
+    triggers.push({ ...route.request().postDataJSON(), id: 501, agent_key: key });
+    await route.fulfill({ json: triggers[0] });
+  });
+  await page.route("**/api/triggers/501", async (route) => {
+    Object.assign(triggers[0], route.request().postDataJSON());
+    await route.fulfill({ json: { ok: true } });
+  });
+  await page.goto(`/system/agents/detail?key=${key}`);
+  await page.getByRole("tab", { name: "触发", exact: true }).click();
+  await page.getByRole("combobox", { name: "运行模式", exact: true }).click();
+  await page.getByRole("option", { name: "并行（各自并发会话）", exact: true }).click();
+  await expect(page.getByRole("combobox", { name: "合并模式", exact: true })).toHaveAttribute("aria-disabled", "true");
+  await page.getByRole("spinbutton", { name: "tr-maxpar", exact: true }).fill("3");
+  await page.getByRole("checkbox", { name: "定时触发", exact: true }).click();
+  await expect
+    .poll(async () => (await (await request.get(`/api/agents/${key}`, { headers })).json()).agent.trigger_max_parallel)
+    .toBe(3);
+  await page.getByRole("spinbutton", { name: "tr-interval", exact: true }).fill("2");
+  await page
+    .getByRole("textbox", { name: "定时触发时发给 agent 的话，如：巡检所有任务", exact: true })
+    .fill("Fixture interval");
+  await page.getByRole("checkbox", { name: "工具调用时触发", exact: true }).check();
+  await page.getByRole("button", { name: "添加触发器", exact: true }).click();
+  await expect(page.getByText("工具调用触发至少选择一个工具", { exact: true })).toBeVisible();
+  expect(triggers).toHaveLength(0);
+  await page.getByRole("checkbox", { name: /fixture_read/ }).check();
+  await page
+    .getByRole("textbox", {
+      name: "工具被调用时发给 agent 的话（系统会附带任务信息、工具入参与返回内容）",
+      exact: true,
+    })
+    .fill("Fixture tool trigger");
+  await page.getByRole("button", { name: "添加触发器", exact: true }).click();
+  await expect.poll(() => triggers.length).toBe(1);
+  expect(triggers[0]).toMatchObject({
+    enabled: true,
+    interval_sec: 2,
+    interval_message: "Fixture interval",
+    on_tool_call: true,
+    tool_names: ["fixture_read"],
+    tool_call_message: "Fixture tool trigger",
+    on_finding: false,
+    on_goal_met: false,
+    on_task_timeout: false,
+    on_task_create: false,
+  });
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  await expect(page.getByRole("spinbutton", { name: "tr-interval", exact: true })).toHaveValue("2");
+  await page.getByRole("checkbox", { name: "定时触发", exact: true }).uncheck();
+  await page.getByRole("button", { name: "保存修改", exact: true }).click();
+  await expect.poll(() => triggers[0].interval_sec).toBe(0);
+  expect(triggers[0].tool_names).toEqual(["fixture_read"]);
+});
+
+test("MCP editor preserves transport fields, visibility, refresh and enable controls", async ({
+  page,
+  request,
+}, testInfo) => {
+  const headers = await login(page, request);
+  const { agents }: { agents: Agent[] } = await (await request.get("/api/agents", { headers })).json();
+  const agent = agents.find((item) => item.key === "worker");
+  expect(agent).toBeTruthy();
+  const servers: MCPServer[] = [];
+  const writes: Partial<MCPServer>[] = [];
+  let visible: string[] = [];
+  let refreshes = 0;
+  await page.route("**/api/mcp", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({ json: { servers } });
+      return;
+    }
+    const data = route.request().postDataJSON();
+    writes.push(data);
+    if (data.id) Object.assign(servers[0], data);
+    else servers.push({ ...data, id: 81, tools: [] });
+    await route.fulfill({ json: { id: 81 } });
+  });
+  await page.route("**/api/mcp/81/tools", (route) => route.fulfill({ json: { tools: [] } }));
+  await page.route("**/api/mcp/81/refresh", async (route) => {
+    refreshes++;
+    servers[0].tools = ["fixture_tool"];
+    await route.fulfill({ json: { tools: [{ name: "fixture_tool", description: "Fixture tool description" }] } });
+  });
+  await page.route("**/api/visibility/mcp/81", (route) => route.fulfill({ json: { agents: visible } }));
+  await page.route("**/api/visibility/toggle", async (route) => {
+    const data = route.request().postDataJSON();
+    expect(data).toEqual({ agent_id: agent?.id, kind: "mcp", resource_id: 81, visible: true });
+    visible = [data.agent_id];
+    await route.fulfill({ json: { ok: true } });
+  });
+  await page.goto("/system/mcp");
+  await page.getByRole("button", { name: "添加 MCP", exact: true }).click();
+  const add = page.getByRole("dialog", { name: "添加 MCP 服务器", exact: true });
+  await add.getByRole("button", { name: "添加", exact: true }).click();
+  await expect(page.getByText("请填写名称", { exact: true })).toBeVisible();
+  expect(writes).toHaveLength(0);
+  await add.getByRole("textbox", { name: "名称", exact: true }).fill("Fixture MCP");
+  await add.getByRole("textbox", { name: "命令", exact: true }).fill("fixture-command");
+  await add.getByRole("textbox", { name: "参数（空格分隔）", exact: true }).fill("--fixture  sample");
+  await add.getByRole("textbox", { name: /API_KEY=xxxx/ }).fill("FIXTURE=first=second\nEMPTY=\nFOO=bar");
+  await add.getByRole("button", { name: "添加", exact: true }).click();
+  await expect(add).toBeHidden();
+  expect(writes[0]).toMatchObject({
+    name: "Fixture MCP",
+    transport: "stdio",
+    command: "fixture-command",
+    args: ["--fixture", "sample"],
+    env: { FIXTURE: "first=second", EMPTY: "", FOO: "bar" },
+    insecure: false,
+    enabled: true,
+  });
+  await page
+    .getByRole("group", { name: "Fixture MCP 的 Agent 授权" })
+    .getByRole("checkbox", { name: agent?.name, exact: true })
+    .click();
+  await expect.poll(() => visible).toEqual([agent?.id]);
+  await expect(
+    page
+      .getByRole("group", { name: "Fixture MCP 的 Agent 授权" })
+      .getByRole("checkbox", { name: agent?.name, exact: true }),
+  ).toBeChecked();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.getByRole("switch", { name: "启用 MCP Fixture MCP", exact: true }).click();
+  await expect.poll(() => servers[0].enabled).toBe(false);
+  await expect(page.getByRole("switch", { name: "启用 MCP Fixture MCP", exact: true })).not.toBeChecked();
+  await page.getByRole("button", { name: "编辑 MCP Fixture MCP", exact: true }).click();
+  const edit = page.getByRole("dialog", { name: "Fixture MCP", exact: true });
+  await edit.getByRole("button", { name: "http（远程）", exact: true }).click();
+  await expect(edit.getByRole("button", { name: "http（远程）", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(edit.getByRole("textbox", { name: "命令", exact: true })).toBeHidden();
+  await edit.getByRole("textbox", { name: "远程 URL", exact: true }).fill("https://fixture.invalid/mcp");
+  await edit
+    .getByRole("textbox", { name: "Authorization=Bearer xxxx", exact: true })
+    .fill("Authorization=Bearer fixture\nX-Fixture=one=two");
+  await edit.getByRole("checkbox", { name: "跳过 TLS 证书校验（自签证书）", exact: true }).check();
+  await edit.getByRole("button", { name: "保存", exact: true }).click();
+  await expect.poll(() => writes.length).toBe(3);
+  expect(writes[2]).toMatchObject({
+    id: 81,
+    enabled: false,
+    transport: "http",
+    url: "https://fixture.invalid/mcp",
+    command: "",
+    args: [],
+    env: { Authorization: "Bearer fixture", "X-Fixture": "one=two" },
+    insecure: true,
+  });
+  await edit.getByRole("tab", { name: /^工具列表/ }).click();
+  await edit.getByRole("button", { name: "刷新", exact: true }).click();
+  await expect.poll(() => refreshes).toBe(1);
+  await expect(edit.getByText("fixture_tool", { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect.poll(async () => Math.round((await edit.boundingBox())?.width ?? 0)).toBe(390);
+  await page.screenshot({ path: testInfo.outputPath("mcp-editor-mobile.png") });
+  await edit.getByRole("button", { name: "关闭", exact: true }).click();
+  await expect(edit).toBeHidden();
+});
 
 test("agent editor preserves typed config, prompt preview and versions, resource authorization and mobile drawer", async ({
   page,
