@@ -25,7 +25,7 @@ export function SidebarProvider({ defaultOpen = true, open: openProp, onOpenChan
   const toggleSidebar = React.useCallback(() => isMobile ? setOpenMobile((value) => !value) : setOpen((value) => !value), [isMobile, setOpen]);
   React.useEffect(() => { const listener = (event: KeyboardEvent) => { if (event.key === "b" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); toggleSidebar(); } }; window.addEventListener("keydown", listener); return () => window.removeEventListener("keydown", listener); }, [toggleSidebar]);
   const context = React.useMemo(() => ({ state: open ? "expanded" : "collapsed", open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar } as SidebarContextProps), [open, setOpen, isMobile, openMobile, toggleSidebar]);
-  return <SidebarContext.Provider value={context}><Box data-slot="sidebar-wrapper" className={cn("group/sidebar-wrapper", className)} style={{ "--sidebar-width": `${SIDEBAR_WIDTH}px`, "--sidebar-width-icon": `${SIDEBAR_WIDTH_ICON}px`, ...style } as React.CSSProperties} {...props}>{children}</Box></SidebarContext.Provider>;
+  return <SidebarContext.Provider value={context}><Box data-slot="sidebar-wrapper" sx={{ display: "flex", width: "100%", minHeight: "100dvh" }} className={cn("group/sidebar-wrapper", className)} style={{ "--sidebar-width": `${SIDEBAR_WIDTH}px`, "--sidebar-width-icon": `${SIDEBAR_WIDTH_ICON}px`, ...style } as React.CSSProperties} {...props}>{children}</Box></SidebarContext.Provider>;
 }
 
 export function Sidebar({ side = "left", variant = "sidebar", collapsible = "offcanvas", className, children, ...props }: React.ComponentProps<"div"> & { side?: "left" | "right"; variant?: "sidebar" | "floating" | "inset"; collapsible?: "offcanvas" | "icon" | "none" }) {

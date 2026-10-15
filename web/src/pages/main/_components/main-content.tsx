@@ -42,7 +42,7 @@ export function MainContent({ children }: {
         return <>{children}</>;
     }
     return (<>
-      <Stack component="header" direction="row" sx={{ minHeight: 56, alignItems: "center", justifyContent: "space-between", px: { xs: 2, lg: 3 }, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+      <Stack component="header" direction="row" sx={{ position: "relative", minHeight: 56, alignItems: "center", justifyContent: "space-between", px: { xs: 2, lg: 3 }, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
           <Stack direction="row" sx={{ alignItems: "center" }} spacing={1}>
             <SidebarTrigger className="-ml-1"/>
             <Divider orientation="vertical" flexItem sx={{ height: 20, alignSelf: "center" }} />
