@@ -1,3 +1,4 @@
+"use client";
 
 import { setClientCookie } from "../cookie.client";
 import { setLocalStorageValue } from "../local-storage.client";

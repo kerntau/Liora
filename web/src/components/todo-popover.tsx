@@ -1,69 +1,85 @@
+"use client";
+
 import * as React from "react";
-import { Button, Popover, Spinner, Surface } from "@heroui/react";
 import { ListTodo } from "lucide-react";
+
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-export function TodoPopover({ seq, fetchDetail, }: {
-    seq: number | null;
-    fetchDetail: (seq: number) => Promise<string>;
+
+// TodoPopover shows the latest TodoWrite state of a session (chat conversation or
+// task worker/planner replay). The full todo list isn't in the activity list
+// (detail is lazy), so on open it fetches the detail of the most-recent TodoWrite
+// call — by seq — and parses its {todos:[…]} JSON. Purely client-side; the caller
+// supplies the seq + a detail fetcher (conversation or exploration endpoint).
+export function TodoPopover({
+  seq,
+  fetchDetail,
+}: {
+  seq: number | null;
+  fetchDetail: (seq: number) => Promise<string>;
 }) {
-    const [open, setOpen] = React.useState(false);
-    const [todos, setTodos] = React.useState<{
-        content: string;
-        status: string;
-    }[] | null>(null);
-    const [loading, setLoading] = React.useState(false);
-    const [err, setErr] = React.useState("");
-    const load = React.useCallback(async () => {
-        if (seq == null)
-            return;
-        setLoading(true);
-        setErr("");
-        try {
-            const detail = await fetchDetail(seq);
-            const start = detail.indexOf("{");
-            const parsed = JSON.parse(start >= 0 ? detail.slice(start) : detail);
-            setTodos(Array.isArray(parsed?.todos) ? parsed.todos : []);
-        }
-        catch {
-            setErr("解析 Todo 失败");
-            setTodos(null);
-        }
-        finally {
-            setLoading(false);
-        }
-    }, [seq, fetchDetail]);
-    React.useEffect(() => {
-        if (open)
-            load();
-    }, [open, load]);
-    const disabled = seq == null;
-    const MARK: Record<string, string> = { pending: "☐", in_progress: "▶", completed: "✔" };
-    return (<Popover isOpen={open} onOpenChange={disabled ? undefined : setOpen}>
-      
-        <Button type="button" size="sm" isDisabled={disabled} className="h-7 px-2 text-xs text-muted hover:text-foreground gap-1" variant={"outline"}>
-          <ListTodo className="size-3.5"/>
-          <span>Todo</span>
-        </Button>
-      
-      <Popover.Content className="w-80 p-3 bg-surface border border-border rounded-xl shadow-xl">
-        <Popover.Dialog className="outline-none">
-          <div className="flex items-center justify-between pb-2 mb-2 border-b border-border">
-            <span className="text-xs font-semibold text-foreground">最近 Todo 状态</span>
-            {loading && <Spinner size="sm"/>}
-          </div>
+  const [open, setOpen] = React.useState(false);
+  const [todos, setTodos] = React.useState<{ content: string; status: string }[] | null>(null);
+  const [loading, setLoading] = React.useState(false);
+  const [err, setErr] = React.useState("");
 
-          {err && <p className="text-danger px-1 text-xs">{err}</p>}
-          {todos && todos.length === 0 && !loading && (<p className="text-muted px-1 text-xs py-2 text-center">（暂无 Todo 项）</p>)}
+  const load = React.useCallback(async () => {
+    if (seq == null) return;
+    setLoading(true);
+    setErr("");
+    try {
+      const detail = await fetchDetail(seq);
+      const start = detail.indexOf("{"); // detail 可能带 "TodoWrite " 前缀
+      const parsed = JSON.parse(start >= 0 ? detail.slice(start) : detail);
+      setTodos(Array.isArray(parsed?.todos) ? parsed.todos : []);
+    } catch {
+      setErr("解析 Todo 失败");
+      setTodos(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [seq, fetchDetail]);
 
-          <Surface variant="secondary" className="max-h-60 overflow-y-auto rounded-lg p-2 bg-surface-secondary" data-scrollbar="thin">
-            <ul className="space-y-1.5">
-              {(todos ?? []).map((t, i) => (<li key={`${i}:${t.content}`} className={cn("flex items-start gap-2 text-xs text-foreground", t.status === "completed" && "text-muted line-through", t.status === "in_progress" && "text-accent font-medium")}>
-                  <span className="shrink-0 font-mono">{MARK[t.status] ?? "☐"}</span>
-                  <span className="break-words leading-relaxed">{t.content}</span>
-                </li>))}
-            </ul>
-          </Surface>
-        </Popover.Dialog>
-      </Popover.Content>
-    </Popover>);
+  // refetch on each open — todos change as the run progresses.
+  React.useEffect(() => {
+    if (open) load();
+  }, [open, load]);
+
+  const disabled = seq == null;
+  const MARK: Record<string, string> = { pending: "☐", in_progress: "▶", completed: "✔" };
+  return (
+    <Popover open={open} onOpenChange={disabled ? undefined : setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          disabled={disabled}
+          title={disabled ? "本会话暂无 Todo" : "查看最近 Todo"}
+          className="text-muted-foreground/70 hover:text-primary flex items-center gap-0.5 text-xs disabled:pointer-events-none disabled:opacity-40"
+        >
+          <ListTodo className="size-3" />
+          Todo
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="max-h-80 w-80 overflow-auto p-2">
+        <p className="text-muted-foreground px-1 pb-1 text-[11px] font-medium">
+          最近 Todo{loading ? " · 加载中…" : ""}
+        </p>
+        {err && <p className="text-destructive px-1 text-xs">{err}</p>}
+        {todos && todos.length === 0 && !loading && (
+          <p className="text-muted-foreground px-1 text-xs">（空）</p>
+        )}
+        <ul className="space-y-0.5">
+          {(todos ?? []).map((t, i) => (
+            <li
+              key={`${i}:${t.content}`}
+              className={cn("flex gap-1.5 px-1 text-xs", t.status === "completed" && "text-muted-foreground line-through")}
+            >
+              <span className="shrink-0">{MARK[t.status] ?? "☐"}</span>
+              <span className="break-words">{t.content}</span>
+            </li>
+          ))}
+        </ul>
+      </PopoverContent>
+    </Popover>
+  );
 }

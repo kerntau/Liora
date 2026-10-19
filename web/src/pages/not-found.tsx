@@ -1,13 +1,17 @@
-import { Link } from "react-router";
-import { Button } from "@heroui/react";
+"use client";
+
+import Link from "@/lib/router-compat";
+
+import { Button } from "@/components/ui/button";
+
 export default function NotFound() {
-    return (<div className="flex h-dvh flex-col items-center justify-center space-y-3 text-center p-4">
-      <h1 className="font-semibold text-2xl text-foreground">页面不存在</h1>
-      <p className="text-muted text-sm">抱歉，您访问的页面不存在或已被移除。</p>
-      <Link replace to="/function/tasks">
-        <Button size="md" variant={"primary"}>
-          返回首页
-        </Button>
+  return (
+    <div className="flex h-dvh flex-col items-center justify-center space-y-2 text-center">
+      <h1 className="font-semibold text-2xl">Page not found.</h1>
+      <p className="text-muted-foreground">The page you are looking for could not be found.</p>
+      <Link prefetch={false} replace href="/function/tasks">
+        <Button variant="outline">Go back home</Button>
       </Link>
-    </div>);
+    </div>
+  );
 }
