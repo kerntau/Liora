@@ -1,7 +1,6 @@
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
-import MuiButton from "@mui/material/Button"
-import { Slot } from "./slot"
+import { Slot } from "radix-ui"
 
 import { cn } from "@/lib/utils"
 
@@ -48,17 +47,14 @@ function Button({
   size = "default",
   asChild = false,
   ...props
-}: Omit<React.ComponentProps<"button">, "color"> &
+}: React.ComponentProps<"button"> &
   VariantProps<typeof buttonVariants> & {
     asChild?: boolean
   }) {
-  const Comp = MuiButton
+  const Comp = asChild ? Slot.Root : "button"
 
   return (
     <Comp
-      component={asChild ? Slot : "button"}
-      variant={variant === "outline" ? "outlined" : variant === "default" ? "contained" : "text"}
-      color="inherit"
       data-slot="button"
       data-variant={variant}
       data-size={size}

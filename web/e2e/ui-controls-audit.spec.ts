@@ -41,7 +41,9 @@ test("select labels render before opening and keyboard selection returns focus",
   await select.focus();
   await page.keyboard.press("ArrowDown");
   await expect(page.getByRole("listbox")).toBeVisible();
+  await expect(page.getByRole("option", { name: "Enter 发送，Shift+Enter 换行", exact: true })).toBeFocused();
   await page.keyboard.press("End");
+  await expect(page.getByRole("option", { name: "Ctrl+Enter 发送，Enter 换行", exact: true })).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(select).toHaveText("Ctrl+Enter 发送，Enter 换行");
   await expect(select).toBeFocused();
@@ -115,12 +117,12 @@ test("profile multiselect keeps chips, nested Escape and disabled save semantics
   await input.press("Escape");
   await expect(page.getByRole("listbox")).toHaveCount(0);
   await expect(popover).toBeVisible();
-  await popover.locator('[data-slot="combobox-chip"] [aria-label="移除 Alpha 配置 alpha-model"]').click();
+  await popover.getByRole("button", { name: "移除 Alpha 配置", exact: true }).click();
   await expect(popover.locator('[data-slot="combobox-chip"]')).toHaveCount(1);
   await popover.getByRole("button", { name: "保存", exact: true }).click();
   await expect.poll(() => saving).toBe(true);
   await expect(input).toBeDisabled();
-  await expect(popover.locator('[data-slot="select-trigger"]')).toHaveAttribute("aria-disabled", "true");
+  await expect(popover.locator('[data-slot="select-trigger"]')).toBeDisabled();
   finishSave?.();
   await expect(popover).toHaveCount(0);
   await expect(trigger).toBeFocused();

@@ -241,10 +241,7 @@ test("model profiles preserve model picking, advanced parameters, connection tes
   await edit.getByRole("combobox", { name: "格式", exact: true }).click();
   await page.getByRole("option", { name: "Anthropic", exact: true }).click();
   await edit.locator("summary").filter({ hasText: "高级参数" }).click();
-  await expect(edit.getByRole("combobox", { name: "上限字段名", exact: true })).toHaveAttribute(
-    "aria-disabled",
-    "true",
-  );
+  await expect(edit.getByRole("combobox", { name: "上限字段名", exact: true })).toBeDisabled();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect.poll(async () => Math.round((await edit.boundingBox())?.width ?? 0)).toBe(390);
   await page.screenshot({ path: testInfo.outputPath("llm-mobile.png") });

@@ -1,5 +1,10 @@
 # Material UI migration
 
+> Historical record: on 2026-10-19 the user requested restoring the first-version
+> styles. The active UI uses the original shadcn/Radix/Base UI components again,
+> with the current Rsbuild runtime and business workflows preserved. The migration
+> contract and checklist below describe the previous work, not pending changes.
+
 ## Contract
 
 Replace general-purpose shadcn/Radix/Base UI controls with Material UI while

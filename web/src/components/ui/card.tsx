@@ -1,5 +1,3 @@
-import MuiCard from "@mui/material/Card"
-import MuiCardContent from "@mui/material/CardContent"
 import * as React from "react"
 
 import { cn } from "@/lib/utils"
@@ -10,7 +8,7 @@ function Card({
   ...props
 }: React.ComponentProps<"div"> & { size?: "default" | "sm" }) {
   return (
-    <MuiCard elevation={0}
+    <div
       data-slot="card"
       data-size={size}
       className={cn(
@@ -73,7 +71,7 @@ function CardAction({ className, ...props }: React.ComponentProps<"div">) {
 
 function CardContent({ className, ...props }: React.ComponentProps<"div">) {
   return (
-    <MuiCardContent
+    <div
       data-slot="card-content"
       className={cn("px-(--card-spacing)", className)}
       {...props}

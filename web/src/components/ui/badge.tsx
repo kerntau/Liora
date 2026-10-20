@@ -1,7 +1,6 @@
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
-import Chip from "@mui/material/Chip"
-import { Slot } from "./slot"
+import { Slot } from "radix-ui"
 
 import { cn } from "@/lib/utils"
 
@@ -32,21 +31,17 @@ function Badge({
   className,
   variant = "default",
   asChild = false,
-  children,
   ...props
-}: Omit<React.ComponentProps<"span">, "color" | "onDelete"> &
+}: React.ComponentProps<"span"> &
   VariantProps<typeof badgeVariants> & { asChild?: boolean }) {
-  const Comp = Chip
+  const Comp = asChild ? Slot.Root : "span"
 
   return (
     <Comp
-      component={asChild ? Slot : "span"}
-      label={children}
-      slotProps={{ label: { sx: { display: "contents" } } }}
+      {...props}
       data-slot="badge"
       data-variant={variant}
       className={cn(badgeVariants({ variant }), className)}
-      {...props}
     />
   )
 }

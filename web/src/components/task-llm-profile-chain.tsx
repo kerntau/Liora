@@ -94,6 +94,7 @@ export function TaskLLMProfileChain({
     <div className="flex flex-col gap-3">
       <Combobox
         items={itemIDs}
+        itemToStringLabel={profileLabel}
         itemToStringValue={profileLabel}
         multiple
         value={value}

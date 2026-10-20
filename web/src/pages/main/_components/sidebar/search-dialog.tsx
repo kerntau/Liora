@@ -78,6 +78,7 @@ function groupBy(items: SearchItem[]) {
 }
 
 export function SearchDialog() {
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState("");
   const [shortcutModifier, setShortcutModifier] = React.useState("Ctrl");
@@ -157,6 +158,7 @@ export function SearchDialog() {
   return (
     <>
       <Button
+        ref={triggerRef}
         onClick={() => handleOpenChange(true)}
         variant="link"
         aria-label="搜索页面"
@@ -173,7 +175,10 @@ export function SearchDialog() {
           <span className="text-xs">{shortcutModifier}</span>J
         </kbd>
       </Button>
-      <CommandDialog open={open} onOpenChange={handleOpenChange}>
+      <CommandDialog open={open} onOpenChange={handleOpenChange} onCloseAutoFocus={(event) => {
+        event.preventDefault();
+        triggerRef.current?.focus();
+      }}>
         <Command>
           <CommandInput placeholder="搜索任务、资产、漏洞和设置…" value={query} onValueChange={setQuery} />
           <CommandList>

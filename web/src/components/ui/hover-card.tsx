@@ -1,27 +1,45 @@
-"use client";
-import * as React from "react";
-import MuiTooltip from "@mui/material/Tooltip";
-import { cn } from "@/lib/utils";
+"use client"
 
-type ContentProps = { className?: string; children?: React.ReactNode; side?: "top" | "right" | "bottom" | "left"; align?: "start" | "center" | "end" };
-function HoverCard({ children, openDelay = 200, closeDelay = 100 }: { children?: React.ReactNode; openDelay?: number; closeDelay?: number }) {
-  let trigger: React.ReactElement | undefined;
-  let content: ContentProps | undefined;
-  React.Children.forEach(children, (child) => {
-    if (!React.isValidElement(child)) return;
-    if (child.type === HoverCardTrigger) trigger = (child.props as { children: React.ReactElement }).children;
-    if (child.type === HoverCardContent) content = child.props as ContentProps;
-  });
-  if (!trigger) return <>{children}</>;
-  const side = content?.side ?? "bottom";
-  const placement = content?.align && content.align !== "center" ? `${side}-${content.align}` as const : side;
-  return <MuiTooltip title={<div className={cn("w-64 max-w-[calc(100vw-2rem)] rounded-lg bg-popover p-2.5 text-sm text-popover-foreground", content?.className)}>{content?.children}</div>}
-    enterDelay={openDelay} leaveDelay={closeDelay} placement={placement}
-    slotProps={{ tooltip: { className: "max-w-none bg-popover p-0 shadow-lg ring-1 ring-border" } }}>
-    {trigger}
-  </MuiTooltip>;
+import * as React from "react"
+import { HoverCard as HoverCardPrimitive } from "radix-ui"
+
+import { cn } from "@/lib/utils"
+
+function HoverCard({
+  ...props
+}: React.ComponentProps<typeof HoverCardPrimitive.Root>) {
+  return <HoverCardPrimitive.Root data-slot="hover-card" {...props} />
 }
-function HoverCardTrigger({ children }: { asChild?: boolean; children?: React.ReactNode }) { return <>{children}</>; }
-function HoverCardContent(_props: ContentProps) { return null; }
-export { HoverCard, HoverCardTrigger, HoverCardContent };
 
+function HoverCardTrigger({
+  ...props
+}: React.ComponentProps<typeof HoverCardPrimitive.Trigger>) {
+  return (
+    <HoverCardPrimitive.Trigger data-slot="hover-card-trigger" {...props} />
+  )
+}
+
+function HoverCardContent({
+  className,
+  align = "center",
+  sideOffset = 4,
+  ...props
+}: React.ComponentProps<typeof HoverCardPrimitive.Content>) {
+  return (
+    <HoverCardPrimitive.Portal data-slot="hover-card-portal">
+      <HoverCardPrimitive.Content
+        data-slot="hover-card-content"
+        role="tooltip"
+        align={align}
+        sideOffset={sideOffset}
+        className={cn(
+          "z-50 w-64 origin-(--radix-hover-card-content-transform-origin) rounded-lg bg-popover p-2.5 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-hidden duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          className
+        )}
+        {...props}
+      />
+    </HoverCardPrimitive.Portal>
+  )
+}
+
+export { HoverCard, HoverCardTrigger, HoverCardContent }

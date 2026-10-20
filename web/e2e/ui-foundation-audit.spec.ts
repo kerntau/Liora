@@ -24,8 +24,8 @@ test("tabs, navigation and checkbox styles reflect their actual state", async ({
   await fixture(page);
   await page.goto("/function/tasks");
   const current = page.getByRole("tab", { name: "当前任务", exact: true });
-  await expect(current).toHaveAttribute("data-active", "");
-  await expect(page.getByRole("tab", { name: "已归档", exact: true })).not.toHaveAttribute("data-active");
+  await expect(current).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: "已归档", exact: true })).toHaveAttribute("aria-selected", "false");
   const panel = page.getByRole("tabpanel", { name: "当前任务", exact: true });
   const tabBox = await current.boundingBox();
   const panelBox = await panel.boundingBox();
@@ -35,9 +35,9 @@ test("tabs, navigation and checkbox styles reflect their actual state", async ({
   const selection = page.getByRole("checkbox", { name: "选择任务 ui-audit", exact: true });
   await selection.check();
   await expect(selection).toBeChecked();
-  await expect(selection.locator("..")).toHaveAttribute("data-checked", "");
+  await expect(selection).toHaveAttribute("data-state", "checked");
   await selection.uncheck();
-  await expect(selection.locator("..")).not.toHaveAttribute("data-checked");
+  await expect(selection).toHaveAttribute("data-state", "unchecked");
   await page.screenshot({ path: testInfo.outputPath("tasks-desktop.png"), fullPage: true });
 });
 
@@ -83,8 +83,10 @@ test("export radios retain independent controlled groups and keyboard selection"
   await csv.check();
   await expect(all).toBeChecked();
   await expect(csv).toBeChecked();
-  await csv.press("ArrowDown");
+  await csv.focus();
+  await page.keyboard.down("ArrowDown");
   await expect(dialog.getByRole("radio", { name: "JSON（.json）", exact: true })).toBeChecked();
+  await page.keyboard.up("ArrowDown");
   await expect(dialog.getByRole("radio", { name: "导出勾选的 0 条", exact: true })).toBeDisabled();
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();

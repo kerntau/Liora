@@ -1,8 +1,10 @@
-import CircularProgress from "@mui/material/CircularProgress";
-import { cn } from "@/lib/utils";
+import { cn } from "@/lib/utils"
+import { Loader2Icon } from "lucide-react"
 
-function Spinner({ className, ...props }: React.ComponentProps<typeof CircularProgress>) {
-  return <CircularProgress data-slot="spinner" aria-label="正在加载" size="1em" color="inherit" className={cn("size-4 shrink-0", className)} {...props} />;
+function Spinner({ className, ...props }: React.ComponentProps<"svg">) {
+  return (
+    <Loader2Icon data-slot="spinner" role="status" aria-label="Loading" className={cn("size-4 animate-spin", className)} {...props} />
+  )
 }
-export { Spinner };
 
+export { Spinner }

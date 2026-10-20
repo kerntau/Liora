@@ -4,7 +4,6 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { PREFERENCE_DEFAULTS } from "@/lib/preferences/preferences-config";
 import { PreferencesStoreProvider } from "@/stores/preferences/preferences-provider";
-import { AppThemeProvider } from "@/theme";
 
 import { AppRouter } from "./router";
 import "./styles/globals.css";
@@ -19,11 +18,9 @@ createRoot(container).render(
     contentLayout={PREFERENCE_DEFAULTS.content_layout}
     navbarStyle={PREFERENCE_DEFAULTS.navbar_style}
   >
-    <AppThemeProvider>
-      <TooltipProvider>
-        <AppRouter />
-        <Toaster />
-      </TooltipProvider>
-    </AppThemeProvider>
+    <TooltipProvider>
+      <AppRouter />
+      <Toaster />
+    </TooltipProvider>
   </PreferencesStoreProvider>,
 );

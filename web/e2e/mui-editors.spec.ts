@@ -61,7 +61,7 @@ test("custom agent triggers preserve strategy saves, condition validation and ed
   await page.getByRole("tab", { name: "触发", exact: true }).click();
   await page.getByRole("combobox", { name: "运行模式", exact: true }).click();
   await page.getByRole("option", { name: "并行（各自并发会话）", exact: true }).click();
-  await expect(page.getByRole("combobox", { name: "合并模式", exact: true })).toHaveAttribute("aria-disabled", "true");
+  await expect(page.getByRole("combobox", { name: "合并模式", exact: true })).toBeDisabled();
   await page.getByRole("spinbutton", { name: "最大并发（0=不限）", exact: true }).fill("3");
   await page.getByRole("checkbox", { name: "定时触发", exact: true }).click();
   await expect

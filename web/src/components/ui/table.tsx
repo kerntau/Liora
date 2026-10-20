@@ -1,9 +1,3 @@
-import MuiTableCell from "@mui/material/TableCell"
-import MuiTableRow from "@mui/material/TableRow"
-import MuiTableFooter from "@mui/material/TableFooter"
-import MuiTableBody from "@mui/material/TableBody"
-import MuiTableHead from "@mui/material/TableHead"
-import MuiTable from "@mui/material/Table"
 "use client"
 
 import * as React from "react"
@@ -16,7 +10,7 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
       data-slot="table-container"
       className="relative w-full overflow-x-auto"
     >
-      <MuiTable
+      <table
         data-slot="table"
         className={cn("w-full caption-bottom text-sm", className)}
         {...props}
@@ -27,7 +21,7 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
 
 function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
   return (
-    <MuiTableHead
+    <thead
       data-slot="table-header"
       className={cn("[&_tr]:border-b", className)}
       {...props}
@@ -37,7 +31,7 @@ function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
 
 function TableBody({ className, ...props }: React.ComponentProps<"tbody">) {
   return (
-    <MuiTableBody
+    <tbody
       data-slot="table-body"
       className={cn("[&_tr:last-child]:border-0", className)}
       {...props}
@@ -47,7 +41,7 @@ function TableBody({ className, ...props }: React.ComponentProps<"tbody">) {
 
 function TableFooter({ className, ...props }: React.ComponentProps<"tfoot">) {
   return (
-    <MuiTableFooter
+    <tfoot
       data-slot="table-footer"
       className={cn(
         "border-t bg-muted/50 font-medium [&>tr]:last:border-b-0",
@@ -60,7 +54,7 @@ function TableFooter({ className, ...props }: React.ComponentProps<"tfoot">) {
 
 function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
   return (
-    <MuiTableRow
+    <tr
       data-slot="table-row"
       className={cn(
         "border-b transition-colors hover:bg-muted/50 has-aria-expanded:bg-muted/50 data-[state=selected]:bg-muted",
@@ -71,9 +65,9 @@ function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
   )
 }
 
-function TableHead({ className, ...props }: Omit<React.ComponentProps<"th">, "align"> & { align?: "left" | "center" | "right" | "justify" }) {
+function TableHead({ className, ...props }: React.ComponentProps<"th">) {
   return (
-    <MuiTableCell component="th"
+    <th
       data-slot="table-head"
       className={cn(
         "h-10 px-2 text-left align-middle font-medium whitespace-nowrap text-foreground [&:has([role=checkbox])]:pr-0",
@@ -84,9 +78,9 @@ function TableHead({ className, ...props }: Omit<React.ComponentProps<"th">, "al
   )
 }
 
-function TableCell({ className, ...props }: Omit<React.ComponentProps<"td">, "align"> & { align?: "left" | "center" | "right" | "justify" }) {
+function TableCell({ className, ...props }: React.ComponentProps<"td">) {
   return (
-    <MuiTableCell component="td"
+    <td
       data-slot="table-cell"
       className={cn(
         "p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0",

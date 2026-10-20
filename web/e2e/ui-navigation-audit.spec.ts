@@ -105,9 +105,9 @@ test("preferences persist across reload and account menu is keyboard accessible"
   await page.getByRole("option", { name: "柔和波普", exact: true }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme-preset", "soft-pop");
   await expect(preferences).toBeVisible();
-  await preferences.getByRole("button", { name: "居中内容", exact: true }).click();
+  await preferences.getByLabel("居中内容", { exact: true }).click();
   await expect(page.locator("html")).toHaveAttribute("data-content-layout", "centered");
-  await preferences.getByRole("button", { name: "深色主题", exact: true }).click();
+  await preferences.getByLabel("深色主题", { exact: true }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme-mode", "dark");
   await page.keyboard.press("Escape");
   await page.reload();

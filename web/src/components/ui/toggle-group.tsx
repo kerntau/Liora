@@ -1,38 +1,89 @@
-"use client";
+"use client"
 
-import * as React from "react";
-import MuiToggleButton from "@mui/material/ToggleButton";
-import MuiToggleButtonGroup from "@mui/material/ToggleButtonGroup";
-import { cn } from "@/lib/utils";
-import { useControllableState } from "./use-controllable-state";
+import * as React from "react"
+import { type VariantProps } from "class-variance-authority"
+import { ToggleGroup as ToggleGroupPrimitive } from "radix-ui"
 
-type Value = string | string[];
-const Context = React.createContext<{ value: Value; variant?: string; size?: string } | null>(null);
+import { cn } from "@/lib/utils"
+import { toggleVariants } from "@/components/ui/toggle"
 
-function ToggleGroup({ className, children, type = "single", value: controlled, defaultValue, onValueChange,
-  variant = "default", size = "default", spacing = 1, orientation = "horizontal", disabled, ...props }:
-  Omit<React.HTMLAttributes<HTMLDivElement>, "defaultValue" | "onChange" | "color"> & {
-    type?: "single" | "multiple"; value?: Value; defaultValue?: Value; onValueChange?: (value: any) => void;
-    variant?: string; size?: string; spacing?: number; orientation?: "horizontal" | "vertical"; disabled?: boolean;
+const ToggleGroupContext = React.createContext<
+  VariantProps<typeof toggleVariants> & {
+    spacing?: number
+    orientation?: "horizontal" | "vertical"
+  }
+>({
+  size: "default",
+  variant: "default",
+  spacing: 2,
+  orientation: "horizontal",
+})
+
+function ToggleGroup({
+  className,
+  variant,
+  size,
+  spacing = 2,
+  orientation = "horizontal",
+  children,
+  ...props
+}: React.ComponentProps<typeof ToggleGroupPrimitive.Root> &
+  VariantProps<typeof toggleVariants> & {
+    spacing?: number
+    orientation?: "horizontal" | "vertical"
   }) {
-  const [value, setValue] = useControllableState(controlled, defaultValue ?? (type === "multiple" ? [] : ""), onValueChange);
-  return <Context.Provider value={{ value, variant, size }}>
-    <MuiToggleButtonGroup data-slot="toggle-group" value={value} exclusive={type === "single"} disabled={disabled}
-      orientation={orientation} onChange={(_, next) => setValue(next ?? "")}
-      className={cn("flex w-fit items-center", orientation === "vertical" && "flex-col", className)}
-      sx={{ gap: `${spacing * 4}px` }} {...props}>{children}</MuiToggleButtonGroup>
-  </Context.Provider>;
+  return (
+    <ToggleGroupPrimitive.Root
+      data-slot="toggle-group"
+      data-variant={variant}
+      data-size={size}
+      data-spacing={spacing}
+      data-orientation={orientation}
+      style={{ "--gap": spacing } as React.CSSProperties}
+      className={cn(
+        "group/toggle-group flex w-fit flex-row items-center gap-[--spacing(var(--gap))] rounded-lg data-[size=sm]:rounded-[min(var(--radius-md),10px)] data-vertical:flex-col data-vertical:items-stretch",
+        className
+      )}
+      {...props}
+    >
+      <ToggleGroupContext.Provider
+        value={{ variant, size, spacing, orientation }}
+      >
+        {children}
+      </ToggleGroupContext.Provider>
+    </ToggleGroupPrimitive.Root>
+  )
 }
 
-function ToggleGroupItem({ className, variant, size, ...props }:
-  Omit<React.ComponentProps<typeof MuiToggleButton>, "size" | "value"> & { value: string; variant?: string; size?: string }) {
-  const context = React.useContext(Context);
-  const selected = Array.isArray(context?.value) ? context.value.includes(props.value) : context?.value === props.value;
-  return <MuiToggleButton data-slot="toggle-group-item" data-state={selected ? "on" : "off"}
-    className={cn("inline-flex shrink-0 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium normal-case transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50",
-      (size ?? context?.size) === "sm" ? "h-8 px-2.5" : "h-9",
-      (variant ?? context?.variant) === "outline" ? "border border-input" : "border-transparent",
-      selected && "bg-accent text-accent-foreground", className)} {...props} />;
+function ToggleGroupItem({
+  className,
+  children,
+  variant = "default",
+  size = "default",
+  ...props
+}: React.ComponentProps<typeof ToggleGroupPrimitive.Item> &
+  VariantProps<typeof toggleVariants>) {
+  const context = React.useContext(ToggleGroupContext)
+
+  return (
+    <ToggleGroupPrimitive.Item
+      data-slot="toggle-group-item"
+      data-variant={context.variant || variant}
+      data-size={context.size || size}
+      data-spacing={context.spacing}
+      className={cn(
+        "shrink-0 group-data-[spacing=0]/toggle-group:rounded-none group-data-[spacing=0]/toggle-group:px-2 focus:z-10 focus-visible:z-10 group-data-[spacing=0]/toggle-group:has-data-[icon=inline-end]:pr-1.5 group-data-[spacing=0]/toggle-group:has-data-[icon=inline-start]:pl-1.5 group-data-horizontal/toggle-group:data-[spacing=0]:first:rounded-l-lg group-data-vertical/toggle-group:data-[spacing=0]:first:rounded-t-lg group-data-horizontal/toggle-group:data-[spacing=0]:last:rounded-r-lg group-data-vertical/toggle-group:data-[spacing=0]:last:rounded-b-lg group-data-horizontal/toggle-group:data-[spacing=0]:data-[variant=outline]:border-l-0 group-data-vertical/toggle-group:data-[spacing=0]:data-[variant=outline]:border-t-0 group-data-horizontal/toggle-group:data-[spacing=0]:data-[variant=outline]:first:border-l group-data-vertical/toggle-group:data-[spacing=0]:data-[variant=outline]:first:border-t",
+        toggleVariants({
+          variant: context.variant || variant,
+          size: context.size || size,
+        }),
+        className
+      )}
+      {...props}
+    >
+      {children}
+    </ToggleGroupPrimitive.Item>
+  )
 }
 
-export { ToggleGroup, ToggleGroupItem };
+export { ToggleGroup, ToggleGroupItem }

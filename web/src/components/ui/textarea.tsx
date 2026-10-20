@@ -1,11 +1,10 @@
-import TextareaAutosize from "@mui/material/TextareaAutosize"
 import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
 function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
   return (
-    <TextareaAutosize
+    <textarea
       data-slot="textarea"
       className={cn(
         // field-sizing-content auto-grows the textarea to its content; cap the

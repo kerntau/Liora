@@ -1,231 +1,351 @@
 "use client"
 
 import * as React from "react"
-import useAutocomplete, { type UseAutocompleteReturnValue } from "@mui/material/useAutocomplete"
-import ButtonBase from "@mui/material/ButtonBase"
-import Chip from "@mui/material/Chip"
-import ClickAwayListener from "@mui/material/ClickAwayListener"
-import Divider from "@mui/material/Divider"
-import InputBase from "@mui/material/InputBase"
-import ListItemButton from "@mui/material/ListItemButton"
-import Paper from "@mui/material/Paper"
-import Popper from "@mui/material/Popper"
-import useForkRef from "@mui/utils/useForkRef"
-import { CheckIcon, ChevronDownIcon, XIcon } from "lucide-react"
+import { Combobox as ComboboxPrimitive } from "@base-ui/react"
 
 import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "@/components/ui/input-group"
+import { ChevronDownIcon, XIcon, CheckIcon } from "lucide-react"
 
-type Selection<Item, Multiple extends boolean> = Multiple extends true ? Item[] : Item | null
-type RootProps<Item, Multiple extends boolean> = {
-  items?: Item[]
-  multiple?: Multiple
-  value?: Selection<Item, Multiple>
-  defaultValue?: Selection<Item, Multiple>
-  onValueChange?: (value: Selection<Item, Multiple>) => void
-  inputValue?: string
-  onInputValueChange?: (value: string) => void
-  itemToStringLabel?: (item: Item) => string
-  itemToStringValue?: (item: Item) => string
-  disabled?: boolean
-  children?: React.ReactNode
-}
-type ComboboxState = {
-  api: UseAutocompleteReturnValue<unknown, boolean, false, false>
-  disabled: boolean
-  multiple: boolean
-  labelFor: (item: unknown) => string
-  keyFor: (item: unknown) => string
-  close: () => void
-}
-const ComboboxContext = React.createContext<ComboboxState | null>(null)
-const ChipIndexContext = React.createContext(0)
-function useCombobox() {
-  const state = React.useContext(ComboboxContext)
-  if (!state) throw new Error("Combobox controls must be inside Combobox")
-  return state
+function Combobox<Value, Multiple extends boolean | undefined = false, Item = Value>({
+  autoHighlight = true,
+  itemToStringLabel,
+  itemToStringValue,
+  open: controlledOpen,
+  defaultOpen = false,
+  onOpenChange,
+  actionsRef: providedActionsRef,
+  ...props
+}: ComboboxPrimitive.Root.Props<Value, Multiple, Item>) {
+  const [internalOpen, setInternalOpen] = React.useState(defaultOpen)
+  const internalActionsRef = React.useRef<ComboboxPrimitive.Root.Actions | null>(null)
+  const actionsRef = providedActionsRef ?? internalActionsRef
+  const open = controlledOpen ?? internalOpen
+
+  // Handle Escape before a surrounding Radix dialog's document listener.
+  React.useEffect(() => {
+    if (!open) return
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return
+      event.preventDefault()
+      event.stopPropagation()
+      actionsRef.current?.close()
+    }
+    window.addEventListener("keydown", dismiss, true)
+    return () => window.removeEventListener("keydown", dismiss, true)
+  }, [open, actionsRef])
+
+  return <ComboboxPrimitive.Root autoHighlight={autoHighlight} itemToStringLabel={itemToStringLabel ?? itemToStringValue} itemToStringValue={itemToStringValue} {...props} open={open} actionsRef={actionsRef} onOpenChange={(next, details) => {
+    if (props.multiple && !next && details.reason === "item-press") {
+      details.cancel()
+      return
+    }
+    onOpenChange?.(next, details)
+    setInternalOpen(next)
+  }} />
 }
 
-function Combobox<Item = string, Multiple extends boolean = false>({
-  items = [], multiple = false as Multiple, value, defaultValue, onValueChange,
-  inputValue, onInputValueChange, itemToStringLabel, itemToStringValue, disabled = false, children,
-}: RootProps<Item, Multiple>) {
-  const [open, setOpen] = React.useState(false)
-  const labelFor = (item: unknown) => String(itemToStringLabel?.(item as Item) ?? itemToStringValue?.(item as Item) ?? item ?? "")
-  const keyFor = (item: unknown) => String(itemToStringValue?.(item as Item) ?? labelFor(item))
-  const api = useAutocomplete<unknown, boolean, false, false>({
-    options: items,
-    multiple,
-    value,
-    defaultValue,
-    inputValue,
-    disabled,
-    open: open && !disabled,
-    openOnFocus: true,
-    autoHighlight: true,
-    clearOnBlur: false,
-    disableCloseOnSelect: multiple,
-    getOptionLabel: labelFor,
-    getOptionKey: keyFor,
-    isOptionEqualToValue: (option, selected) => keyFor(option) === keyFor(selected),
-    onOpen: () => setOpen(true),
-    onClose: () => setOpen(false),
-    onChange: (_event, next) => onValueChange?.(next as Selection<Item, Multiple>),
-    onInputChange: (_event, next) => onInputValueChange?.(next),
-  })
+function ComboboxValue({ ...props }: ComboboxPrimitive.Value.Props) {
+  return <ComboboxPrimitive.Value data-slot="combobox-value" {...props} />
+}
+
+function ComboboxTrigger({
+  className,
+  children,
+  ...props
+}: ComboboxPrimitive.Trigger.Props) {
   return (
-    <ComboboxContext.Provider value={{ api, disabled, multiple, keyFor, labelFor, close: () => setOpen(false) }}>
-      <ClickAwayListener onClickAway={() => setOpen(false)} mouseEvent="onMouseDown">
-        <div
-          {...api.getRootProps({
-            onKeyDown: (event: React.KeyboardEvent & { defaultMuiPrevented?: boolean }) => {
-              // Respect consumers such as the category creator before MUI
-              // handles Enter, and leave composing IME keystrokes untouched.
-              if (event.defaultPrevented || event.nativeEvent.isComposing) event.defaultMuiPrevented = true
-            },
-          })}
-          ref={api.setAnchorEl}
-          data-slot="combobox"
-          className="min-w-0 w-full"
-        >
-          {children}
-        </div>
-      </ClickAwayListener>
-    </ComboboxContext.Provider>
+    <ComboboxPrimitive.Trigger
+      data-slot="combobox-trigger"
+      className={cn("[&_svg:not([class*='size-'])]:size-4", className)}
+      {...props}
+    >
+      {children}
+      <ChevronDownIcon className="pointer-events-none size-4 text-muted-foreground" />
+    </ComboboxPrimitive.Trigger>
   )
 }
 
-type ValueProps = Omit<React.HTMLAttributes<HTMLSpanElement>, "children"> & {
-  children?: React.ReactNode | ((value: any) => React.ReactNode)
-}
-function ComboboxValue({ children, ...props }: ValueProps) {
-  const { api, labelFor } = useCombobox()
-  const content = typeof children === "function" ? children(api.value) : children
+function ComboboxClear({ className, ...props }: ComboboxPrimitive.Clear.Props) {
   return (
-    <span data-slot="combobox-value" className="contents" {...props}>
-      {content == null ? (Array.isArray(api.value) ? api.value.map(labelFor).join(", ") : api.value == null ? null : labelFor(api.value)) :
-        React.Children.map(content, (child, index) => <ChipIndexContext.Provider value={index}>{child}</ChipIndexContext.Provider>)}
-    </span>
+    <ComboboxPrimitive.Clear
+      data-slot="combobox-clear"
+      aria-label="清除选择"
+      render={<InputGroupButton variant="ghost" size="icon-xs" />}
+      className={cn(className)}
+      {...props}
+    >
+      <XIcon className="pointer-events-none" />
+    </ComboboxPrimitive.Clear>
   )
 }
 
-function ComboboxTrigger({ children, onClick, disabled, ...props }: React.ComponentProps<typeof ButtonBase>) {
-  const state = useCombobox()
-  const trigger = state.api.getPopupIndicatorProps()
-  return <ButtonBase {...trigger} {...props} type="button" data-slot="combobox-trigger" aria-label={state.api.popupOpen ? "收起选项" : "展开选项"} disabled={disabled || state.disabled} onClick={(event) => { onClick?.(event); if (!event.defaultPrevented) trigger.onClick?.(event) }}>{children ?? <ChevronDownIcon className="size-4 opacity-60" />}</ButtonBase>
-}
-
-type InputProps = React.ComponentProps<"input"> & { showClear?: boolean }
-function ComboboxInput({ className, showClear = false, ...props }: InputProps) {
+function ComboboxInput({
+  className,
+  children,
+  disabled = false,
+  showTrigger = true,
+  showClear = false,
+  onKeyDown,
+  ...props
+}: ComboboxPrimitive.Input.Props & {
+  showTrigger?: boolean
+  showClear?: boolean
+}) {
   return (
-    <div data-slot="combobox-input" className={cn("flex h-8 w-full items-center gap-1 rounded-lg border border-input bg-transparent px-2.5 text-sm focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50", className)}>
-      <ComboboxChipsInput {...props} />
-      {showClear && <ComboboxClear />}
-      <ComboboxTrigger disabled={props.disabled} className="size-5 shrink-0" />
-    </div>
+    <InputGroup className={cn("w-auto", className)}>
+      <ComboboxPrimitive.Input
+        disabled={disabled}
+        render={<InputGroupInput disabled={disabled} />}
+        {...props}
+        onKeyDown={(event) => {
+          if (event.key === "Escape" && event.currentTarget.getAttribute("aria-expanded") === "true") event.stopPropagation()
+          onKeyDown?.(event)
+        }}
+      />
+      <InputGroupAddon align="inline-end">
+        {showTrigger && (
+          <InputGroupButton
+            size="icon-xs"
+            variant="ghost"
+            asChild
+            data-slot="input-group-button"
+            className="group-has-data-[slot=combobox-clear]/input-group:hidden data-pressed:bg-transparent"
+            disabled={disabled}
+          >
+            <ComboboxTrigger />
+          </InputGroupButton>
+        )}
+        {showClear && <ComboboxClear disabled={disabled} />}
+      </InputGroupAddon>
+      {children}
+    </InputGroup>
   )
 }
 
-function ComboboxChipsInput({ className, ref: forwardedRef, onChange, onFocus, onBlur, onMouseDown, disabled, ...props }: React.ComponentProps<"input">) {
-  const { api, disabled: rootDisabled } = useCombobox()
-  const { ref: inputRef, ...input } = api.getInputProps()
-  const ref = useForkRef(inputRef, forwardedRef)
+function ComboboxContent({
+  className,
+  side = "bottom",
+  sideOffset = 6,
+  align = "start",
+  alignOffset = 0,
+  anchor,
+  portalContainer,
+  ...props
+}: ComboboxPrimitive.Popup.Props &
+  Pick<
+    ComboboxPrimitive.Positioner.Props,
+    "side" | "align" | "sideOffset" | "alignOffset" | "anchor"
+  > & {
+    portalContainer?: ComboboxPrimitive.Portal.Props["container"]
+  }) {
   return (
-    <InputBase
-      sx={{ display: "contents" }}
-      inputRef={ref}
-      disabled={disabled || rootDisabled}
-      slotProps={{ input: {
-        ...input, ...props,
-        ...{ "data-slot": "combobox-chips-input" },
-        disabled: disabled || rootDisabled,
-        className: cn("h-7 min-w-16 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50", className),
-        onChange: (event: React.ChangeEvent<HTMLInputElement>) => { onChange?.(event); if (!event.defaultPrevented) input.onChange?.(event) },
-        onFocus: (event: React.FocusEvent<HTMLInputElement>) => { onFocus?.(event); if (!event.defaultPrevented) input.onFocus?.(event) },
-        onBlur: (event: React.FocusEvent<HTMLInputElement>) => { onBlur?.(event); if (!event.defaultPrevented) input.onBlur?.(event) },
-        onMouseDown: (event: React.MouseEvent<HTMLInputElement>) => { onMouseDown?.(event); if (!event.defaultPrevented) input.onMouseDown?.(event) },
-      } }}
+    <ComboboxPrimitive.Portal container={portalContainer}>
+      <ComboboxPrimitive.Positioner
+        side={side}
+        sideOffset={sideOffset}
+        align={align}
+        alignOffset={alignOffset}
+        anchor={anchor}
+        className="isolate z-50"
+      >
+        <ComboboxPrimitive.Popup
+          data-slot="combobox-content"
+          data-chips={!!anchor}
+          className={cn("group/combobox-content relative max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) min-w-[calc(var(--anchor-width)+--spacing(7))] origin-(--transform-origin) overflow-hidden rounded-lg bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10 duration-100 data-[chips=true]:min-w-(--anchor-width) data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 *:data-[slot=input-group]:m-1 *:data-[slot=input-group]:mb-0 *:data-[slot=input-group]:h-8 *:data-[slot=input-group]:border-input/30 *:data-[slot=input-group]:bg-input/30 *:data-[slot=input-group]:shadow-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95", className )}
+          {...props}
+        />
+      </ComboboxPrimitive.Positioner>
+    </ComboboxPrimitive.Portal>
+  )
+}
+
+function ComboboxList({ className, ...props }: ComboboxPrimitive.List.Props) {
+  return (
+    <ComboboxPrimitive.List
+      data-slot="combobox-list"
+      className={cn(
+        "no-scrollbar max-h-[min(calc(--spacing(72)---spacing(9)),calc(var(--available-height)---spacing(9)))] scroll-py-1 overflow-y-auto overscroll-contain p-1 data-empty:p-0",
+        className
+      )}
+      {...props}
     />
   )
 }
 
-function ComboboxContent({ children, className, portalContainer, ...props }: React.HTMLAttributes<HTMLDivElement> & { portalContainer?: React.RefObject<HTMLElement | null> }) {
-  const { api } = useCombobox()
+function ComboboxItem({
+  className,
+  children,
+  ...props
+}: ComboboxPrimitive.Item.Props) {
   return (
-    <Popper
-      role="presentation"
-      open={api.popupOpen && !!api.anchorEl}
-      anchorEl={api.anchorEl}
-      placement="bottom-start"
-      container={portalContainer ? () => portalContainer.current : undefined}
-      style={{ width: api.anchorEl?.getBoundingClientRect().width }}
-      sx={{ zIndex: (theme) => theme.zIndex.modal + 1 }}
-      modifiers={[{ name: "offset", options: { offset: [0, 4] } }]}
-    >
-      <Paper
-        {...props}
-        data-slot="combobox-content"
-        className={cn("max-h-80 overflow-y-auto rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-md", className)}
-        onMouseDown={(event) => { props.onMouseDown?.(event); event.preventDefault() }}
-      >
-        {children}
-      </Paper>
-    </Popper>
-  )
-}
-
-type ListProps = Omit<React.HTMLAttributes<HTMLUListElement>, "children"> & { children?: React.ReactNode | ((item: any) => React.ReactNode) }
-function ComboboxList({ children, className, ...props }: ListProps) {
-  const { api } = useCombobox()
-  return <ul {...api.getListboxProps()} {...props} data-slot="combobox-list" className={cn("m-0 list-none p-0 outline-none", className)}>{typeof children === "function" ? api.groupedOptions.map(children) : children}</ul>
-}
-
-function ComboboxItem({ children, value, className, disabled, onClick, onMouseMove, ...props }: Omit<React.HTMLAttributes<HTMLLIElement>, "value"> & { value: unknown; disabled?: boolean }) {
-  const { api, keyFor, disabled: rootDisabled } = useCombobox()
-  const index = api.groupedOptions.findIndex((item) => keyFor(item) === keyFor(value))
-  if (index < 0) return null
-  const { key: _key, ...option } = api.getOptionProps({ option: value, index })
-  const isDisabled = disabled || rootDisabled
-  return (
-    <ListItemButton
-      component="li"
-      {...option} {...props}
-      disabled={isDisabled}
-      aria-disabled={isDisabled || undefined}
-      selected={!!option["aria-selected"]}
+    <ComboboxPrimitive.Item
       data-slot="combobox-item"
-      className={cn("gap-2 rounded-md text-sm [&.Mui-focused]:bg-accent [&.Mui-focusVisible]:bg-accent", className)}
-      onMouseMove={(event) => { onMouseMove?.(event); if (!event.defaultPrevented && !isDisabled) option.onMouseMove?.(event) }}
-      onClick={(event) => { onClick?.(event); if (!event.defaultPrevented && !isDisabled) option.onClick?.(event) }}
+      className={cn(
+        "relative flex w-full cursor-default items-center gap-2 rounded-md py-1 pr-8 pl-1.5 text-sm outline-hidden select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground not-data-[variant=destructive]:data-highlighted:**:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        className
+      )}
+      {...props}
     >
-      {children}<CheckIcon aria-hidden="true" className={cn("ml-auto size-4 shrink-0", !option["aria-selected"] && "invisible")} />
-    </ListItemButton>
+      {children}
+      <ComboboxPrimitive.ItemIndicator
+        render={
+          <span className="pointer-events-none absolute right-2 flex size-4 items-center justify-center" />
+        }
+      >
+        <CheckIcon className="pointer-events-none" />
+      </ComboboxPrimitive.ItemIndicator>
+    </ComboboxPrimitive.Item>
   )
 }
 
-function ComboboxEmpty({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  const { api } = useCombobox()
-  return api.groupedOptions.length ? null : <div role="status" className={cn("px-2 py-2 text-center text-sm text-muted-foreground", className)} {...props} />
+function ComboboxGroup({ className, ...props }: ComboboxPrimitive.Group.Props) {
+  return (
+    <ComboboxPrimitive.Group
+      data-slot="combobox-group"
+      className={cn(className)}
+      {...props}
+    />
+  )
 }
-function ComboboxChips({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div data-slot="combobox-chips" className={cn("flex min-h-8 w-full flex-wrap items-center gap-1 rounded-lg border border-input bg-transparent px-2 py-1 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50", className)} {...props} />
-}
-function ComboboxChip({ children, className, ...props }: Omit<React.HTMLAttributes<HTMLDivElement>, "color">) {
-  const { api, disabled, labelFor } = useCombobox()
-  const index = React.useContext(ChipIndexContext)
-  const item = api.getItemProps({ index })
-  const { key: _key, ...itemProps } = item as typeof item & { key?: number }
-  const selected = Array.isArray(api.value) ? api.value[index] : api.value
-  return <Chip {...itemProps} {...props} data-slot="combobox-chip" size="small" disabled={disabled} label={children} className={cn("max-w-full rounded-md bg-muted text-foreground", className)} deleteIcon={<XIcon aria-label={`移除 ${labelFor(selected)}`} className="size-3" />} onDelete={disabled ? undefined : itemProps.onDelete} sx={{ fontFamily: "inherit", fontSize: "0.75rem", height: "1.5rem", "& .MuiChip-label": { px: 0.75 } }} />
-}
-function ComboboxClear(props: React.ComponentProps<typeof ButtonBase>) {
-  const { api, disabled } = useCombobox()
-  if (!api.dirty) return null
-  return <ButtonBase {...api.getClearProps()} {...props} disabled={disabled || props.disabled} aria-label="清除选择" className={cn("size-5 shrink-0 rounded-sm", props.className)}><XIcon className="size-3.5" /></ButtonBase>
-}
-function ComboboxGroup(props: React.HTMLAttributes<HTMLDivElement>) { return <div role="group" {...props} /> }
-function ComboboxLabel({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) { return <div className={cn("px-2 py-1 text-xs font-medium text-muted-foreground", className)} {...props} /> }
-function ComboboxCollection({ children }: { children?: React.ReactNode | ((item: any) => React.ReactNode) }) { const { api } = useCombobox(); return <>{typeof children === "function" ? api.groupedOptions.map(children) : children}</> }
-function ComboboxSeparator({ className }: { className?: string }) { return <Divider className={cn("my-1", className)} /> }
-function useComboboxAnchor() { return React.useRef<HTMLDivElement | null>(null) }
 
-export { Combobox, ComboboxInput, ComboboxContent, ComboboxList, ComboboxItem, ComboboxGroup, ComboboxLabel, ComboboxCollection, ComboboxEmpty, ComboboxSeparator, ComboboxChips, ComboboxChip, ComboboxChipsInput, ComboboxTrigger, ComboboxValue, ComboboxClear, useComboboxAnchor }
+function ComboboxLabel({
+  className,
+  ...props
+}: ComboboxPrimitive.GroupLabel.Props) {
+  return (
+    <ComboboxPrimitive.GroupLabel
+      data-slot="combobox-label"
+      className={cn("px-2 py-1.5 text-xs text-muted-foreground", className)}
+      {...props}
+    />
+  )
+}
+
+function ComboboxCollection({ ...props }: ComboboxPrimitive.Collection.Props) {
+  return (
+    <ComboboxPrimitive.Collection data-slot="combobox-collection" {...props} />
+  )
+}
+
+function ComboboxEmpty({ className, ...props }: ComboboxPrimitive.Empty.Props) {
+  return (
+    <ComboboxPrimitive.Empty
+      data-slot="combobox-empty"
+      className={cn(
+        "hidden w-full justify-center py-2 text-center text-sm text-muted-foreground group-data-empty/combobox-content:flex",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function ComboboxSeparator({
+  className,
+  ...props
+}: ComboboxPrimitive.Separator.Props) {
+  return (
+    <ComboboxPrimitive.Separator
+      data-slot="combobox-separator"
+      className={cn("-mx-1 my-1 h-px bg-border", className)}
+      {...props}
+    />
+  )
+}
+
+function ComboboxChips({
+  className,
+  ...props
+}: React.ComponentPropsWithRef<typeof ComboboxPrimitive.Chips> &
+  ComboboxPrimitive.Chips.Props) {
+  return (
+    <ComboboxPrimitive.Chips
+      data-slot="combobox-chips"
+      className={cn(
+        "flex min-h-8 flex-wrap items-center gap-1 rounded-lg border border-input bg-transparent bg-clip-padding px-2.5 py-1 text-sm transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 has-aria-invalid:border-destructive has-aria-invalid:ring-3 has-aria-invalid:ring-destructive/20 has-data-[slot=combobox-chip]:px-1 dark:bg-input/30 dark:has-aria-invalid:border-destructive/50 dark:has-aria-invalid:ring-destructive/40",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function ComboboxChip({
+  className,
+  children,
+  showRemove = true,
+  ...props
+}: ComboboxPrimitive.Chip.Props & {
+  showRemove?: boolean
+}) {
+  return (
+    <ComboboxPrimitive.Chip
+      data-slot="combobox-chip"
+      className={cn(
+        "flex h-[calc(--spacing(5.25))] w-fit items-center justify-center gap-1 rounded-sm bg-muted px-1.5 text-xs font-medium whitespace-nowrap text-foreground has-disabled:pointer-events-none has-disabled:cursor-not-allowed has-disabled:opacity-50 has-data-[slot=combobox-chip-remove]:pr-0",
+        className
+      )}
+      {...props}
+    >
+      {children}
+      {showRemove && (
+        <ComboboxPrimitive.ChipRemove
+          aria-label={typeof children === "string" ? `移除 ${children}` : "移除选择"}
+          render={<Button variant="ghost" size="icon-xs" />}
+          className="-ml-1 opacity-50 hover:opacity-100"
+          data-slot="combobox-chip-remove"
+        >
+          <XIcon className="pointer-events-none" />
+        </ComboboxPrimitive.ChipRemove>
+      )}
+    </ComboboxPrimitive.Chip>
+  )
+}
+
+function ComboboxChipsInput({
+  className,
+  onKeyDown,
+  ...props
+}: ComboboxPrimitive.Input.Props) {
+  return (
+    <ComboboxPrimitive.Input
+      data-slot="combobox-chip-input"
+      className={cn("min-w-16 flex-1 outline-none", className)}
+      {...props}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && event.currentTarget.getAttribute("aria-expanded") === "true") event.stopPropagation()
+        onKeyDown?.(event)
+      }}
+    />
+  )
+}
+
+function useComboboxAnchor() {
+  return React.useRef<HTMLDivElement | null>(null)
+}
+
+export {
+  Combobox,
+  ComboboxInput,
+  ComboboxContent,
+  ComboboxList,
+  ComboboxItem,
+  ComboboxGroup,
+  ComboboxLabel,
+  ComboboxCollection,
+  ComboboxEmpty,
+  ComboboxSeparator,
+  ComboboxChips,
+  ComboboxChip,
+  ComboboxChipsInput,
+  ComboboxTrigger,
+  ComboboxValue,
+  useComboboxAnchor,
+}

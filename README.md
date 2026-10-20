@@ -16,6 +16,14 @@ Liora（中文名：灵探）是一款 AI 辅助自动化渗透测试平台，�
 
 需要 Go 1.26.3+、Node.js 22.12+ 和 npm。后端默认创建 `data/liora.db`，无需 PostgreSQL。可在 `config.json` 的 `database.path` 或环境变量 `LIORA_SQLITE_PATH` 中指定数据库文件。
 
+Windows 可以在项目根目录一键启动前后端（也可直接双击 `dev.bat`）：
+
+```powershell
+.\dev.bat
+```
+
+启动后访问 `http://127.0.0.1:5173`。首次运行会安装缺失的前端依赖；按 `Ctrl+C` 停止本次启动的服务。日志保存在 `.runtime.local/dev`。已启动的服务会继续复用。
+
 分别启动两个终端：
 
 ```powershell

@@ -439,7 +439,7 @@ export default function MCPPage() {
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent
           side="right"
-          className="w-full data-[side=right]:sm:max-w-lg"
+          className="w-full! data-[side=right]:sm:max-w-lg"
         >
           <SheetHeader>
             <SheetTitle>{editing ? editing.name : "添加 MCP 服务器"}</SheetTitle>

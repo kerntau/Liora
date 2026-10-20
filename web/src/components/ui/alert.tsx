@@ -1,5 +1,4 @@
 import * as React from "react"
-import MuiAlert from "@mui/material/Alert"
 import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
@@ -24,12 +23,9 @@ function Alert({
   className,
   variant,
   ...props
-}: Omit<React.ComponentProps<"div">, "color"> & VariantProps<typeof alertVariants>) {
+}: React.ComponentProps<"div"> & VariantProps<typeof alertVariants>) {
   return (
-    <MuiAlert
-      icon={false}
-      severity={variant === "destructive" ? "error" : "info"}
-      sx={{ "& .MuiAlert-message": { display: "contents" } }}
+    <div
       data-slot="alert"
       role="alert"
       className={cn(alertVariants({ variant }), className)}
