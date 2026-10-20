@@ -375,7 +375,7 @@ func TestFindingGroupsAndUnassignedPaging(t *testing.T) {
 	if group := groupForTask(groups, taskA.ID); group == nil || group.TaskStatus != "queued" {
 		t.Fatalf("queued task group status mismatch: %+v", groups)
 	}
-	if err := d.SetStatus(taskA.ID, "done"); err != nil {
+	if _, err := d.SetStatus(taskA.ID, "done"); err != nil {
 		t.Fatal(err)
 	}
 	groups, _, _, err = d.ListFindingGroups(FindingFilter{VulnClass: vc}, 1, 10)

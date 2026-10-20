@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -263,12 +264,10 @@ func installTaskArchiveFiles(dataDir, extractedDir, taskID string, archiveID int
 	}
 	for _, move := range sources {
 		if err := os.MkdirAll(filepath.Dir(move.Destination), 0o755); err != nil {
-			_ = stage.rollback()
-			return nil, err
+			return nil, errors.Join(err, stage.rollback())
 		}
 		if err := os.Rename(move.Source, move.Destination); err != nil {
-			_ = stage.rollback()
-			return nil, err
+			return nil, errors.Join(err, stage.rollback())
 		}
 	}
 	return stage, nil
@@ -302,8 +301,33 @@ func (s *taskArchiveRestoreFiles) rollback() error {
 			errs = append(errs, err)
 		}
 	}
+	if len(errs) == 0 {
+		// The journal only means anything while a rename is outstanding. Dropping it
+		// after a clean rollback is what lets the caller delete the extraction
+		// directory; keeping it would make the recovery pass replay moves that no
+		// longer exist.
+		if err := os.Remove(filepath.Join(s.extracted, "restore-journal.json")); err != nil && !os.IsNotExist(err) {
+			errs = append(errs, err)
+		}
+	}
 	s.done = true
 	return errors.Join(errs...)
+}
+
+// cleanupRestoreExtraction drops a finished extraction directory, but keeps it
+// while the restore journal is still there. That journal is the only record of
+// which paths a half-finished install moved, and recoverTaskArchiveRestoreStages
+// replays it at startup. Deleting the directory while files are still installed
+// would strand them in the data tree and make every later restore attempt fail on
+// "restore destination already exists" with nothing left to roll back.
+func cleanupRestoreExtraction(extracted string) error {
+	if _, err := os.Lstat(filepath.Join(extracted, "restore-journal.json")); err == nil {
+		log.Printf("[task-archive] restore staging %s kept: a partial install is still on disk and only the journal can undo it", extracted)
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	return os.RemoveAll(extracted)
 }
 
 func (s *taskArchiveRestoreFiles) commit() error {

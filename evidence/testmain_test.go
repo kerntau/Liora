@@ -1,35 +1,24 @@
 package evidence
 
 import (
-	"context"
 	"os"
+	"path/filepath"
 	"testing"
-
-	"liora/db"
 )
 
-// Initialize an explicitly configured fresh database before taking the same
-// suite lock as db, agent and server. Hold it on one pinned connection.
+// The suite runs against a disposable SQLite file. It used to gate every test on
+// LIORA_PG_DSN, which no default run sets, and then took a PostgreSQL advisory
+// lock that SQLite cannot execute: the whole package reported success without
+// running one assertion.
+var testDBPath string
+
 func TestMain(m *testing.M) {
-	if os.Getenv("LIORA_PG_DSN") == "" {
-		os.Exit(m.Run())
-	}
-	os.Exit(runEvidenceSuite(m))
-}
-func runEvidenceSuite(m *testing.M) int {
-	pg, err := db.Open(os.Getenv("LIORA_PG_DSN"))
+	dir, err := os.MkdirTemp("", "liora-evidence-tests-")
 	if err != nil {
 		panic(err)
 	}
-	defer pg.Close()
-	conn, err := pg.Conn(context.Background())
-	if err != nil {
-		panic(err)
-	}
-	defer conn.Close()
-	if _, err = conn.ExecContext(context.Background(), `SELECT pg_advisory_lock(7337741002)`); err != nil {
-		panic(err)
-	}
-	defer conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock(7337741002)`)
-	return m.Run()
+	testDBPath = filepath.Join(dir, "test.db")
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
 }

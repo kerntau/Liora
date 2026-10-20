@@ -199,21 +199,12 @@ func (s *Server) archiveTask(job *pgdb.TaskArchive) (runErr error) {
 			_ = os.Remove(archivePath)
 		}
 	}()
-	var trafficStage *traffic.HostDeleteStage
 	if s.m.traffic != nil && len(snapshot.ExclusiveHosts) > 0 {
 		_ = s.m.pg.UpdateTaskArchiveProgress(job.ID, "compact_traffic", 68)
-		trafficStage, err = s.m.traffic.StageDeleteHostsExactForArchive(snapshot.ExclusiveHosts, job.ID, job.TaskID)
-		if err != nil {
-			return err
-		}
-		defer func() {
-			if !committed {
-				runErr = errors.Join(runErr, trafficStage.Rollback())
-			}
-		}()
 	}
 	_ = s.m.pg.UpdateTaskArchiveProgress(job.ID, "compact_database", 78)
-	if err := s.m.pg.CompleteTaskArchive(job.ID, snapshot, archivePath, checksum, originalSize, compressedSize); err != nil {
+	trafficStage, err := compactTaskArchive(s.m.pg, s.m.traffic, job, snapshot, archivePath, checksum, originalSize, compressedSize)
+	if err != nil {
 		return err
 	}
 	committed = true
@@ -236,6 +227,46 @@ func (s *Server) archiveTask(job *pgdb.TaskArchive) (runErr error) {
 	s.taskAgentMu.Unlock()
 	s.m.forgetTask(taskID, job.TaskID)
 	return nil
+}
+
+// compactTaskArchive compacts the hot store and stages the exclusive-host traffic
+// deletion inside that same database transaction. Taking the traffic write lock
+// from inside the transaction keeps the archive on the evidence writer's lock
+// order — database writer reservation first, traffic lock second. Staging the
+// traffic deletion first inverted that order: an evidence write holding the
+// database writer while asking for the traffic lock, and an archive holding the
+// traffic lock while asking for the database writer, wedged each other until
+// busy_timeout expired and the archive failed with "database is locked".
+//
+// The returned stage still holds the traffic write lock and must be committed
+// only after the database commit (see the caller); an error rolls it back here.
+func compactTaskArchive(
+	pg *pgdb.DB,
+	tr *traffic.Traffic,
+	job *pgdb.TaskArchive,
+	snapshot *pgdb.TaskArchiveSnapshot,
+	archivePath, sha256 string,
+	originalSize, compressedSize int64,
+) (*traffic.HostDeleteStage, error) {
+	var stage *traffic.HostDeleteStage
+	err := pg.CompleteTaskArchiveStaged(job.ID, snapshot, archivePath, sha256, originalSize, compressedSize, func() error {
+		if tr == nil || len(snapshot.ExclusiveHosts) == 0 {
+			return nil
+		}
+		staged, err := tr.StageDeleteHostsExactForArchive(snapshot.ExclusiveHosts, job.ID, job.TaskID)
+		if err != nil {
+			return err
+		}
+		stage = staged
+		return nil
+	})
+	if err != nil {
+		if stage != nil {
+			err = errors.Join(err, stage.Rollback())
+		}
+		return nil, err
+	}
+	return stage, nil
 }
 
 func (s *Server) restoreTaskArchive(job *pgdb.TaskArchive) (runErr error) {
@@ -265,7 +296,7 @@ func (s *Server) restoreTaskArchive(job *pgdb.TaskArchive) (runErr error) {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = os.RemoveAll(extracted) }()
+	defer func() { _ = cleanupRestoreExtraction(extracted) }()
 	if err := extractTaskArchivePackage(job.ArchivePath, job.SHA256, extracted); err != nil {
 		return err
 	}

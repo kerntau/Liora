@@ -1,6 +1,7 @@
 package traffic
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -111,6 +112,13 @@ FROM exchange_bodies WHERE id=?`, item.ID).Scan(&item.ReqHead, &item.ReqBody, &r
 		if err != nil {
 			return 0, err
 		}
+		// Refuse to package a body that no longer matches its hash. ImportArchive
+		// verifies every blob, so such a package could never be restored - and
+		// archiving deletes the live rows afterwards, which would make the corrupt
+		// copy the only one left.
+		if sum := sha256.Sum256(data); hex.EncodeToString(sum[:]) != hash {
+			return 0, fmt.Errorf("流量正文 %s 校验失败（%d 字节），拒绝归档", hash, len(data))
+		}
 		if err := os.WriteFile(filepath.Join(dir, "blobs", hash+".bin"), data, 0o600); err != nil {
 			return 0, err
 		}
@@ -161,14 +169,8 @@ func (t *Traffic) ImportArchive(dir string) (int64, error) {
 		if hex.EncodeToString(sum[:]) != hash {
 			return 0, fmt.Errorf("traffic blob checksum mismatch: %s", hash)
 		}
-		destination := filepath.Join(t.dir, "_blobs", "sha256", hash[:2], hash+".bin")
-		if _, err := os.Stat(destination); os.IsNotExist(err) {
-			if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
-				return 0, err
-			}
-			if err := os.WriteFile(destination, data, 0o644); err != nil {
-				return 0, err
-			}
+		if err := t.installBlob(hash, data); err != nil {
+			return 0, err
 		}
 	}
 	tx, err := t.db.Begin()
@@ -216,6 +218,41 @@ VALUES(?,?,?,?,?,?,?)`, item.ID, item.ReqHead, item.ReqBody, nullIfEmpty(item.Re
 		return imported, err
 	}
 	return imported, nil
+}
+
+// installBlob places one archived body in the content-addressed store. The bytes
+// are written to a temporary file and renamed into place, and an existing
+// destination is only reused when its content matches the archive exactly: an
+// import interrupted mid-write leaves a truncated body at the final path, and
+// treating "the file exists" as success would serve that stub as evidence
+// forever (blob_refs then keeps it alive, so nothing ever repairs it).
+func (t *Traffic) installBlob(hash string, data []byte) error {
+	destination := filepath.Join(t.dir, "_blobs", "sha256", hash[:2], hash+".bin")
+	if current, err := os.ReadFile(destination); err == nil {
+		if bytes.Equal(current, data) {
+			return nil
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+		return err
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(destination), hash[:8]+"-")
+	if err != nil {
+		return err
+	}
+	defer func() { temporary.Close(); os.Remove(temporary.Name()) }()
+	if _, err := temporary.Write(data); err != nil {
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temporary.Name(), destination)
 }
 
 func uniqueArchiveHosts(hosts []string) []string {

@@ -18,8 +18,14 @@ var (
 	ErrEvidenceNotFound = errors.New("流量证据不存在")
 )
 
-// This lock covers the evidence filesystem as well as its SQL references. All
-// processes sharing the database use it, including readers, exports and GC.
+// findingEvidenceLockKey reserves the evidence namespace that a PostgreSQL advisory
+// lock used to guard. Nothing acquires it on the SQLite backend, and it does not
+// provide cross-process exclusion: every evidence transaction is IMMEDIATE (see
+// db.go), which serializes writers within one process, and evidence.Store's
+// restoreMu serializes restore against GC in that same process. Two processes
+// sharing one data dir are therefore NOT protected from each other — that is a
+// deployment constraint this constant cannot enforce. It is kept only so the
+// namespace stays reserved (see the collision test).
 const findingEvidenceLockKey int64 = 7337741004
 
 func (d *DB) WithEvidenceTx(ctx context.Context, fn func(*sql.Tx) error) error {

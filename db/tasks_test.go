@@ -496,7 +496,7 @@ func TestTaskContextRejectsDuplicatesAndAllowsTerminalLLMEdits(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = d.DeleteTask(task.ID) })
-	if err := d.SetStatus(task.ID, "done"); err != nil {
+	if _, err := d.SetStatus(task.ID, "done"); err != nil {
 		t.Fatal(err)
 	}
 	if err := d.ReplaceTaskLLMProfiles(task.ID, []int64{profileID}, profileID); err != nil {

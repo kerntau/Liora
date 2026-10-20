@@ -1184,6 +1184,12 @@ func (t *Traffic) DeleteHostsExact(hosts []string) (int64, error) {
 // lock is held until Commit or Rollback, so no recorder can add rows or a blob
 // reference for a host that is mid-deletion. Rolling back is just a transaction
 // rollback now that nothing is moved on disk.
+//
+// A caller that also writes the business database must take that writer
+// reservation *before* staging: evidence writes take the business writer first
+// and this lock second, so staging first and then waiting for the business
+// writer inverts the order and wedges both sides until busy_timeout expires.
+// See server.compactTaskArchive.
 type HostDeleteStage struct {
 	traffic  *Traffic
 	tx       *sql.Tx
@@ -1273,6 +1279,10 @@ func (t *Traffic) stageDeleteHostsExact(hosts []string, archiveID, taskID int64)
 // RecoverHostDeleteStages resolves filesystem moves left by a process exit.
 // SQLite rolls open transactions back on restart, while the supplied callback
 // identifies task archives whose PostgreSQL compaction already committed.
+//
+// The callback runs under the traffic write lock, so it must stay a read: taking
+// the business database writer here would invert the order evidence writes use
+// (business writer, then traffic lock) and reintroduce the archive deadlock.
 func (t *Traffic) RecoverHostDeleteStages(archiveCommitted func(int64, int64) (bool, error)) error {
 	if t == nil {
 		return nil

@@ -20,11 +20,10 @@ import (
 
 func evidenceFixture(t *testing.T) (*Store, db.RecordFindingInput, string) {
 	t.Helper()
-	dsn := os.Getenv("LIORA_PG_DSN")
-	if dsn == "" {
-		t.Skip("LIORA_PG_DSN is required for evidence integration tests")
+	if testDBPath == "" {
+		t.Skip("no test database")
 	}
-	pg, err := db.Open(dsn)
+	pg, err := db.Open(testDBPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,5 +330,72 @@ func TestEvidenceGCGraceAndActiveRestore(t *testing.T) {
 	bad.URL = "http://tampered.local/"
 	if err = s.InstallSnapshots(ctx, []db.TrafficEvidenceSnapshot{bad}, archive); err == nil {
 		t.Fatal("accepted tampered snapshot")
+	}
+}
+
+// The GC pass and a live record never share the blob tree: every body write happens
+// inside the evidence write transaction (BEGIN IMMEDIATE), and Collect's delete plus
+// directory sweep happens inside that same lock. This drives both at once with a GC
+// clock 72h in the future - past every grace period - and then asserts that each
+// committed binding still reads back its exact body. A GC that could interleave
+// would delete a freshly installed body here.
+func TestEvidenceGCNeverReapsLiveBodiesUnderConcurrency(t *testing.T) {
+	s, in, _ := evidenceFixture(t)
+	ctx := context.Background()
+	body := bytes.Repeat([]byte("gc-race-body"), 4096)
+	seedExchange(t, s, "gc-race", body, false)
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	var gcErr error
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			if err := s.Collect(ctx, time.Now().Add(72*time.Hour)); err != nil {
+				gcErr = err
+				return
+			}
+		}
+	}()
+	type binding struct {
+		finding, id int64
+	}
+	var bindings []binding
+	for i := 0; i < 20; i++ {
+		r, err := s.Record(ctx, in, []db.TrafficRef{{TrafficID: "gc-race", Role: "proof"}})
+		if err != nil {
+			close(stop)
+			<-done
+			t.Fatal(err)
+		}
+		bindings = append(bindings, binding{r.FindingID, r.Traffic.Bindings[0].ID})
+	}
+	close(stop)
+	<-done
+	if gcErr != nil {
+		t.Fatal(gcErr)
+	}
+	for _, b := range bindings {
+		if err := s.WithBinding(ctx, b.finding, b.id, func(item db.FindingTrafficBinding) error {
+			f, _, err := s.OpenBody(item.Snapshot, "response")
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			got, err := io.ReadAll(f)
+			if err != nil {
+				return err
+			}
+			if !bytes.Equal(got, body) {
+				t.Fatal("body changed")
+			}
+			return nil
+		}); err != nil {
+			t.Fatalf("GC reaped the body of a live binding: %v", err)
+		}
 	}
 }

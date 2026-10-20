@@ -105,7 +105,7 @@ func TestAdmissionDoesNotOverwriteConcurrentTerminalStatus(t *testing.T) {
 	// snapshot but before the scheduler UPDATE. Direct DB use intentionally leaves
 	// the live handle stale at its old status for this deterministic interleaving.
 	taskID, _ := strconv.ParseInt(task.ID, 10, 64)
-	if err := m.pg.SetStatus(taskID, "done"); err != nil {
+	if _, err := m.pg.SetStatus(taskID, "done"); err != nil {
 		t.Fatal(err)
 	}
 	s := newAdmissionTestServer(m, nil)

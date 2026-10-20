@@ -813,6 +813,17 @@ func (m *Manager) Close() error {
 // Package-local shim over db.IsTerminal so all server files share one definition.
 func isTerminalStatus(status string) bool { return pgdb.IsTerminal(status) }
 
+// isRunRevival reports whether an admission starts a NEW run of the task, i.e. it
+// crosses from a terminal status into a live one. That boundary is the only place
+// where the previous run's clock and Engine gates must be reset: resuming a paused
+// or queued task continues the same run and keeps counting against the same
+// deadline. ApplyTaskAdmission applies the identical rule in SQL (first_run_at /
+// deadline_at) and resetTerminalRevival applies it to the Engine side, so all three
+// agree on where the boundary is.
+func isRunRevival(from, to string) bool {
+	return isTerminalStatus(from) && !isTerminalStatus(to)
+}
+
 // unixOrZero returns t's unix seconds, or 0 when the time is nil.
 func unixOrZero(t *time.Time) int64 {
 	if t == nil {
@@ -1171,7 +1182,7 @@ func (m *Manager) ApplyTaskAdmission(id, expectedStatus, status string, queued b
 	err = m.pg.QueryRow(`UPDATE tasks
 	SET status=$2,
 	    completed_at=CASE
-	        WHEN $2 IN ('done','failed','timeout') THEN COALESCE(completed_at, strftime('%Y-%m-%d %H:%M:%f','now'))
+	        WHEN $2 IN `+pgdb.TerminalStatusSQLIn+` THEN COALESCE(completed_at, strftime('%Y-%m-%d %H:%M:%f','now'))
 	        ELSE NULL
 	    END,
 	    paused=false,
@@ -1187,11 +1198,11 @@ func (m *Manager) ApplyTaskAdmission(id, expectedStatus, status string, queued b
 	        ELSE 'resume'
 	    END,
 	    first_run_at=CASE
-	        WHEN $6 IN ('done','failed','timeout') AND $2 NOT IN ('done','failed','timeout') THEN NULL
+	        WHEN $6 IN `+pgdb.TerminalStatusSQLIn+` AND $2 NOT IN `+pgdb.TerminalStatusSQLIn+` THEN NULL
 	        ELSE first_run_at
 	    END,
 	    deadline_at=CASE
-	        WHEN $6 IN ('done','failed','timeout') AND $2 NOT IN ('done','failed','timeout') THEN NULL
+	        WHEN $6 IN `+pgdb.TerminalStatusSQLIn+` AND $2 NOT IN `+pgdb.TerminalStatusSQLIn+` THEN NULL
 	        ELSE deadline_at
 	    END
 	WHERE id=$1 AND deleted_at IS NULL AND status=$6
@@ -1248,7 +1259,7 @@ func (m *Manager) ApplyTaskPause(id string) error {
 	err = m.pg.QueryRow(`UPDATE tasks
 		SET paused=true, queued=false, queued_at=NULL
 		WHERE id=$1 AND deleted_at IS NULL AND paused=false
-		  AND status NOT IN ('done','failed','timeout')
+		  AND status NOT IN `+pgdb.TerminalStatusSQLIn+`
 		RETURNING COALESCE(queue_mode,'')`, n).Scan(&mode)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("task %s is unavailable for pause", id)
@@ -1418,8 +1429,14 @@ func (m *Manager) SetTaskStatus(id, status string) error {
 	if err != nil {
 		return err
 	}
-	if err := m.pg.SetStatus(n, status); err != nil {
+	applied, err := m.pg.SetStatus(n, status)
+	if err != nil {
 		return err
+	}
+	if !applied {
+		// Another terminal status already ended this run; the DB kept it, so the live
+		// handle must keep it too (first terminal writer wins).
+		return nil
 	}
 	m.mu.Lock()
 	if t := m.tasks[id]; t != nil {

@@ -21,6 +21,28 @@ func (d *DB) CompleteTaskArchive(
 	archivePath, sha256 string,
 	originalSize, compressedSize int64,
 ) error {
+	return d.CompleteTaskArchiveStaged(archiveID, snapshot, archivePath, sha256, originalSize, compressedSize, nil)
+}
+
+// CompleteTaskArchiveStaged is CompleteTaskArchive with a hook that runs inside
+// the archive's write transaction: after the snapshot identity and exclusivity
+// checks, before the compaction removes anything, and while the writer
+// reservation is already held.
+//
+// The hook exists so a caller that also needs the traffic write lock takes it
+// after the database reservation instead of before it. Evidence writes use that
+// order — WithEvidenceTx reserves the writer, then Traffic.ReadEvidence takes the
+// traffic lock — while the archive path used to take the traffic lock first and
+// only then wait here for the reservation. A single evidence write landing in
+// that window deadlocked both sides until busy_timeout expired and the archive
+// failed with "database is locked". A hook error rolls the archive back.
+func (d *DB) CompleteTaskArchiveStaged(
+	archiveID int64,
+	snapshot *TaskArchiveSnapshot,
+	archivePath, sha256 string,
+	originalSize, compressedSize int64,
+	stage func() error,
+) error {
 	if snapshot == nil || snapshot.FormatVersion != TaskArchiveFormatVersion {
 		return ErrTaskArchiveFormatMismatch
 	}
@@ -59,6 +81,13 @@ WHERE relation.source_task_id=$1 LIMIT 1`, taskID).Scan(&dependent)
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return err
+	}
+	// The archive is applicable: let the caller take whatever other lock it needs
+	// before the compaction starts removing rows.
+	if stage != nil {
+		if err := stage(); err != nil {
+			return err
+		}
 	}
 	// Prevent task/asset ownership from changing while exclusivity is rechecked.
 	// BEGIN IMMEDIATE already serializes asset/anchor mutations.

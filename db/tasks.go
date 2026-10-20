@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -69,10 +70,26 @@ type TaskDeletePreparation struct {
 	TrafficHosts  []string
 }
 
+// TerminalStatuses is the single source of truth for "this run of the task is
+// over". IsTerminal and every SQL fragment that has to spell the terminal set out
+// (completed_at stamping, the revival clock reset, the pause guard) derive from it,
+// so a status cannot be terminal in Go while the statements still ignore it.
+var TerminalStatuses = []string{"done", "failed", "timeout"}
+
+// TerminalStatusSQLIn renders TerminalStatuses as a SQL IN-list literal —
+// ('done','failed','timeout') — for statements that cannot call IsTerminal. It is
+// built from the constant slice above, never from user input.
+var TerminalStatusSQLIn = "('" + strings.Join(TerminalStatuses, "','") + "')"
+
 // IsTerminal reports whether a task status is a terminal (finished) state.
 // 单一真源，替换散落各处的 done/failed 硬编码判定。
 func IsTerminal(status string) bool {
-	return status == "done" || status == "failed" || status == "timeout"
+	for _, terminal := range TerminalStatuses {
+		if status == terminal {
+			return true
+		}
+	}
+	return false
 }
 
 // CreateTask creates an exploration + task in one transaction and returns the task.
@@ -465,13 +482,24 @@ func (d *DB) SetQueued(id int64, queued bool) error {
 // (done/failed/timeout) stamps completed_at once (COALESCE keeps the first stamp
 // stable); moving back to a non-terminal state clears it, so a re-run has no stale
 // finish time.
-func (d *DB) SetStatus(id int64, status string) error {
-	_, err := d.Exec(`
+//
+// A terminal status is never replaced by another terminal status: the first writer
+// wins, the same rule SetTerminalStatusGuarded enforces. Without it a planner round
+// that returns after the settle sequence relabels a timeout as done (and vice versa
+// the settle sequence could relabel a completed run), so the reason a run ended
+// depended on goroutine scheduling. applied=false reports the skipped write;
+// non-terminal targets and rows that do not exist are unaffected.
+func (d *DB) SetStatus(id int64, status string) (applied bool, err error) {
+	res, err := d.Exec(`
 UPDATE tasks
    SET status = $1,
-       completed_at = CASE WHEN $1 IN ('done','failed','timeout') THEN COALESCE(completed_at, strftime('%Y-%m-%d %H:%M:%f','now')) ELSE NULL END
- WHERE id = $2`, status, id)
-	return err
+       completed_at = CASE WHEN $1 IN `+TerminalStatusSQLIn+` THEN COALESCE(completed_at, strftime('%Y-%m-%d %H:%M:%f','now')) ELSE NULL END
+ WHERE id = $2 AND NOT (status IN `+TerminalStatusSQLIn+` AND $1 IN `+TerminalStatusSQLIn+`)`, status, id)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
 }
 
 // SetTerminalStatusGuarded sets a terminal status only when the task is NOT already
@@ -483,7 +511,7 @@ func (d *DB) SetTerminalStatusGuarded(id int64, status string) (won bool, err er
 UPDATE tasks
    SET status = $1,
        completed_at = COALESCE(completed_at, strftime('%Y-%m-%d %H:%M:%f','now'))
- WHERE id = $2 AND status NOT IN ('done','failed','timeout')`, status, id)
+ WHERE id = $2 AND status NOT IN `+TerminalStatusSQLIn, status, id)
 	if err != nil {
 		return false, err
 	}

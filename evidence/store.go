@@ -415,31 +415,45 @@ AND NOT EXISTS(SELECT 1 FROM finding_traffic_bindings b WHERE b.snapshot_id=traf
 			return err
 		}
 		for _, root := range []string{filepath.Join(s.Dir, "blobs"), filepath.Join(s.Dir, ".staging")} {
-			err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-				if os.IsNotExist(err) {
-					return nil
-				}
-				if err != nil {
-					return err
-				}
-				if entry.IsDir() {
-					return nil
-				}
-				if refs[strings.TrimSuffix(entry.Name(), ".bin")] {
-					return nil
-				}
-				info, err := entry.Info()
-				if err != nil {
-					return err
-				}
-				if now.Sub(info.ModTime()) < 24*time.Hour {
-					return nil
-				}
-				return os.Remove(path)
-			})
-			if err != nil {
+			if err := sweepOrphans(root, refs, now, os.Remove); err != nil {
 				return err
 			}
+		}
+		return nil
+	})
+}
+
+// sweepOrphans deletes unreferenced bodies under root that are older than the
+// 24h grace window. A file that cannot be removed is logged and skipped instead of
+// aborting the pass: Windows keeps a freshly written blob open for a moment, and
+// aborting would push every other orphan back by a full hour. remove is a
+// parameter so the "keep going" rule can be tested without an undeletable file.
+func sweepOrphans(root string, refs map[string]bool, now time.Time, remove func(string) error) error {
+	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if refs[strings.TrimSuffix(entry.Name(), ".bin")] {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			// Unreadable metadata is not a reason to abandon the sweep: this file
+			// simply stays for the next pass.
+			log.Printf("[evidence] GC 跳过 %s（无法读取属性）：%v", path, err)
+			return nil
+		}
+		if now.Sub(info.ModTime()) < 24*time.Hour {
+			return nil
+		}
+		if err := remove(path); err != nil && !os.IsNotExist(err) {
+			log.Printf("[evidence] GC 本轮跳过 %s：%v", path, err)
 		}
 		return nil
 	})

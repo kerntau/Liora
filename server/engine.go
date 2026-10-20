@@ -909,6 +909,15 @@ func (e *Engine) plannerLoop(ctx context.Context, t *Task) {
 	}
 
 	for {
+		// 先于 select 检查取消(与 workerLoop 一致):ctx 已取消而 notify 也已就绪时,
+		// select 会随机选中 notify,于是带着已经结束的 runtime 跑完一整轮规划。生产里
+		// 这是白烧一轮 LLM;测试里(服务端已取消的根 ctx)还会在已删除任务的 store 上
+		// 继续跑,把清理后的半状态当正常输入。
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
 		select {
 		case <-ctx.Done():
 			return

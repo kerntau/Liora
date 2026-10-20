@@ -192,13 +192,13 @@ func (s *Server) admitTaskWhen(t *Task, mode string, requirePaused bool) (queued
 		}
 		return false, err
 	}
-	if wasTerminal && status == "running" {
+	if isRunRevival(lifecycle.Status, status) {
 		// ApplyTaskAdmission reset this finished run's persisted clock. Clear the
-		// matching Engine gates before either parking it in FIFO or starting work;
-		// otherwise the old settling flag would make every worker skip forever.
-		// Not timeout-only: a deadline-settled task can finish as "done" (its final
-		// planner round judged the goals met) and be revived later by set_goals, and
-		// that path leaves exactly the same half-state.
+		// matching Engine gates (the runGate entries of taskScopedMaps) before either
+		// parking it in FIFO or starting work; otherwise the old settling flag would
+		// make every worker skip forever. Not timeout-only: a deadline-settled task can
+		// finish as "done" (its final planner round judged the goals met) and be revived
+		// later by set_goals, and that path leaves exactly the same half-state.
 		s.engine.resetTerminalRevival(t.ID)
 	}
 	if shouldQueue {

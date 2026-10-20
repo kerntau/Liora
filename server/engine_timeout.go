@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -79,18 +80,56 @@ func (e *Engine) taskDeadline(t *Task) int64 {
 	return 0
 }
 
-// resetTerminalRevival clears only the per-run terminal state after PostgreSQL has
-// atomically committed <terminal> -> running and reset first_run_at/deadline_at. The
-// configured TimeoutSeconds remains on Task, so the next real Planner/Worker run
-// stamps a fresh full budget. coordStarted is reset because the coordinator that
-// produced the terminal state has already completed (or is in its final return
-// path). Applies to every terminal status: a deadline-settled task can land on
-// "done" (goals met in the final round) and be revived by set_goals.
+// taskScopedMap is one per-task sync.Map on Engine, plus the rule that governs it.
+// Keeping every map in one table is what makes "what must a revival reset?" a
+// question with a single, enumerable answer: the gates are listed here once and
+// resetTerminalRevival iterates them, so a new gate cannot be added to the Engine
+// and silently forgotten by the revival path.
+type taskScopedMap struct {
+	name    string // the Engine field name (the exhaustiveness test matches on it)
+	m       *sync.Map
+	runGate bool   // true: belongs to ONE run, cleared by a terminal -> running revival
+	why     string // for runGate=false: why a revival must leave it armed
+}
+
+// taskScopedMaps enumerates every per-task map the Engine owns. Deleting a task
+// clears all of them; a revival clears only the run gates.
+func (e *Engine) taskScopedMaps() []taskScopedMap {
+	return []taskScopedMap{
+		// ---- one run ----
+		{"settling", &e.settling, true, ""},         // 收尾时序进行中:planner/worker 停领新活
+		{"deadline", &e.deadline, true, ""},         // 本轮绝对截止时刻(unix)
+		{"stamped", &e.stamped, true, ""},           // 本轮 first_run_at 是否已盖章
+		{"coordStarted", &e.coordStarted, true, ""}, // 本轮 deadline 协调器是否已启动
+		// ---- the task handle / admission ----
+		{"started", &e.started, false, "循环跨运行常驻;Run 幂等,只补一次 Notify"},
+		{"lastAct", &e.lastAct, false, "UI 心跳按任务计,不按运行计"},
+		{"llmCalls", &e.llmCalls, false, "在跑 LLM 调用计数,由加过它的运行自己减"},
+		{"paused", &e.paused, false, "准入栅栏拥有暂停位:排队中的复活必须保持暂停"},
+		{"deleting", &e.deleting, false, "删除栅栏,由 BeginDelete/AbortDelete 拥有"},
+		{"dropCnt", &e.dropCnt, false, "任务累计的活动丢失计数"},
+		{"plannerRound", &e.plannerRound, false, "规划轮编号跨运行延续(UI 轮分隔)"},
+		{"inflight", &e.inflight, false, "在跑操作引用计数,不是闸门"},
+	}
+}
+
+// resetTerminalRevival clears every per-run gate after PostgreSQL has atomically
+// committed <terminal> -> running and reset first_run_at/deadline_at. The configured
+// TimeoutSeconds remains on Task, so the next real Planner/Worker run stamps a fresh
+// full budget. coordStarted is reset because the coordinator that produced the
+// terminal state has already completed (or is in its final return path). Applies to
+// every terminal status: a deadline-settled task can land on "done" (goals met in
+// the final round) and be revived by set_goals.
+//
+// Deliberately not cleared (see taskScopedMaps): paused belongs to the admission
+// barrier — a revival that lands in the FIFO must stay paused — and started/inflight
+// describe live work, not one run.
 func (e *Engine) resetTerminalRevival(taskID string) {
-	e.settling.Delete(taskID)
-	e.deadline.Delete(taskID)
-	e.stamped.Delete(taskID)
-	e.coordStarted.Delete(taskID)
+	for _, taskMap := range e.taskScopedMaps() {
+		if taskMap.runGate {
+			taskMap.m.Delete(taskID)
+		}
+	}
 }
 
 // stampFirstRun records first_run_at + deadline_at on the FIRST real run (LLM ready)
@@ -211,12 +250,33 @@ func (e *Engine) settleTask(ctx context.Context, t *Task) {
 	}
 	defer e.decInflight(t.ID)
 
+	e.commitSettledStatus(t, met)
+}
+
+// settledStatus maps the final planner verdict onto the terminal status the settle
+// sequence commits: goals met -> done (the deadline did its job), otherwise timeout.
+func settledStatus(met bool) string {
+	if met {
+		return "done"
+	}
+	return "timeout"
+}
+
+// commitSettledStatus writes the terminal status produced by a settle sequence.
+// The guarded setter resolves the completed<->timeout race in favour of the first
+// terminal writer, so a regular planner round that already stored "done" keeps it.
+func (e *Engine) commitSettledStatus(t *Task, met bool) {
+	// 收尾期间任务可能已被复活(set_goals/重跑):resetTerminalRevival 清掉 settling
+	// 并把状态拉回 running。此时本次收尾测的那一轮已经作废,再落终态就会覆盖用户刚
+	// 复活出来的运行——正是复活重置要消灭的那种静默冻结。持有 settling 闸门是本次
+	// 收尾「仍是当前这一轮」的唯一凭据。
+	if !e.isSettling(t.ID) {
+		log.Printf("[deadline] task %s 收尾期间任务已被复活,放弃落终态", t.ID)
+		return
+	}
 	// ⑥ 定终态(带守卫):met → done(completed);否则 timeout。若常规路径已先落 done,
 	// 守卫(SetTaskStatusGuarded)会拒绝覆盖,保留 completed 语义。
-	status := "timeout"
-	if met {
-		status = "done"
-	}
+	status := settledStatus(met)
 	won, err := e.m.SetTaskStatusGuarded(t.ID, status)
 	switch {
 	case err != nil:

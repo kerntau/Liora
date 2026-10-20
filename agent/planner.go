@@ -108,6 +108,12 @@ func (p *Planner) wantConstraints() bool { return p.injectConstraints == nil || 
 func (p *Planner) todoFor(expID int64) *actool.TodoStore {
 	p.todoMu.Lock()
 	defer p.todoMu.Unlock()
+	if p.todos == nil {
+		// A zero-value Planner (tests build one as &Planner{}) has no map yet, and
+		// assigning into it panics with "assignment to entry in nil map". Initialise
+		// lazily so the constructor is not the only thing keeping this safe.
+		p.todos = map[int64]*actool.TodoStore{}
+	}
 	s := p.todos[expID]
 	if s == nil {
 		s = actool.NewTodoStore()
