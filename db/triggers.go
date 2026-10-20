@@ -144,6 +144,13 @@ ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value`, key, value)
 	return err
 }
 
+// DeleteSchedState removes one scheduler state key (used to drop a superseded
+// watermark/set once its replacement is persisted).
+func (d *DB) DeleteSchedState(key string) error {
+	_, err := d.Exec(`DELETE FROM scheduler_state WHERE key=$1`, key)
+	return err
+}
+
 // ---------- event queries (cross-exploration, for the scheduler) ----------
 
 // TaskEvent is a finding/goal event carrying the owning task's info, used to
@@ -160,6 +167,7 @@ type TaskEvent struct {
 	ToolInput  string `json:"tool_input"`  // tool-call only: 入参(JSON 文本)
 	ToolOutput string `json:"tool_output"` // tool-call only: 返回内容
 	ToolIsErr  bool   `json:"tool_is_err"` // tool-call only: 工具返回是否为错误
+	UpdatedAt  string `json:"updated_at"`  // goal only: node updated_at (achievement clock / watermark)
 }
 
 // NewFindingsSince returns findings with node id > lastID across all live tasks,
@@ -267,14 +275,39 @@ ORDER BY r.id`, lastID)
 	return out, rows.Err()
 }
 
-// MetGoals returns all met goals across live tasks (the scheduler filters out the
-// ones it already fired for via the persisted fired-set).
-func (d *DB) MetGoals() ([]TaskEvent, error) {
-	rows, err := d.Query(`
-SELECT n.id, t.id, t.description, t.goal, n.payload
+// SchedStampLayout is the textual timestamp layout scheduler watermarks use: the
+// same space-separated, millisecond-precision form the schema writes with
+// strftime('%Y-%m-%d %H:%M:%f'). Comparing two such strings in SQL orders them by
+// time, and normalising every scanned updated_at to it keeps the comparison exact
+// at the inclusive boundary.
+const SchedStampLayout = "2006-01-02 15:04:05.000"
+
+// metGoalsSinceSQL reads met goals at/after a textual updated_at watermark. The
+// predicate matches the partial index idx_expnodes_goal_met_wm (see
+// EnsureSchedulerIndexes), so the scan only touches the tail instead of every met
+// goal ever recorded.
+const metGoalsSinceSQL = `
+SELECT n.id, n.updated_at, t.id, t.description, t.goal, n.payload
 FROM exploration_nodes n JOIN tasks t ON t.exploration_id = n.exploration_id
-WHERE n.kind='goal' AND n.state='met' AND t.deleted_at IS NULL
-ORDER BY n.id`)
+WHERE n.kind='goal' AND n.state='met' AND n.updated_at >= $1 AND t.deleted_at IS NULL
+ORDER BY n.updated_at, n.id`
+
+// MetGoals returns every met goal across live tasks. It is the full-scan form of
+// MetGoalsSince; the scheduler itself only polls the incremental form.
+func (d *DB) MetGoals() ([]TaskEvent, error) { return d.MetGoalsSince("") }
+
+// MetGoalsSince returns met goals whose node updated_at is at/after since, ordered
+// by (updated_at, id). An empty since returns every met goal.
+//
+// Goal ids cannot serve as a watermark the way finding/task ids do: they are
+// assigned at creation, while "met" happens later and in no id order, so a low id
+// may be met after the watermark has already passed it. The achievement clock is
+// the node's updated_at, which the trg_expnodes_upd trigger bumps on every state
+// change. The caller keeps since inclusive and remembers which ids it consumed,
+// so a goal met in the same millisecond as the watermark is neither missed nor
+// re-fired.
+func (d *DB) MetGoalsSince(since string) ([]TaskEvent, error) {
+	rows, err := d.Query(metGoalsSinceSQL, since)
 	if err != nil {
 		return nil, err
 	}
@@ -282,10 +315,14 @@ ORDER BY n.id`)
 	out := []TaskEvent{}
 	for rows.Next() {
 		var e TaskEvent
+		var updated time.Time
 		var payload []byte
-		if err := rows.Scan(&e.NodeID, &e.TaskID, &e.TaskDesc, &e.TaskGoal, &payload); err != nil {
+		if err := rows.Scan(&e.NodeID, &updated, &e.TaskID, &e.TaskDesc, &e.TaskGoal, &payload); err != nil {
 			return nil, err
 		}
+		// The driver hands DATETIME columns back as time.Time; normalise to the
+		// schema's textual form so the caller can use it as the next watermark.
+		e.UpdatedAt = updated.UTC().Format(SchedStampLayout)
 		var p struct{ Text, Summary string }
 		_ = json.Unmarshal(payload, &p)
 		if p.Text != "" {
@@ -296,4 +333,12 @@ ORDER BY n.id`)
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// SchedNow returns SQLite's clock in the exact textual form the schema writes
+// (strftime('%Y-%m-%d %H:%M:%f')), so scheduler watermarks compare as text.
+func (d *DB) SchedNow() (string, error) {
+	var now string
+	err := d.QueryRow(`SELECT strftime('%Y-%m-%d %H:%M:%f','now')`).Scan(&now)
+	return now, err
 }

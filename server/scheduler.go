@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -27,11 +28,21 @@ type Scheduler struct {
 
 const (
 	schedKeyLastFinding    = "last_finding_id"    // watermark: max finding node id fired for
-	schedKeyFiredGoals     = "fired_goals"        // JSON array of goal node ids already fired
+	schedKeyFiredGoals     = "fired_goals"        // legacy (superseded): JSON array of goal node ids, unbounded
+	schedKeyGoalWatermark  = "fired_goals_wm"     // watermark: goal node updated_at already consumed (inclusive)
+	schedKeyFiredGoalsTail = "fired_goals_recent" // JSON array of {id,at} consumed at/after the watermark
 	schedKeyLastTimeout    = "last_timeout_id"    // watermark: max task id fired for task timeout
 	schedKeyLastToolCall   = "last_toolcall_id"   // watermark: max activity id fired for tool call
 	schedKeyLastTaskCreate = "last_taskcreate_id" // watermark: max task id fired for task create
 )
+
+// goalFiredOverlap is how long a consumed goal id is remembered after the scan
+// watermark has passed it. The scan itself is inclusive at the watermark (so ids
+// stamped exactly at it stay), and the extra window keeps a payload edit or a
+// repeated state flip shortly after "met" from notifying twice. Past the window
+// an already-fired goal is only remembered while it is still inside the scan
+// window — that is what bounds the persisted set.
+const goalFiredOverlap = time.Hour
 
 func newScheduler(s *Server) *Scheduler {
 	return &Scheduler{s: s, pg: s.m.pg, tick: 5 * time.Second}
@@ -70,14 +81,29 @@ func (sc *Scheduler) init() {
 		}
 		_ = sc.pg.SetSchedState(schedKeyLastFinding, strconv.FormatInt(maxID, 10))
 	}
-	if sc.mustState(schedKeyFiredGoals) == "" {
-		set := map[int64]bool{}
-		if evs, err := sc.pg.MetGoals(); err == nil {
-			for _, e := range evs {
-				set[e.NodeID] = true
+	if sc.mustState(schedKeyGoalWatermark) == "" && sc.mustState(schedKeyFiredGoalsTail) == "" {
+		// First run with the watermark scheme. Seed the remembered set from the
+		// legacy unbounded id set so nothing already fired is replayed, and leave
+		// the watermark empty: the first tick scans every met goal once — the exact
+		// cost the old code paid on every tick — stamps the ids it keeps with their
+		// real updated_at, and only scans the tail from then on.
+		seeds := map[int64]string{}
+		legacy := sc.mustState(schedKeyFiredGoals)
+		if legacy != "" {
+			var ids []int64
+			if json.Unmarshal([]byte(legacy), &ids) == nil {
+				for _, id := range ids {
+					seeds[id] = ""
+				}
 			}
 		}
-		sc.saveFiredGoalSet(set)
+		_ = sc.pg.SetSchedState(schedKeyGoalWatermark, "")
+		sc.saveFiredGoals(seeds)
+		if legacy != "" {
+			// The legacy blob is the thing that grew without bound; the new keys
+			// supersede it (an old binary re-seeds itself from MetGoals on downgrade).
+			_ = sc.pg.DeleteSchedState(schedKeyFiredGoals)
+		}
 	}
 	if sc.mustState(schedKeyLastTimeout) == "" {
 		var maxID int64
@@ -181,7 +207,17 @@ func (sc *Scheduler) fireFindings(triggers []*db.AgentTrigger) {
 	_ = sc.pg.SetSchedState(schedKeyLastFinding, strconv.FormatInt(maxID, 10))
 }
 
-// fireGoals fires on_goal_met triggers for met goals not yet in the fired set.
+// fireGoals fires on_goal_met triggers for met goals that were not consumed yet.
+//
+// Goal ids cannot be a watermark the way finding/task ids are: they are assigned
+// at creation while "met" happens later and in no id order, so a low id may be
+// met after the watermark has already passed it and an "id > watermark" scan
+// would skip it forever. The achievement clock is the node's updated_at, bumped
+// by the trg_expnodes_upd trigger on the state flip. Each tick scans
+// updated_at >= watermark (inclusive), remembers the ids it consumed together
+// with that stamp, and advances the watermark to the newest stamp it saw. The
+// remembered set is pruned to a short overlap window, so its size follows "goals
+// met recently" instead of every goal ever met.
 func (sc *Scheduler) fireGoals(triggers []*db.AgentTrigger) {
 	var want []*db.AgentTrigger
 	for _, tr := range triggers {
@@ -189,19 +225,34 @@ func (sc *Scheduler) fireGoals(triggers []*db.AgentTrigger) {
 			want = append(want, tr)
 		}
 	}
-	events, err := sc.pg.MetGoals()
-	if err != nil || len(events) == 0 {
+	wm := sc.mustState(schedKeyGoalWatermark)
+	// Read the clock BEFORE the scan: a goal met after this instant carries
+	// updated_at >= now, so advancing the watermark to it on an empty scan cannot
+	// skip that goal.
+	now, err := sc.pg.SchedNow()
+	if err != nil {
+		return
+	}
+	events, err := sc.pg.MetGoalsSince(wm)
+	if err != nil {
 		return
 	}
 	// Mark goals as consumed whether or not a trigger is active, so enabling an
 	// on_goal_met trigger later doesn't replay every already-met goal.
-	fired := sc.firedGoalSet()
+	fired := sc.firedGoals()
 	changed := false
 	for _, e := range events {
-		if fired[e.NodeID] {
+		if _, done := fired[e.NodeID]; done {
+			// Already consumed: keep its stamp current. Without this, a goal seeded
+			// from the legacy set (no stamp) would be pruned while still inside the
+			// scan window and fire again on the next tick.
+			if fired[e.NodeID] != e.UpdatedAt {
+				fired[e.NodeID] = e.UpdatedAt
+				changed = true
+			}
 			continue
 		}
-		fired[e.NodeID] = true
+		fired[e.NodeID] = e.UpdatedAt
 		changed = true
 		if len(want) == 0 {
 			continue
@@ -211,9 +262,50 @@ func (sc *Scheduler) fireGoals(triggers []*db.AgentTrigger) {
 			sc.s.StartTriggeredRun(tr.AgentKey, fmt.Sprintf("目标触发 · task#%d", e.TaskID), tr.GoalMessage+msgCtx, e.TaskID, true, e.TaskDesc, e.TaskGoal)
 		}
 	}
-	if changed {
-		sc.saveFiredGoalSet(fired)
+	newWM := wm
+	if len(events) == 0 {
+		newWM = now
+	} else {
+		for _, e := range events {
+			if e.UpdatedAt > newWM {
+				newWM = e.UpdatedAt
+			}
+		}
 	}
+	if newWM < wm {
+		newWM = wm // never move the watermark backwards (clock skew / manual stamps)
+	}
+	if cutoff := goalPruneCutoff(newWM); cutoff != "" {
+		for id, at := range fired {
+			if at < cutoff {
+				delete(fired, id)
+				changed = true
+			}
+		}
+	}
+	// Persist the set before the watermark: if the process dies in between, the
+	// next tick rescans the same window and finds the ids already consumed
+	// (a wasted scan), instead of advancing past ids it never recorded (a loss).
+	if changed {
+		sc.saveFiredGoals(fired)
+	}
+	if newWM != wm {
+		_ = sc.pg.SetSchedState(schedKeyGoalWatermark, newWM)
+	}
+}
+
+// goalPruneCutoff turns the watermark into the oldest stamp the consumed-id set
+// must still remember, in the same textual format (UTC, millisecond precision).
+// An unparsable watermark keeps every id — never replay.
+func goalPruneCutoff(wm string) string {
+	if wm == "" {
+		return ""
+	}
+	t, err := time.Parse(db.SchedStampLayout, wm)
+	if err != nil {
+		return ""
+	}
+	return t.Add(-goalFiredOverlap).UTC().Format(db.SchedStampLayout)
 }
 
 // fireTaskTimeouts fires on_task_timeout triggers for tasks that newly reached
@@ -347,28 +439,37 @@ func (sc *Scheduler) mustState(key string) string {
 	return v
 }
 
-func (sc *Scheduler) firedGoalSet() map[int64]bool {
-	out := map[int64]bool{}
-	raw := sc.mustState(schedKeyFiredGoals)
+// firedGoal is one consumed goal id and the node updated_at it was consumed at.
+// The stamp is what lets the set be pruned once it falls behind the watermark, so
+// the persisted set stays bounded.
+type firedGoal struct {
+	ID int64  `json:"id"`
+	At string `json:"at,omitempty"`
+}
+
+func (sc *Scheduler) firedGoals() map[int64]string {
+	out := map[int64]string{}
+	raw := sc.mustState(schedKeyFiredGoalsTail)
 	if raw == "" {
 		return out
 	}
-	var ids []int64
-	if json.Unmarshal([]byte(raw), &ids) == nil {
-		for _, id := range ids {
-			out[id] = true
+	var rows []firedGoal
+	if json.Unmarshal([]byte(raw), &rows) == nil {
+		for _, r := range rows {
+			out[r.ID] = r.At
 		}
 	}
 	return out
 }
 
-func (sc *Scheduler) saveFiredGoalSet(set map[int64]bool) {
-	ids := make([]int64, 0, len(set))
-	for id := range set {
-		ids = append(ids, id)
+func (sc *Scheduler) saveFiredGoals(set map[int64]string) {
+	rows := make([]firedGoal, 0, len(set))
+	for id, at := range set {
+		rows = append(rows, firedGoal{ID: id, At: at})
 	}
-	b, _ := json.Marshal(ids)
-	if err := sc.pg.SetSchedState(schedKeyFiredGoals, string(b)); err != nil {
+	sort.Slice(rows, func(i, j int) bool { return rows[i].ID < rows[j].ID }) // stable output, no needless churn
+	b, _ := json.Marshal(rows)
+	if err := sc.pg.SetSchedState(schedKeyFiredGoalsTail, string(b)); err != nil {
 		log.Printf("[scheduler] save fired goals failed: %v", err)
 	}
 }

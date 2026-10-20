@@ -86,6 +86,12 @@ func Open(path string) (*DB, error) {
 		sqlDB.Close()
 		return nil, err
 	}
+	// Post-v1 schema additions: existing databases never replay schema.sql, so the
+	// scheduler's incremental-scan index is ensured here on every open.
+	if err := d.EnsureSchedulerIndexes(); err != nil {
+		sqlDB.Close()
+		return nil, err
+	}
 	if err := d.seedBuiltins(); err != nil {
 		sqlDB.Close()
 		return nil, fmt.Errorf("seed builtins: %w", err)
