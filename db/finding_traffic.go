@@ -279,11 +279,26 @@ func (d *DB) GetFindingTraffic(ctx context.Context, findingID int64) (out *Findi
 // one query, ordered by finding and binding position. Findings without bindings
 // are absent from the map. Used by the task report so a 1000-finding report does
 // not issue 1000 queries.
+// findingIDBatch bounds one IN (...) list well below SQLite's variable limit
+// (32766 in current builds), so a very large task report degrades into a few
+// queries instead of a 500.
+const findingIDBatch = 500
+
 func (d *DB) ListFindingTrafficByFindingIDs(ctx context.Context, findingIDs []int64) (map[int64][]FindingTrafficBinding, error) {
 	out := make(map[int64][]FindingTrafficBinding, len(findingIDs))
-	if len(findingIDs) == 0 {
-		return out, nil
+	for start := 0; start < len(findingIDs); start += findingIDBatch {
+		end := start + findingIDBatch
+		if end > len(findingIDs) {
+			end = len(findingIDs)
+		}
+		if err := d.listFindingTrafficBatch(ctx, findingIDs[start:end], out); err != nil {
+			return nil, err
+		}
 	}
+	return out, nil
+}
+
+func (d *DB) listFindingTrafficBatch(ctx context.Context, findingIDs []int64, out map[int64][]FindingTrafficBinding) error {
 	ph := make([]string, len(findingIDs))
 	args := make([]any, len(findingIDs))
 	for i, id := range findingIDs {
@@ -295,21 +310,21 @@ json_object('id',s.id,'source_traffic_id',s.source_traffic_id,'captured_at',s.ca
 FROM finding_traffic_bindings b JOIN traffic_evidence_snapshots s ON s.id=b.snapshot_id
 WHERE b.finding_id IN (`+strings.Join(ph, ",")+`) ORDER BY b.finding_id,b.position,b.id`, args...)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var b FindingTrafficBinding
 		var raw []byte
 		if err := rows.Scan(&b.ID, &b.FindingID, &b.SnapshotID, &b.Role, &b.Note, &b.Position, &b.CreatedAt, &raw); err != nil {
-			return nil, err
+			return err
 		}
 		if err := json.Unmarshal(raw, &b.Snapshot); err != nil {
-			return nil, err
+			return err
 		}
 		out[b.FindingID] = append(out[b.FindingID], b)
 	}
-	return out, rows.Err()
+	return rows.Err()
 }
 
 func (d *DB) EditFindingTraffic(ctx context.Context, findingID, bindingID, version int64, role, note *string, remove bool, order []int64) error {

@@ -71,7 +71,7 @@ func TestReportIncludesFindingsTableRows(t *testing.T) {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
 	body := w.Body.String()
-	for _, want := range []string{"仅发现表可见", "数据来源**：发现记录 1 条", "状态**：待处理", "严重等级：严重 0 / 高危 1"} {
+	for _, want := range []string{"仅发现表可见", "findings 表，本任务发现记录 1 条", "状态**：待处理", "严重等级：严重 0 / 高危 1"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("report missing %q:\n%s", want, body)
 		}

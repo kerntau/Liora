@@ -20,7 +20,7 @@ import (
 // 的分组一致。ID 兜底保证同一秒创建的发现也有稳定顺序。
 func sortFindingsForExport(fs []*db.DBFinding) {
 	sort.SliceStable(fs, func(i, j int) bool {
-		ri, rj := sevRank[fs[i].Severity], sevRank[fs[j].Severity]
+		ri, rj := severityRank(fs[i].Severity), severityRank(fs[j].Severity)
 		if ri != rj {
 			return ri < rj // sevRank 越小越严重
 		}
@@ -80,6 +80,7 @@ func verdictLabel(verdict string) string {
 type findingRenderOpts struct {
 	traffic       []db.FindingTrafficBinding
 	retest        *db.FindingRetest
+	headingPrefix string
 	includeStatus bool
 	includeTask   bool
 	includeReport bool
@@ -88,7 +89,7 @@ type findingRenderOpts struct {
 
 // writeFindingBlock 是任务报告与发现导出唯一的逐条渲染入口,避免两份渲染漂移。
 func writeFindingBlock(b *strings.Builder, idx int, f *db.DBFinding, opts findingRenderOpts) {
-	fmt.Fprintf(b, "### %d. [%s] %s\n\n", idx, strings.ToUpper(nz(f.Severity, "info")), findingTitle(f))
+	fmt.Fprintf(b, "### %s%d. [%s] %s\n\n", opts.headingPrefix, idx, strings.ToUpper(nz(f.Severity, "info")), findingTitle(f))
 	if f.VulnClass != "" {
 		fmt.Fprintf(b, "- **类别**：%s\n", f.VulnClass)
 	}

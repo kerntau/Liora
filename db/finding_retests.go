@@ -260,9 +260,19 @@ func (d *DB) FinishFindingRetest(id int64, status, reason string) error {
 // finding. Findings never retested (or only interrupted) are absent from the map.
 func (d *DB) LatestCompletedRetestsByFindingIDs(ctx context.Context, findingIDs []int64) (map[int64]*FindingRetest, error) {
 	out := make(map[int64]*FindingRetest, len(findingIDs))
-	if len(findingIDs) == 0 {
-		return out, nil
+	for start := 0; start < len(findingIDs); start += findingIDBatch {
+		end := start + findingIDBatch
+		if end > len(findingIDs) {
+			end = len(findingIDs)
+		}
+		if err := d.latestCompletedRetestsBatch(ctx, findingIDs[start:end], out); err != nil {
+			return nil, err
+		}
 	}
+	return out, nil
+}
+
+func (d *DB) latestCompletedRetestsBatch(ctx context.Context, findingIDs []int64, out map[int64]*FindingRetest) error {
 	ph := make([]string, len(findingIDs))
 	args := make([]any, len(findingIDs))
 	for i, id := range findingIDs {
@@ -273,19 +283,19 @@ func (d *DB) LatestCompletedRetestsByFindingIDs(ctx context.Context, findingIDs 
 WHERE r.status='completed' AND r.finding_id IN (`+strings.Join(ph, ",")+`)
 AND r.id=(SELECT MAX(x.id) FROM finding_retests x WHERE x.finding_id=r.finding_id AND x.status='completed')`, args...)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		r, err := scanRetest(rows)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if r != nil {
 			out[r.FindingID] = r
 		}
 	}
-	return out, rows.Err()
+	return rows.Err()
 }
 
 func (d *DB) RecoverFindingRetests() error {

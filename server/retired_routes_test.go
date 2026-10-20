@@ -43,6 +43,7 @@ func TestRetiredAPIRoutesReturnNotFound(t *testing.T) {
 		{"POST", "/api/update/apply"},
 		{"POST", "/api/update/rollback"},
 		{"GET", "/api/update/stream"},
+		{"POST", "/api/gc"},
 	} {
 		t.Run(route.method+route.path, func(t *testing.T) {
 			req := httptest.NewRequest(route.method, route.path, nil)

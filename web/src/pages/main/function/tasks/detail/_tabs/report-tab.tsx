@@ -6,6 +6,7 @@ import { CheckIcon, CopyIcon, DownloadIcon, FileTextIcon, RefreshCwIcon } from "
 import { toast } from "@/components/ui/sonner";
 
 import { Markdown } from "@/components/markdown";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/lib/api";
@@ -16,6 +17,7 @@ export function ReportTab({ taskId }: { taskId: string }) {
   const [loading, setLoading] = React.useState(true);
   const [refreshing, setRefreshing] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
+  const [error, setError] = React.useState("");
   const requestSeq = React.useRef(0);
 
   // 统一加载入口：首次加载展示整块 loading；手动刷新只切按钮态，失败时保留旧内容。
@@ -28,10 +30,12 @@ export function ReportTab({ taskId }: { taskId: string }) {
         const text = await api.report(taskId);
         if (seq !== requestSeq.current) return false;
         setReport(text);
+        setError("");
         return true;
-      } catch {
+      } catch (e) {
         if (seq !== requestSeq.current) return false;
         if (!silent) setReport("");
+        setError((e as Error).message || "报告加载失败");
         return false;
       } finally {
         if (silent) setRefreshing(false);
@@ -94,6 +98,20 @@ export function ReportTab({ taskId }: { taskId: string }) {
         <Markdown text={report} />
       </div>
     );
+  } else if (error) {
+    // A failed read is not an empty report: show the reason and a retry action.
+    content = (
+      <Alert variant="destructive">
+        <AlertTitle>报告加载失败</AlertTitle>
+        <AlertDescription className="flex flex-col items-start gap-3">
+          <span>{error}</span>
+          <Button size="sm" variant="outline" disabled={refreshing} onClick={() => void refresh()}>
+            <RefreshCwIcon className={refreshing ? "animate-spin" : undefined} />
+            {refreshing ? "重试中…" : "重试"}
+          </Button>
+        </AlertDescription>
+      </Alert>
+    );
   } else {
     content = (
       <div className="flex flex-col items-center justify-center gap-2 rounded-md border border-dashed py-16 text-muted-foreground text-sm">
@@ -124,7 +142,14 @@ export function ReportTab({ taskId }: { taskId: string }) {
           </Button>
         </div>
       </CardHeader>
-      <CardContent>{content}</CardContent>
+      <CardContent className="space-y-3">
+        {error && report ? (
+          <Alert variant="destructive">
+            <AlertDescription>刷新失败：{error}</AlertDescription>
+          </Alert>
+        ) : null}
+        {content}
+      </CardContent>
     </Card>
   );
 }

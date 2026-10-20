@@ -14,7 +14,7 @@ func findingAt(id int64, sev, name, status string, created time.Time) *db.DBFind
 
 func TestMarkdownEmptyReportIsExplicit(t *testing.T) {
 	out := Markdown(Input{Title: "空任务", GeneratedAt: time.Unix(0, 0)})
-	for _, want := range []string{"# 渗透测试报告 — 空任务", "**数据来源**：发现记录 0 条", "确认发现：**0** 个", "_本次未确认漏洞。_"} {
+	for _, want := range []string{"# 渗透测试报告 — 空任务", "**数据来源**：findings 表，本任务发现记录 0 条", "确认发现：**0** 个", "_本次未确认漏洞。_"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("empty report missing %q:\n%s", want, out)
 		}
@@ -29,9 +29,10 @@ func TestMarkdownOrdersBySeverityTimeThenID(t *testing.T) {
 		findingAt(3, "critical", "crit", db.FindingConfirmed, base),
 		findingAt(4, "low", "low", db.FindingConfirmed, base),
 		findingAt(5, "high", "same-second-high", db.FindingConfirmed, base.Add(time.Minute)),
+		findingAt(6, "info", "unknown-sev", db.FindingConfirmed, base),
 	}}
 	out := Markdown(in)
-	order := []string{"crit", "same-second-high", "new-high", "old-high", "low"}
+	order := []string{"crit", "same-second-high", "new-high", "old-high", "low", "unknown-sev"}
 	last := -1
 	for _, name := range order {
 		idx := strings.Index(out, "### ")
@@ -124,6 +125,26 @@ func TestMarkdownSanitizesTitleAndGoalNewlines(t *testing.T) {
 	}
 	if !strings.Contains(out, "# 渗透测试报告 — A # B") {
 		t.Fatalf("title not sanitized:\n%s", out)
+	}
+}
+
+func TestMarkdownRelatedFindingsAreSeparate(t *testing.T) {
+	now := time.Now()
+	own := findingAt(1, "high", "本任务发现", db.FindingConfirmed, now)
+	related := findingAt(2, "medium", "来源任务发现", db.FindingPending, now)
+	related.TaskDescription = "来源任务A"
+	out := Markdown(Input{Title: "子任务", GeneratedAt: now, Findings: []*db.DBFinding{own}, Related: []*db.DBFinding{related}})
+	if !strings.Contains(out, "发现记录：**1** 条") {
+		t.Fatalf("own count changed by related finding:\n%s", out)
+	}
+	if !strings.Contains(out, "关联任务发现：1 条（只读，不计入本任务统计）") {
+		t.Fatalf("related summary missing:\n%s", out)
+	}
+	if !strings.Contains(out, "## 关联任务发现（只读，不计入本任务统计）") || !strings.Contains(out, "### R1. [MEDIUM] 来源任务发现") {
+		t.Fatalf("related section missing:\n%s", out)
+	}
+	if !strings.Contains(out, "所属任务**：来源任务A") {
+		t.Fatalf("related provenance missing:\n%s", out)
 	}
 }
 

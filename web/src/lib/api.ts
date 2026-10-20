@@ -5,6 +5,7 @@ import { auth } from "./auth";
 // a few fields the backend serializes differently (e.g. created_at as a unix int)
 // are passed through and formatted at the call site.
 
+import { reportErrorMessage } from "./report-error";
 import type { ChatMention } from "@/lib/chat-mentions";
 import type {
   ActiveFindingRetest,
@@ -671,7 +672,12 @@ export const api = {
     const r = await fetch(`/api/report${tq(task)}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
-    if (!r.ok) throw new Error(`report: ${r.status}`);
+    if (!r.ok) {
+      // The handler returns {"error": "..."} with a 500 when a database read
+      // fails. Surface that reason instead of a bare status code: "暂无报告"
+      // and "读取发现失败" must not look the same to the user.
+      throw new Error(reportErrorMessage(r.status, await r.text()));
+    }
     return r.text();
   },
   chatMentions: (kind: string, query: string, signal?: AbortSignal, cursor = "") =>

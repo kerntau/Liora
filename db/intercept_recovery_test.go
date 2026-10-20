@@ -26,14 +26,20 @@ func TestRecoverInterceptPendingSettlesOnlyPendingRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Legacy/corrupt audit shapes must not abort the whole recovery.
+	var arrayAudit int64
+	if err := d.QueryRow(`INSERT INTO intercept_pending(rule_id, task_id, agent_name, tool_name, tool_input, status, reason, audit)
+		VALUES(NULL,$1,'worker','Bash','{}','pending','数组审计','[]') RETURNING id`, scope).Scan(&arrayAudit); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() { _, _ = d.Exec(`DELETE FROM intercept_pending WHERE task_id=$1`, scope) })
 
 	n, err := d.RecoverInterceptPending()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n != 2 {
-		t.Fatalf("recovered %d rows, want 2", n)
+	if n != 3 {
+		t.Fatalf("recovered %d rows, want 3", n)
 	}
 
 	got, err := d.GetInterceptDetail(first)
@@ -73,6 +79,14 @@ func TestRecoverInterceptPendingSettlesOnlyPendingRows(t *testing.T) {
 	}
 	if kept.Status != "allowed" {
 		t.Fatalf("terminal row rewritten: %q", kept.Status)
+	}
+
+	arrayRow, err := d.GetInterceptDetail(arrayAudit)
+	if err != nil || arrayRow == nil {
+		t.Fatalf("array audit detail: %+v %v", arrayRow, err)
+	}
+	if arrayRow.Status != "timeout" || arrayRow.Audit == nil || !strings.Contains(arrayRow.Audit.DecisionReason, "服务重启") {
+		t.Fatalf("array audit not settled: status=%q audit=%+v", arrayRow.Status, arrayRow.Audit)
 	}
 
 	pending, err := d.ListPendingIntercepts()

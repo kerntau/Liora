@@ -186,9 +186,17 @@ func (d *DB) RecoverInterceptPending() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	// Only object-shaped audit rows can be merged. A legacy/corrupt row with a
+	// JSON array (or scalar) would make liora_json_merge fail and abort the whole
+	// UPDATE, leaving every pending row unresolved; replace such a value with the
+	// decision patch instead.
 	res, err := d.Exec(`UPDATE intercept_pending SET status='timeout',
 		decided_at=strftime('%Y-%m-%d %H:%M:%f','now'),
-		audit=CASE WHEN audit IS NULL THEN NULL ELSE liora_json_merge(audit,$1) END
+		audit=CASE
+			WHEN audit IS NULL THEN NULL
+			WHEN json_type(audit)='object' THEN liora_json_merge(audit,$1)
+			ELSE $1
+		END
 		WHERE status='pending'`, patch)
 	if err != nil {
 		return 0, err

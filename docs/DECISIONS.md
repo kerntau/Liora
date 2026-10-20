@@ -290,6 +290,202 @@ P0—P3 已完成并记录，立即进入 P4；不等待用户回复。施工采
 - 未完成：审计 UI（明确降级）。
 - 下一步：下线 /api/gc 空桩并完成最终验收。
 
+### P4.1 执行结构重设计（真实多会话）
+
+- 触发：2026-10-21 02:22 用户指出首轮 P4 采用单会话逻辑隔离，未使用环境已支持的真实多 Agent 并发。
+- 裁决：产品目标 G1—G3 保持冻结（P0.4 禁止为实施便利改目标）；重设计的是执行结构，不是验收标准。已落地的 T1—T3 保留，新增 3 个真实子会话线程做独立验收。
+- 真实并发声明：本轮使用 subagent 启动 3 个独立会话，不是口头标签；主会话在它们运行期间不修改 server/db/web 源码，只追加本文档，避免读写冲突。
+
+| 线程 | 类型 | 独立目标 | 文件白名单 | 契约快照 | 依赖 | DoD |
+| --- | --- | --- | --- | --- | --- | --- |
+| T4 | 子会话·只读验收 | 独立复验 G1 报告链路（同源、证据、错误语义、排序） | 只读，无写 | CONTRACT 3.1 | 无 | 逐项 PASS/FAIL + file:line + 命令输出 |
+| T5 | 子会话·只读验收 | 独立复验 G2 重启恢复与 G3 快照回退（含真实进程重启） | 只读，无写 | CONTRACT 2.5、5.2、5.3 | 无 | 实测日志/DB 状态 + PASS/FAIL |
+| T6 | 子会话·只读验收 | 前端闭环、typecheck/test/build、文档与实现一致性 | 只读；构建产物除外 | CONTRACT 3.1 | 无 | 构建退出码 + 缺口清单 |
+| T1—T3 | 主会话·实现 | G1/G2/G3 实现与提交 | feat/report-delivery、feat/approval-recovery、feat/approval-provenance | 已合并 | 无 | go test ./... 全绿 |
+
+- 不冲突证明：T4/T5/T6 均不写仓库，主会话只写 docs/DECISIONS.md 与 WORKLOG.md；三条线程读取的代码在运行期间保持不变。
+- 合并点 2 更新：T4/T5/T6 的结论将决定是否需要补丁；任何补丁先在主会话复现，再按 P5 失败处理流程修复。
+- 记录规则：子会话的结论只作为独立证据，不替代主会话自检；未通过的项必须修复或如实保留。
+
+### P4.2 独立验收结果与修复裁决（T5/T6，2026-10-21 02:25）
+
+#### T6（前端闭环 / 构建 / 文档）
+
+- 构建：npm run typecheck 退出 0；npm test 7/7；npm run build 退出 0（Rsbuild 2.72s）。
+- FAIL：后端 500 被前端渲染为「暂无报告」。证据：web/src/lib/api.ts:674 丢弃 {"error"}；report-tab.tsx:32-35 只 setReport("")，无 error 状态；report-tab.tsx:97-103 空串即空态。用户无法区分「数据库读取失败」与「没有报告」。
+- FAIL：docs/CONTRACT.md 3.1 与实现存在行号与口径偏差；「与发现页同源」表述过宽：任务内「漏洞结果」Tab 走 exploration_nodes（server/server.go:1846、1882，200 条上限）并追加来源任务继承节点（1901-1930），只有全局发现页与导出使用 findings 表。
+- 附带缺陷：report/report.go:110 的 sevRank 对未知 severity 返回 map 零值 0，与 critical 同档；db/findings.go:473 的导出 SQL 把未知等级排最后，两处排序不一致。
+
+#### T5（G2/G3 独立验收）
+
+- G2 核心 PASS：真实二进制重启后日志出现「已失效 1 条」，数据库 status=timeout、decided_at 非空、audit 原因/快照保留、allowed 终态未变、第三次启动幂等。
+- G3 PASS：SQL 与 Go 两级验证；规则删除后列表/详情返回 audit 快照名。
+- FAIL（边界）：当某行 audit 为 JSON 数组（如 []）时，liora_json_merge 报 cannot unmarshal array，整条 UPDATE 失败，所有 pending 仍为 pending；启动仅告警，不阻断服务。
+- 已知限制：多进程共享同一 SQLite 时，后启动实例会收敛先启动实例正在等待的 pending（实测 A 18789 的 pending 被 B 18790 置为 timeout）；当前无单实例锁，属于部署约束而非代码可判定状态。
+
+#### 修复裁决
+
+1. G1 前端闭环：修 api.ts 透出后端错误、report-tab 增加 error 状态与重试；新增 src/lib/report-error.ts + 3 个单测。状态：已实施，待复验。
+2. 排序一致性：把 sevRank 改为函数，未知 severity 返回 4（与导出 SQL 一致）。状态：待实施。
+3. G2 边界：恢复 SQL 对 audit 非对象行改为写入决策补丁而不是 merge，保证整批成功；新增数组 audit 用例。状态：待实施。
+4. 文档：修正 CONTRACT 行号与「同源」口径、DEMO 的对比对象与错误态描述。状态：待实施。
+5. 多进程误伤：不新增锁（超出本轮目标）；在 CONTRACT 与 DEMO 明确为单进程部署约束。
+
+### P4.3 验收修复与复验（2026-10-21 02:42）
+
+#### 独立验收汇总（真实子会话）
+
+| 线程 | 结论 | 关键证据 | 处置 |
+| --- | --- | --- | --- |
+| T4 G1 报告 | 冻结口径通过；严格任务 Tab 口径 FAIL | 1500 条无截断、三处 500、流量/复测/排序/隔离实测；任务 Tab 继承与 node-only 不在报告；资产计数全局；未知 severity 排序错误；40000 id 触发 SQLite 变量上限 | 修复资产/关联发现/排序/分批；node-only 记录为边界 |
+| T5 G2/G3 | G2 核心 PASS + 数组边界 FAIL；G3 PASS | 真实二进制重启日志与 DB 状态；G3 SQL/Go 两级；audit=[] 导致整批恢复失败；多进程误伤实测 | 修复 audit 非对象分支；多进程记为部署约束 |
+| T6 前端/构建 | 构建 PASS；前端错误闭环 FAIL；文档不一致 | typecheck 0、npm test 7/7、build 0；500 显示「暂无报告」；CONTRACT 行号/口径偏差 | 修复错误态与文档；新增 report-error 单测 |
+
+#### 已实施修复
+
+1. G1 前端闭环：web/src/lib/api.ts:670-682 透出后端 {"error"}；新增 web/src/lib/report-error.ts 与 3 个单测；report-tab.tsx 增加 error 状态、错误原因与重试，刷新失败保留旧报告并提示。
+2. 资产任务隔离：server/server.go:3626 改用 db.AssetStore.CountsByTypeForTask（db/assets.go:1129-1136），不再全局 QueryByType。
+3. 关联任务发现：server/server.go:3654-3676 读取直接来源任务 findings；报告新增「关联任务发现（只读，不计入本任务统计）」章节；本任务计数不受影响。
+4. 未知 severity：report/report.go:142-156 severityRank 未知值返回 4，与 db/findings.go:473 导出排序一致。
+5. 统计口径：报告区分「发现记录」「确认发现（status=confirmed）」「状态分布」，不再把所有 triage 状态都叫确认发现。
+6. 批量查询分批：db/finding_traffic.go:282-313、db/finding_retests.go:261-290 按 500 个 ID 分批，避免 SQLite 变量上限导致 500。
+7. G2 边界：db/intercept.go:189-197 对 audit 非对象（数组/标量）改为写入决策补丁；db/intercept_recovery_test.go 新增 audit='[]' 用例，恢复 3 条、终态 0 条 pending。
+8. 下线：server/server.go 删除 POST /api/gc 与 no-op handler；server/retired_routes_test.go 断言 404。
+
+#### 复验（全部真实执行）
+
+| 命令 | 结果 |
+| --- | --- |
+| go test ./... -count=1 | 15 个包全部 ok；TEST_EXIT=0 |
+| go vet ./... | VET_EXIT=0 |
+| cd web; npm run typecheck | TYPECHECK_EXIT=0 |
+| cd web; npm test | 10 pass / 0 fail |
+| cd web; npm run build | BUILD_EXIT=0，Total 4310.9 kB |
+| go test ./report -count=1 | ok，9 个用例 |
+| go test ./server -run TestReport -count=1 | 6 个用例通过 |
+
+#### 残余边界（不计为通过，也不隐藏）
+
+1. 仅存在于 exploration_nodes、没有 findings 行的历史发现节点：任务 Tab 可见，报告不包含；当前 data/liora.db 为 0 条。触发条件：出现任一此类真实样本 → 改为 findings 为主 + 图节点补漏的并集实现。
+2. 任务详情「漏洞结果」Tab 自身有 200 条上限（server/server.go:1882、1907）；报告无此上限，数量可能多于 Tab。
+3. 多进程共享同一 SQLite：后启动实例会收敛先启动实例的 pending；无单实例锁，按部署约束记录。
+4. 500 响应包含底层错误字符串（便于本地诊断），未做脱敏。
+5. Playwright e2e 本轮未执行；不以历史 62/62 代替本轮结果。
+6. npm run check（biome）基线 178 errors，主要是 import 排序；CI 未启用，本轮未批量重排用户代码。
+
+#### 协议偏差（如实记录）
+
+- T0 未按 P4.2 使用独立分支 feat/t0-decouple；CONTRACT.md 与 P0-P3 决策一起落在 bffec34。内容已建立并被后续实现引用，但分支纪律未满足。
+- T1—T3 为单会话串行实现；P4.1 要求的真实多会话在收到用户纠正后以 T4/T5/T6 三个 subagent 验收线程补做。实现阶段的并发未达成，验收阶段达成。
+
+---
+
+## P6 最终交付与验收
+
+### ② P0 目标验收表
+
+| 目标 | 基线 | 目标值 | 实际结果 | 证据 | 状态 |
+| --- | --- | --- | --- | --- | --- |
+| G1 任务报告交付完整性 | server/server.go 旧 getReport 吞错 + 1000 截断；report/report.go 只渲染 PoC；真实库 6/6 发现已绑流量但报告 0 展示；report 包 0 测试 | findings 表按任务读取；失败 500；状态/流量/最新复测；≥8 report 测试 + 4 server 测试 | 已实现；9 个 report 用例、6 个 server 用例；资产任务隔离、关联发现单列、未知 severity 修正、批量查询分批；前端 500 显示错误与重试 | go test ./report ./server 全绿；eab8c51；T4/T6 报告；CONTRACT 3.1 | 通过（冻结口径：全局发现页/导出同源） |
+| G2 审批生命周期一致性 | intercept/intercept.go:584-666 内存等待；db/schema.sql:620-621 状态约束；启动无恢复；复测有先例 db/finding_retests.go:259-261 | 启动前收敛所有 pending 为 timeout，写原因，幂等，不改终态 | 已实现；真实重启实测日志与 DB 状态；audit 数组边界已修复并加用例 | 9e335fa、bb8e4fd；T5 报告；db/intercept_recovery_test.go | 通过（多进程误伤为部署约束） |
+| G3 审批来源可追溯 | intercept/trace.go:163 已存快照；db/intercept.go 只 join 当前规则；删除规则丢来源 | 当前规则名优先，缺失回退 audit 快照，无快照为空 | 已实现；SQL 与 Go 两级验证；删除/改名/无快照三态 | 27919c6；T5 报告；db/intercept_provenance_test.go | 通过 |
+
+### ③ 取证表
+
+见 P1 表 A/表 B 与 P4.3；关键偏差均已修复或列为边界。自检命令清单见 P1.2 与 P4.3 复验表。
+
+### ④ 裁决表
+
+见 P2。已执行：下线 POST /api/gc（server/server.go 路由与 handler 删除，retired_routes_test 断言 404）；合并逐条发现渲染（writeFindingBlock 被任务报告与导出共用）。
+
+### ⑤ 三个工作方向
+
+见 P3.1—P3.4；优先级 D1 > D2 > D3；只做三件事、四周路线图、最大不确定性实验（真实库 6=6）、自我反驳与冲突决胜均已记录。
+
+### ⑥ 共享契约与工作日志
+
+- docs/CONTRACT.md：已按实现修正行号与口径，标注待验证边界。
+- WORKLOG.md：按 [T#][时间] 追加真实执行事实。
+
+### ⑦ 各方向 DoD、演示脚本与任务包
+
+- G1：docs/DEMO-report.md；DoD 见 P3.1 D1；任务包 T1 + T4/T6 验收。
+- G2：docs/DEMO-approval-recovery.md；DoD 见 P3.1 D2；任务包 T2 + T5 验收。
+- G3：docs/DEMO-approval-provenance.md；DoD 见 P3.1 D3；任务包 T3 + T5 验收。
+- 多会话任务包：P4.1 表格（线程、白名单、契约、依赖、DoD）。
+
+### ⑧ 设计判断与最终立场
+
+- 最初的错误判断：任务报告应以探索图节点为唯一数据源。
+- 支持证据：报告缺状态/流量/复测；真实库 6/6 发现已绑流量但报告 0 展示；发现页/导出使用 findings 表。
+- 最强反驳：探索图是 Agent 推理的原始事实，findings 是派生投影，投影可能缺失。
+- 最终立场：漏洞登记在同事务写图节点与 findings 行（db/finding_traffic.go:342-395），真实库 0 缺失，改用 findings 表；来源任务继承发现单列；node-only 历史节点保留触发条件。
+- 改变判断的条件：出现任一图节点无 findings 行的真实样本，或 findings 行被独立删除而图节点仍在。
+
+### 最终工程报告
+
+#### 已完成且通过验收
+
+- G1 报告同源、无 1000 截断、失败 500、状态/流量/最新复测、资产任务隔离、关联发现单列、未知 severity 排序、批量查询分批、前端错误态与重试。
+- G2 启动收敛遗留 pending、审计原因与快照保留、幂等、非对象 audit 边界。
+- G3 规则名回退 audit 快照。
+- POST /api/gc 下线并加 404 回归。
+- 决策文档、共享契约、工作日志、三份演示脚本。
+
+#### 已实现但验收不通过
+
+- 无（T4/T5/T6 指出的可修复项均已修复并复验；node-only 历史节点列为边界而非已修复）。
+
+#### 部分实现
+
+- 任务 Tab 与报告的 node-only 历史节点一致性（真实库 0 条）。
+- 任务 Tab 200 条上限与报告无上限的差异（UI 既有行为，本轮未改）。
+
+#### 未实现
+
+- Guard 审计 UI（GET /api/audit 仍无前端入口）。
+- PDF/HTML 报告导出、报告持久化缓存。
+- 多进程审批归属锁。
+- Playwright e2e 本轮未执行。
+
+#### 受环境阻塞
+
+- 无外部权限阻塞。e2e 未执行是时间/范围选择，不是环境不可用；不以未执行结果冒充通过。
+
+#### 实际修改文件（本轮全部提交）
+
+- report/report.go、report/findings.go、report/report_test.go
+- db/finding_traffic.go、db/finding_retests.go、db/intercept.go、db/intercept_recovery_test.go、db/intercept_provenance_test.go
+- server/server.go、server/manager.go、server/report_test.go、server/report_related_test.go、server/intercept_recovery_test.go、server/retired_routes_test.go
+- cmd/liora/main.go
+- web/src/lib/api.ts、web/src/lib/report-error.ts、web/src/lib/report-error.test.mjs、web/src/pages/main/function/tasks/detail/_tabs/report-tab.tsx
+- docs/DECISIONS.md、docs/CONTRACT.md、docs/DEMO-report.md、docs/DEMO-approval-recovery.md、docs/DEMO-approval-provenance.md、WORKLOG.md
+
+#### 分支与提交
+
+- feat/report-delivery：73944e7 + bffec34 → merge 370fc47
+- feat/approval-recovery：9e335fa + a17d48c → merge 3e6f44e
+- feat/approval-provenance：27919c6 + 63f913a → merge 3cae40b
+- main 验收修复：eab8c51（G1 + gc 下线）、bb8e4fd（G2 边界）
+- 未推送远端；未使用 force push。
+
+#### 真实执行的测试
+
+- go build ./...、go test ./... -count=1、go vet ./...：全部退出 0。
+- cd web; npm run typecheck、npm test（10/10）、npm run build：全部退出 0。
+- 真实进程：T5 在临时库完成 G2 重启复现；T4 在临时副本完成 1500 条/隔离/失败路径对抗测试。
+- 未执行：npm run test:e2e、npm run check（基线 178 errors）。
+
+#### 未解决风险与回滚路径
+
+- node-only 历史发现：回滚为 revert eab8c51；若需并集实现，先补测试。
+- 多进程 pending 误伤：回滚为移除 cmd/liora/main.go 的恢复调用；部署上保持单进程。
+- 前端错误态：revert eab8c51 中的 web 文件即可恢复旧空态。
+- 文档：revert 对应 docs 提交；docs/ 仍被 .gitignore 忽略，交付文档以 git add -f 跟踪。
+
+
+
+
 
 
 

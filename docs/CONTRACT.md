@@ -4,13 +4,13 @@
 > 标注【已证实】的内容来自实际读取的代码；标注【已批准·未实现】的内容是本轮决策后计划落地的契约；标注【待验证】的内容不得当作事实使用。
 > 决策与理由见 docs/DECISIONS.md；执行时间线见 WORKLOG.md。
 
-更新时间：2026-10-21 02:10 +08:00
+更新时间：2026-10-21 02:42 +08:00
 
 ## 1. 身份与传输边界【已证实】
 
 - 所有 /api/* 业务接口使用 Bearer JWT；令牌由 server/auth.go 签发与校验，账号固定为 Liora（README:40）。
 - 响应默认 JSON；例外：
-  - GET /api/report 返回 text/markdown; charset=utf-8（server/server.go:3609-3611）。
+  - GET /api/report 返回 text/markdown; charset=utf-8（server/server.go:3646-3648）。
   - GET /api/exploration/findings/export 按 format 返回 markdown / zip / csv / json，并设置 Content-Disposition（server/server.go:2091-2120）。
 - SSE 事件通过同一 /api 前缀转发，开发代理与内嵌部署同源（README:42）。
 
@@ -55,7 +55,7 @@
 - 字段：id、rule_id、conversation_id、task_id、agent_name、tool_name、tool_input、status、reason、decided_at、created_at、audit、decision_source。
 - status 约束：pending、allowed、denied、timeout（db/schema.sql:620-621）。
 - audit 为 JSON，包含 correlation、input_digest、initial_action、initial_reason、effective_action、decision_reason、rule_name、execution_status 等（db/intercept_detail.go:21-45）。
-- rule_name 快照写入 audit（intercept/trace.go:163）；当前查询只 join 当前规则表（db/intercept.go:227-231）——本轮改为回退快照，见第 5 节。
+- rule_name 快照写入 audit（intercept/trace.go:163）；查询优先当前规则名，缺失时回退快照（db/intercept.go:255-259），见第 5 节。
 
 ## 3. HTTP API 契约
 
@@ -63,19 +63,22 @@
 
 GET /api/report?task=<task_id>
 
-- 变更前【已证实】：读探索图节点，limit 1000，数据库错误被丢弃；返回 200 + Markdown（server/server.go:3591-3612）。
-- 变更后【已批准·本轮实现】：
-  - 数据源：findings 表按 task_id 读取（与发现页/导出同源），不设 1000 截断。
-  - 失败：任一数据库查询失败 → HTTP 500 JSON {"error": "..."}，不输出 Markdown。
-  - 成功：200 text/markdown，包含任务目标、生成时间、发现计数、按严重等级排序的每条发现、状态、类别、发现时间、最新 completed 复测结论、流量证据列表、详细报告。
-  - 排序：严重等级降序（critical→high→medium→low→其他），同级别按 created_at 降序，再按 id 降序，保证重复生成顺序稳定。
-- 调用方：web/src/lib/api.ts:669-675；web/src/pages/main/function/tasks/detail/_tabs/report-tab.tsx。
+- 变更前（历史实现，见提交 370fc47 的父提交）：读探索图节点，limit 1000，数据库错误被丢弃；返回 200 + Markdown。
+- 变更后【已实现】：
+  - 数据源：findings 表按 task_id 读取（与全局发现页、发现导出同源），不设 1000 截断。任务详情「漏洞结果」Tab 仍走 exploration_nodes（server/server.go:1843-1932），并包含来源任务继承节点；报告把继承发现放在独立的「关联任务发现（只读，不计入本任务统计）」章节，不混入本任务计数。
+  - 资产统计：按任务过滤（db/assets.go:1129-1136；server/server.go:3626），不再使用全局 QueryByType。
+  - 失败：findings、流量证据、复测、资产、关联任务任一读取失败 → HTTP 500 JSON {"error": "..."}，不输出 Markdown；无活跃任务 → 404 {"error":"no active task"}。
+  - 成功：200 text/markdown，包含任务目标、生成时间、发现记录/确认发现/状态分布、按任务统计的资产、按严重等级排序的每条发现（状态、类别、发现时间、最新 completed 复测、流量证据、详细报告），以及关联任务发现章节。
+  - 排序：严重等级降序（critical→high→medium→low→未知最后），同级别按 created_at 降序，再按 id 降序；未知 severity 与导出 SQL 一致排在最后（report/report.go:142-156）。
+  - 大数据量：流量/复测批量查询按 500 个 finding 分批（db/finding_traffic.go:282-313；db/finding_retests.go:261-290），避免 SQLite 变量上限导致 500。
+- 前端：api.ts:670-682 透出后端 {"error"} 文案；report-tab.tsx 失败时显示「报告加载失败」+ 原因 + 重试，不再把 500 显示成「暂无报告」。
+- 调用方：web/src/lib/api.ts:670-682；web/src/pages/main/function/tasks/detail/_tabs/report-tab.tsx。
 
 ### 3.2 发现列表与导出【已证实】
 
-- GET /api/exploration/findings?task=<id>：任务内发现；无 task 为全局发现页，从 findings 表读取（server/server.go:1844-1845）。
+- GET /api/exploration/findings：无 task 为全局发现页，从 findings 表读取（server/server.go:1844-1875）；带 task 为任务详情 Tab，从 exploration_nodes 读取（上限 200）并追加来源任务继承节点（server/server.go:1877-1932）。两者口径不同，报告采用前者。
 - GET /api/exploration/findings/export：format=md-single|md-zip|csv|json，支持筛选与勾选 ID（server/server.go:2025-2120）。
-- 导出渲染在 report/findings.go:37-199，包含状态、所属任务、详细报告、流量证据。
+- 导出渲染在 report/findings.go，包含状态、所属任务、详细报告、流量证据；与任务报告共用 writeFindingBlock。
 
 ### 3.3 审批【已证实】
 
@@ -108,17 +111,17 @@ GET /api/report?task=<task_id>
 ### 5.1 任务报告数据源变更
 
 - 原因：报告与发现页两套口径；真实库 6/6 发现已绑流量但报告未展示；数据库错误被吞。
-- 调用方：web/src/lib/api.ts:669；report-tab.tsx。
-- 受影响文件：server/server.go（getReport）、report/report.go、report/findings.go、report/report_test.go（新增）、server/report_test.go（新增）。
-- 兼容性：HTTP 路径、查询参数、Content-Type 不变；Markdown 内容增加章节，不删除任务目标/摘要/发现；旧报告中的「确认发现」保留。
-- 回滚：revert feat/report-delivery 的提交，恢复图节点渲染。
+- 调用方：web/src/lib/api.ts:670；report-tab.tsx。
+- 受影响文件：server/server.go（getReport、relatedTaskFindings）、report/report.go、report/findings.go、db/finding_traffic.go、db/finding_retests.go、report/report_test.go、server/report_test.go、server/report_related_test.go、web/src/lib/report-error.ts、web/src/lib/api.ts、report-tab.tsx。
+- 兼容性：HTTP 路径、查询参数、Content-Type 不变；Markdown 内容增加状态分布/关联任务章节，不删除任务目标/摘要/发现；「确认发现」保留但只统计 status=confirmed，另列「发现记录」总数。
+- 回滚：revert feat/report-delivery 的提交与后续验收修复提交，恢复图节点渲染。
 
 ### 5.2 审批启动恢复
 
 - 原因：进程重启后 pending 永远无法被消费。
 - 调用方：cmd/liora/main.go（新增调用）；server.Manager 新增方法。
 - 受影响文件：db/intercept.go、db/intercept_recovery_test.go（新增）、server/manager.go、cmd/liora/main.go。
-- 兼容性：只改 status='pending' 的行；终态行不变；状态枚举不新增值（使用既有 timeout）。
+- 兼容性：只改 status='pending' 的行；终态行不变；状态枚举不新增值（使用既有 timeout）。audit 为 JSON 对象时合并决策补丁；为 NULL 时保持 NULL；为数组/标量时整体替换为补丁，避免 liora_json_merge 报错导致整批恢复失败。
 - 回滚：删除 main 中的调用。
 
 ### 5.3 审批 rule_name 回退
@@ -138,5 +141,6 @@ GET /api/report?task=<task_id>
 ## 7. 待验证【不得当作事实】
 
 - 归档/恢复任务中 findings 行与探索图节点是否仍保持一一对应（本轮只验证了当前活动库）。
-- 多进程共享同一 SQLite 数据目录时的审批归属（部署约束声明为不支持，db/finding_traffic.go:21-28）。
+- 多进程共享同一 SQLite 数据目录时的审批归属：无单实例锁，后启动实例会收敛先启动实例的 pending（本轮已实测）；部署约束声明为不支持（db/finding_traffic.go:21-28）。
+- 仅存在于 exploration_nodes、没有 findings 行的历史发现节点：任务 Tab 可见，但任务报告不包含；当前真实库为 0 条。若出现，按 DECISIONS 的触发条件改为并集实现。
 - Guard 内存审计在任务重载后的可见范围（本轮不做 UI）。

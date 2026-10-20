@@ -766,7 +766,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/tokens/usage", s.pgUsageStats) // 全局 llm_usage 聚合（仪表盘新版视图）
 
 	mux.HandleFunc("GET /api/audit", s.getAudit)
-	mux.HandleFunc("POST /api/gc", s.gc)
 	mux.HandleFunc("GET /api/traffic", s.getTraffic)
 	mux.HandleFunc("GET /api/traffic/exchange", s.getTrafficExchange)
 	mux.HandleFunc("GET /api/traffic/blob", s.getTrafficBlob)
@@ -3617,24 +3616,62 @@ func (s *Server) getReport(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "读取复测结论失败: "+err.Error())
 		return
 	}
+	tid, err := strconv.ParseInt(t.ID, 10, 64)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "任务 ID 无效: "+err.Error())
+		return
+	}
+	// Asset counts are task-scoped: the old global QueryByType leaked assets from
+	// other tasks into this task's report.
+	allCounts, err := s.m.Assets().CountsByTypeForTask(tid)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取资产失败: "+err.Error())
+		return
+	}
 	counts := map[string]int{}
 	for _, ty := range []string{"root_domain", "ip", "subdomain", "app", "service", "endpoint"} {
-		ns, err := s.m.Assets().QueryByType(ty, 100000, 0)
-		if err != nil {
-			writeErr(w, http.StatusInternalServerError, "读取资产失败: "+err.Error())
-			return
+		if n := allCounts[ty]; n > 0 {
+			counts[ty] = n
 		}
-		if len(ns) > 0 {
-			counts[ty] = len(ns)
-		}
+	}
+	related, err := s.relatedTaskFindings(t)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取关联任务发现失败: "+err.Error())
+		return
 	}
 	md := report.Markdown(report.Input{
 		Title: t.Description, Goal: t.Goal, GeneratedAt: time.Now(),
-		AssetCounts: counts, Findings: findings, Traffic: traffic, Retests: retests,
+		AssetCounts: counts, Findings: findings, Traffic: traffic, Retests: retests, Related: related,
 	})
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	w.WriteHeader(200)
 	_, _ = w.Write([]byte(md))
+}
+
+// relatedTaskFindings returns the findings of the task's direct source tasks.
+// They are shown in the report as read-only context and never counted as this
+// task's results; the task findings tab shows the same inherited set.
+func (s *Server) relatedTaskFindings(t *Task) ([]*db.DBFinding, error) {
+	sources, err := t.Store.DirectSourceStores()
+	if err != nil {
+		return nil, err
+	}
+	seen := map[int64]bool{}
+	var out []*db.DBFinding
+	for _, src := range sources {
+		fs, err := s.m.pg.ListFindingsForExport(db.FindingFilter{TaskID: strconv.FormatInt(src.Task.TaskID, 10)}, nil)
+		if err != nil {
+			return nil, err
+		}
+		for _, f := range fs {
+			if f == nil || seen[f.ID] {
+				continue
+			}
+			seen[f.ID] = true
+			out = append(out, f)
+		}
+	}
+	return out, nil
 }
 
 func (s *Server) getAudit(w http.ResponseWriter, r *http.Request) {
@@ -3644,11 +3681,6 @@ func (s *Server) getAudit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"entries": t.Guard.Audit(), "attributions": t.Guard.Attributions()})
-}
-
-// gc is a no-op stub (GC not yet implemented in the new asset store).
-func (s *Server) gc(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"removed": 0})
 }
 
 // --- utils ---
