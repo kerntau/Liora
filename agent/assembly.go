@@ -76,6 +76,15 @@ func guardPanic(t actool.CoreTool) actool.CoreTool { return &guardedTool{CoreToo
 
 type guardedTool struct{ actool.CoreTool }
 
+// AcceptsRawInput forwards the optional raw-input opt-out (tool.Spec.RawInput).
+// Wrapping must not hide it: the harness discovers the capability by type
+// assertion, and a self-parsing tool that loses it would be schema-rejected
+// before its repair logic can run.
+func (g *guardedTool) AcceptsRawInput() bool {
+	r, ok := g.CoreTool.(interface{ AcceptsRawInput() bool })
+	return ok && r.AcceptsRawInput()
+}
+
 func (g *guardedTool) Call(ctx context.Context, in json.RawMessage, tc *actool.ToolContext) (res actool.Result, err error) {
 	defer func() {
 		if r := recover(); r != nil {

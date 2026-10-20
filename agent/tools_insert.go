@@ -419,7 +419,7 @@ func (t *ToolSet) listUntestedAssets() actool.CoreTool {
 		obj(map[string]any{
 			"type":      str("资产类型过滤（可选）：root_domain/subdomain/service/app/endpoint/ip"),
 			"page":      intp("页码，从 1 起（默认 1）"),
-			"page_size": intp("每页数量（默认 10）"),
+			"page_size": intp("每页数量（默认 10，上限 200）"),
 		}),
 		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
 			if t.as == nil {
@@ -434,19 +434,13 @@ func (t *ToolSet) listUntestedAssets() actool.CoreTool {
 				PageSize int    `json:"page_size"`
 			}
 			_ = json.Unmarshal(in, &a)
-			if a.Page <= 0 {
-				a.Page = 1
-			}
-			if a.PageSize <= 0 {
-				a.PageSize = 10
-			}
-			offset := (a.Page - 1) * a.PageSize
-			assets, total, err := t.as.ListUntestedAssetsWithSources(t.taskID, strings.TrimSpace(a.Type), a.PageSize, offset)
+			page, size, offset := clampPaging(a.Page, a.PageSize)
+			assets, total, err := t.as.ListUntestedAssetsWithSources(t.taskID, strings.TrimSpace(a.Type), size, offset)
 			if err != nil {
 				return actool.Errorf(err.Error()), nil
 			}
 			return jsonResult(map[string]any{
-				"assets": assets, "total": total, "page": a.Page, "page_size": a.PageSize,
+				"assets": assets, "total": total, "page": page, "page_size": size,
 			})
 		},
 	)
@@ -466,7 +460,7 @@ func (t *ToolSet) listAssets() actool.CoreTool {
 			"type":   str("资产类型过滤：root_domain|ip|subdomain|app|service|endpoint（独立字段，可与 dsl 叠加；单独 type 不足以查询，仍需 dsl）"),
 			"id":     intp("直接按单个资产 id 取（可选，与 dsl/type 互斥）"),
 			"ids":    map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "直接按多个资产 id 取（可选，与 dsl/type 互斥）"},
-			"limit":  intp("返回上限，默认 10（可选）"),
+			"limit":  intp("返回上限，默认 10，上限 200（可选）"),
 			"offset": intp("分页偏移，默认 0（可选）"),
 		}),
 		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
@@ -482,9 +476,7 @@ func (t *ToolSet) listAssets() actool.CoreTool {
 				Offset int     `json:"offset"`
 			}
 			_ = json.Unmarshal(in, &a)
-			if a.Limit <= 0 {
-				a.Limit = 10
-			}
+			a.Limit, a.Offset = clampLimitOffset(a.Limit, a.Offset)
 
 			var assets []*db.Asset
 			var err error

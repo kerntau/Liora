@@ -855,6 +855,12 @@ func TestCalcCSegment(t *testing.T) {
 		{"10.0.0.255", "10.0.0.0/24"},
 		{"", ""},
 		{"notanip", ""},
+		// An IPv4-mapped IPv6 literal is still an IPv4 address: it must yield the
+		// same /24 as the dotted form instead of a malformed "::ffff:.../24".
+		{"::ffff:192.168.1.5", "192.168.1.0/24"},
+		{"::FFFF:10.0.0.1", "10.0.0.0/24"},
+		{"2001:db8::1", "2001:db8::/48"},
+		{"fe80::1", "fe80::/48"},
 	}
 	for _, tc := range tests {
 		got := calcCSegment(tc.ip)

@@ -1146,6 +1146,11 @@ func (m *Manager) SetTaskPaused(id string, paused bool) error {
 // preservePosition applies only when the row is already queued. A repeated
 // admission keeps its FIFO timestamp; a task that was explicitly paused and is
 // now re-queued receives a fresh tail position.
+//
+// Any terminal -> non-terminal transition also clears first_run_at/deadline_at: a
+// revived run is a new run and must get a full timeout budget, not inherit the
+// previous run's expired clock (the Engine side mirrors this by dropping its
+// in-memory deadline/settle state).
 func (m *Manager) ApplyTaskAdmission(id, expectedStatus, status string, queued bool, mode string, preservePosition bool) error {
 	m.taskStateMu.Lock()
 	defer m.taskStateMu.Unlock()
@@ -1182,11 +1187,11 @@ func (m *Manager) ApplyTaskAdmission(id, expectedStatus, status string, queued b
 	        ELSE 'resume'
 	    END,
 	    first_run_at=CASE
-	        WHEN $6='timeout' AND $2 NOT IN ('done','failed','timeout') THEN NULL
+	        WHEN $6 IN ('done','failed','timeout') AND $2 NOT IN ('done','failed','timeout') THEN NULL
 	        ELSE first_run_at
 	    END,
 	    deadline_at=CASE
-	        WHEN $6='timeout' AND $2 NOT IN ('done','failed','timeout') THEN NULL
+	        WHEN $6 IN ('done','failed','timeout') AND $2 NOT IN ('done','failed','timeout') THEN NULL
 	        ELSE deadline_at
 	    END
 	WHERE id=$1 AND deleted_at IS NULL AND status=$6

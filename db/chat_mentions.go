@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 )
 
 // ChatMention is a lightweight search result. Details are read again on send.
@@ -65,18 +64,21 @@ func (d *DB) SearchChatMentionsPage(ctx context.Context, kind, query, cursor str
 			return page, ErrInvalidChatMentionCursor
 		}
 	}
-	pattern := "%" + strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(query) + "%"
+	// likeEscape handles the metacharacters; every LIKE below must keep its
+	// ESCAPE '\' clause, otherwise the escaping would search for a literal
+	// backslash and silently match nothing.
+	pattern := "%" + likeEscape(query) + "%"
 	rows, err := d.QueryContext(ctx, `
 SELECT kind, id, substr(label, 1, 160), substr(description, 1, 240) FROM (
  SELECT 'finding' AS kind, id, COALESCE(NULLIF(name,''), vulnclass) AS label,
          concat_ws(' · ', severity, status, substr(summary, 1, 160)) AS description
   FROM findings WHERE ($1='' OR $1='finding') AND
-    ($2='' OR CAST(id AS TEXT)=$2 OR concat_ws(' ',name,vulnclass,summary) LIKE $3)
+    ($2='' OR CAST(id AS TEXT)=$2 OR concat_ws(' ',name,vulnclass,summary) LIKE $3 ESCAPE '\')
     AND (CAST($4 AS INTEGER)=0 OR (CAST(id AS TEXT)=$2)<$6 OR ((CAST(id AS TEXT)=$2)=$6 AND (id<$4 OR (id=$4 AND 'finding'>$5))))
  
  UNION ALL
  SELECT 'company', id, name, nkey FROM companies
-  WHERE ($1='' OR $1='company') AND ($2='' OR CAST(id AS TEXT)=$2 OR name LIKE $3 OR nkey LIKE $3)
+  WHERE ($1='' OR $1='company') AND ($2='' OR CAST(id AS TEXT)=$2 OR name LIKE $3 ESCAPE '\' OR nkey LIKE $3 ESCAPE '\')
     AND (CAST($4 AS INTEGER)=0 OR (CAST(id AS TEXT)=$2)<$6 OR ((CAST(id AS TEXT)=$2)=$6 AND (id<$4 OR (id=$4 AND 'company'>$5))))
  
  UNION ALL
@@ -85,7 +87,7 @@ SELECT kind, id, substr(label, 1, 160), substr(description, 1, 240) FROM (
          ELSE COALESCE(NULLIF(app_name,''),NULLIF(url,''),NULLIF(domain,''),NULLIF(ip,''),NULLIF(bundle_id,''),'资产 #'||CAST(id AS TEXT)) END,
     concat_ws(' · ',type,NULLIF(page_title,''),NULLIF(service_name,''),NULLIF(bundle_id,''),NULLIF(ip,''),CAST(port AS TEXT))
   FROM assets WHERE ($1='' OR $1='asset' OR type=$1) AND
-    ($2='' OR CAST(id AS TEXT)=$2 OR concat_ws(' ',domain,root_domain,ip,url,app_name,bundle_id,page_title,service_name,method) LIKE $3)
+    ($2='' OR CAST(id AS TEXT)=$2 OR concat_ws(' ',domain,root_domain,ip,url,app_name,bundle_id,page_title,service_name,method) LIKE $3 ESCAPE '\')
     AND (CAST($4 AS INTEGER)=0 OR (CAST(id AS TEXT)=$2)<$6 OR ((CAST(id AS TEXT)=$2)=$6 AND (id<$4 OR (id=$4 AND type>$5))))
  
 ) matches ORDER BY (CAST(id AS TEXT)=$2) DESC, id DESC, kind LIMIT 21`, kind, query, pattern, after.ID, after.Kind, after.Exact)

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"liora/agent"
 	"liora/db"
@@ -191,11 +192,14 @@ func (s *Server) admitTaskWhen(t *Task, mode string, requirePaused bool) (queued
 		}
 		return false, err
 	}
-	if lifecycle.Status == "timeout" && status == "running" {
-		// ApplyTaskAdmission reset this timed-out run's persisted clock. Clear the
+	if wasTerminal && status == "running" {
+		// ApplyTaskAdmission reset this finished run's persisted clock. Clear the
 		// matching Engine gates before either parking it in FIFO or starting work;
 		// otherwise the old settling flag would make every worker skip forever.
-		s.engine.resetTimeoutRevival(t.ID)
+		// Not timeout-only: a deadline-settled task can finish as "done" (its final
+		// planner round judged the goals met) and be revived later by set_goals, and
+		// that path leaves exactly the same half-state.
+		s.engine.resetTerminalRevival(t.ID)
 	}
 	if shouldQueue {
 		if !wasQueued {
@@ -212,6 +216,46 @@ func (s *Server) admitTaskWhen(t *Task, mode string, requirePaused bool) (queued
 	}
 	s.startAdmittedTask(t, mode)
 	return false, nil
+}
+
+// queuedTask is one queued task plus the lifecycle snapshot the ordering and
+// admission loop share.
+type queuedTask struct {
+	task      *Task
+	lifecycle taskLifecycleState
+}
+
+// queueStampTolerance absorbs clock noise between the two sources that write
+// queued_at: Go's RFC3339Nano clock (EnqueueTask) and SQLite's millisecond
+// strftime (ApplyTaskAdmission). They disagree by up to a millisecond, and
+// Windows' wall clock can step backwards by a few hundred microseconds — so a
+// task enqueued later can carry an *earlier* stamp and jump the FIFO. Treating
+// near-equal stamps as a tie hands the decision to the task id instead.
+const queueStampTolerance = int64(2 * time.Millisecond)
+
+// queueStamp is a queued task's ordering key: its enqueue stamp, or its creation
+// time for rows that predate queued_at.
+func queueStamp(q queuedTask) int64 {
+	if q.lifecycle.QueuedAt != 0 {
+		return q.lifecycle.QueuedAt
+	}
+	return q.task.CreatedAt * int64(time.Second)
+}
+
+// queuedBefore orders two queued tasks oldest-first. Stamps further apart than
+// queueStampTolerance decide on their own; anything closer is a clock tie and
+// falls back to the task id, which is monotonic and survives restarts.
+func queuedBefore(a, b queuedTask) bool {
+	left, right := queueStamp(a), queueStamp(b)
+	if d := left - right; d > queueStampTolerance || d < -queueStampTolerance {
+		return left < right
+	}
+	leftID, leftErr := strconv.ParseInt(a.task.ID, 10, 64)
+	rightID, rightErr := strconv.ParseInt(b.task.ID, 10, 64)
+	if leftErr == nil && rightErr == nil {
+		return leftID < rightID
+	}
+	return a.task.ID < b.task.ID
 }
 
 func (s *Server) hasReadyQueuedTask(excludeID string) bool {
@@ -278,10 +322,6 @@ func (s *Server) reconcileConcurrency() {
 		}
 	}
 
-	type queuedTask struct {
-		task      *Task
-		lifecycle taskLifecycleState
-	}
 	queued := []queuedTask{}
 	for _, task := range s.m.List() {
 		lifecycle := task.lifecycleSnapshot()
@@ -289,27 +329,7 @@ func (s *Server) reconcileConcurrency() {
 			queued = append(queued, queuedTask{task: task, lifecycle: lifecycle})
 		}
 	}
-	sort.SliceStable(queued, func(i, j int) bool {
-		left, right := queued[i].lifecycle.QueuedAt, queued[j].lifecycle.QueuedAt
-		if left == 0 {
-			left = queued[i].task.CreatedAt * int64(1e9)
-		}
-		if right == 0 {
-			right = queued[j].task.CreatedAt * int64(1e9)
-		}
-		if left != right {
-			return left < right
-		}
-		// Old rows may not have queued_at and task creation timestamps are only
-		// kept to second precision in memory. Task ids are monotonic, providing a
-		// deterministic oldest-first fallback for those ties.
-		leftID, leftErr := strconv.ParseInt(queued[i].task.ID, 10, 64)
-		rightID, rightErr := strconv.ParseInt(queued[j].task.ID, 10, 64)
-		if leftErr == nil && rightErr == nil {
-			return leftID < rightID
-		}
-		return queued[i].task.ID < queued[j].task.ID
-	})
+	sort.SliceStable(queued, func(i, j int) bool { return queuedBefore(queued[i], queued[j]) })
 	slots := len(queued)
 	if enabled {
 		slots = limit - s.runningTaskCount("")

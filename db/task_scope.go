@@ -438,7 +438,10 @@ ORDER BY a.id`, taskID)
 	}
 	defer rows.Close()
 
-	byKey := map[string]*CoverageGraphNode{}
+	// byKey is a set, not a pointer index: g.Nodes grows by append, so any
+	// *CoverageGraphNode handed out here would point into a backing array that a
+	// later append replaces — a stale pointer that still reads as valid.
+	byKey := map[string]struct{}{}
 	rootByDomain := map[string]string{} // root domain → node key
 	subByDomain := map[string]string{}  // subdomain    → node key
 	ipByAddr := map[string]string{}     // ip literal   → node key
@@ -446,14 +449,12 @@ ORDER BY a.id`, taskID)
 	svcByHost := map[string]string{}
 	companyIDs := map[int64]bool{} // referenced company ids (need a node)
 
-	add := func(n CoverageGraphNode) *CoverageGraphNode {
+	add := func(n CoverageGraphNode) {
 		if _, ok := byKey[n.Key]; ok {
-			return byKey[n.Key]
+			return
 		}
 		g.Nodes = append(g.Nodes, n)
-		p := &g.Nodes[len(g.Nodes)-1]
-		byKey[n.Key] = p
-		return p
+		byKey[n.Key] = struct{}{}
 	}
 
 	for rows.Next() {
@@ -468,25 +469,27 @@ ORDER BY a.id`, taskID)
 		n.CompanyID = companyID
 		n.InScope = true
 		n.Label = coverageNodeLabel(&n)
-		p := add(n)
+		add(n)
+		// Use the local copy, not a pointer into g.Nodes: the next add may
+		// reallocate the slice out from under it.
 		switch n.Kind {
 		case "root_domain":
 			if n.Domain != "" {
-				rootByDomain[n.Domain] = p.Key
+				rootByDomain[n.Domain] = n.Key
 			}
 		case "subdomain":
 			if n.Domain != "" {
-				subByDomain[n.Domain] = p.Key
+				subByDomain[n.Domain] = n.Key
 			}
 		case "ip":
 			if n.IP != "" {
-				ipByAddr[n.IP] = p.Key
+				ipByAddr[n.IP] = n.Key
 			}
 		case "service":
-			host, port := hostPortOf(p)
+			host, port := hostPortOf(&n)
 			if host != "" {
-				svcByHost[host] = p.Key
-				svcByHostPort[host+"|"+strconv.Itoa(port)] = p.Key
+				svcByHost[host] = n.Key
+				svcByHostPort[host+"|"+strconv.Itoa(port)] = n.Key
 			}
 		}
 		if companyID > 0 {
@@ -508,16 +511,44 @@ ORDER BY a.id`, taskID)
 			}
 		}
 	}
+	// One batched lookup for the whole connector set: this used to be a query per
+	// missing root, which made the graph cost grow with the asset count.
+	roots := make([]string, 0, len(missingRoots))
 	for root := range missingRoots {
-		var id, companyID int64
-		err := s.db.QueryRow(`SELECT id, COALESCE(company_id,0) FROM assets
-WHERE type='root_domain' AND domain=$1 LIMIT 1`, root).Scan(&id, &companyID)
-		var node CoverageGraphNode
-		if err == nil && id > 0 {
-			node = CoverageGraphNode{Key: assetKey(id), Kind: "root_domain", AssetID: id,
-				CompanyID: companyID, Domain: root, Label: root}
-			if companyID > 0 {
-				companyIDs[companyID] = true
+		roots = append(roots, root)
+	}
+	existingRoots := map[string]CoverageGraphNode{}
+	if len(roots) > 0 {
+		connRows, err := s.db.Query(`SELECT domain, id, COALESCE(company_id,0) FROM assets
+WHERE type='root_domain' AND domain IN (SELECT value FROM json_each($1)) ORDER BY id`, roots)
+		if err != nil {
+			return nil, err
+		}
+		for connRows.Next() {
+			var domain string
+			var id, companyID int64
+			if err := connRows.Scan(&domain, &id, &companyID); err != nil {
+				connRows.Close()
+				return nil, err
+			}
+			if id <= 0 {
+				continue
+			}
+			if _, seen := existingRoots[domain]; seen {
+				continue // lowest id wins, as the old "LIMIT 1" lookup did
+			}
+			existingRoots[domain] = CoverageGraphNode{Key: assetKey(id), Kind: "root_domain", AssetID: id,
+				CompanyID: companyID, Domain: domain, Label: domain}
+		}
+		if err := connRows.Close(); err != nil {
+			return nil, err
+		}
+	}
+	for _, root := range roots {
+		node, ok := existingRoots[root]
+		if ok {
+			if node.CompanyID > 0 {
+				companyIDs[node.CompanyID] = true
 			}
 		} else {
 			node = CoverageGraphNode{Key: "r:" + root, Kind: "root_domain", Domain: root, Label: root}
@@ -526,18 +557,42 @@ WHERE type='root_domain' AND domain=$1 LIMIT 1`, root).Scan(&id, &companyID)
 		rootByDomain[root] = node.Key
 	}
 
-	// Company nodes for every referenced company id — always gray context.
+	// Company nodes for every referenced company id — always gray context. Also
+	// batched: one query per graph instead of one per company.
+	wantedCompanies := make([]int64, 0, len(companyIDs))
 	for id := range companyIDs {
-		key := companyKey(id)
-		if _, ok := byKey[key]; ok {
+		if _, ok := byKey[companyKey(id)]; ok {
 			continue
 		}
-		var name string
-		if err := s.db.QueryRow(`SELECT name FROM companies WHERE id=$1`, id).Scan(&name); err != nil {
-			continue
+		wantedCompanies = append(wantedCompanies, id)
+	}
+	if len(wantedCompanies) > 0 {
+		nameRows, err := s.db.Query(`SELECT id, name FROM companies
+WHERE id IN (SELECT value FROM json_each($1))`, wantedCompanies)
+		if err != nil {
+			return nil, err
 		}
-		add(CoverageGraphNode{Key: key, Kind: "company", CompanyID: id,
-			Label: name, AssetID: 0})
+		names := make(map[int64]string, len(wantedCompanies))
+		for nameRows.Next() {
+			var id int64
+			var name string
+			if err := nameRows.Scan(&id, &name); err != nil {
+				nameRows.Close()
+				return nil, err
+			}
+			names[id] = name
+		}
+		if err := nameRows.Close(); err != nil {
+			return nil, err
+		}
+		for _, id := range wantedCompanies {
+			name, ok := names[id]
+			if !ok {
+				continue // company row is gone: keep the old "skip it" behaviour
+			}
+			add(CoverageGraphNode{Key: companyKey(id), Kind: "company", CompanyID: id,
+				Label: name, AssetID: 0})
+		}
 	}
 
 	// Derived containment edges (only when the parent node exists).

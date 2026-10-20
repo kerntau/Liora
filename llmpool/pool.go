@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"time"
+	"unicode/utf8"
 
 	"github.com/Autumn-27/norma/llm"
 )
@@ -39,16 +41,23 @@ type Member struct {
 // an explicitly bound one) so it always outranks any configured priority.
 const RankActive = int(^uint(0)>>1) - 1
 
-// ErrExhausted is returned when every member of the chain failed.
+// ErrExhausted is returned when every member of the chain failed. The error
+// returned then wraps both ErrExhausted and the last member's failure, so callers
+// can classify the cause (402 vs 429) with errors.Is instead of parsing text.
 var ErrExhausted = errors.New("LLM 轮询：所有配置均不可用")
 
 // Pool is an llm.Provider that fails over across an ordered chain of members.
-// It is safe for concurrent use: members are immutable after construction and
-// all mutable state lives in the shared Registry.
+// It is safe for concurrent use: members are immutable after construction, the
+// breaker state lives in the shared Registry, and the only local mutable state is
+// the rotation counter plus the per-member last-resort probe stamps.
 type Pool struct {
 	members []*Member // in chain order (active first, then priority DESC)
 	health  *Registry
 	rr      atomic.Uint64 // rotates the starting point within an equal-priority group
+	// probedAt is when each member was last probed as a last resort (unix nanos,
+	// indexed like members). It bounds the "everything is cooling off" fallback so
+	// an all-down chain doesn't spend a round-trip on every request.
+	probedAt []atomic.Int64
 }
 
 // New builds a Pool over members (already in chain order). Returns nil when the
@@ -61,7 +70,7 @@ func New(members []*Member, health *Registry) *Pool {
 	if health == nil {
 		health = NewRegistry(nil, nil)
 	}
-	return &Pool{members: members, health: health}
+	return &Pool{members: members, health: health, probedAt: make([]atomic.Int64, len(members))}
 }
 
 // Members returns the chain in order (read-only).
@@ -82,6 +91,10 @@ func (p *Pool) Head() *Member { return p.members[0] }
 func (p *Pool) Stream(ctx context.Context, req llm.CompletionRequest) iter.Seq2[llm.StreamEvent, error] {
 	order := p.order(req)
 	return func(yield func(llm.StreamEvent, error) bool) {
+		if len(order) == 0 {
+			yield(llm.StreamEvent{}, p.exhaustedError())
+			return
+		}
 		var lastErr error
 		for i, m := range order {
 			emitted := false
@@ -100,7 +113,7 @@ func (p *Pool) Stream(ctx context.Context, req llm.CompletionRequest) iter.Seq2[
 				}
 			}
 			if failed == nil {
-				p.health.Pass(m.ID) // completed (or failed in a non-failover way)
+				p.health.Pass(m.ID) // the provider finished the stream cleanly
 				return
 			}
 			lastErr = failed
@@ -118,7 +131,7 @@ func (p *Pool) Stream(ctx context.Context, req llm.CompletionRequest) iter.Seq2[
 			lastErr = ErrExhausted
 		}
 		log.Printf("[llmpool] 轮询链已耗尽(%d 个配置全部失败)，最后错误：%s", len(order), trimErr(lastErr))
-		yield(llm.StreamEvent{}, fmt.Errorf("%w：%v", ErrExhausted, lastErr))
+		yield(llm.StreamEvent{}, fmt.Errorf("%w：%w", ErrExhausted, lastErr))
 	}
 }
 
@@ -129,6 +142,9 @@ func (p *Pool) Stream(ctx context.Context, req llm.CompletionRequest) iter.Seq2[
 // chain-exhaustion behavior.
 func (p *Pool) Complete(ctx context.Context, req llm.CompletionRequest) (llm.Message, string, llm.Usage, error) {
 	order := p.order(req)
+	if len(order) == 0 {
+		return llm.Message{}, "", llm.Usage{}, p.exhaustedError()
+	}
 	var lastErr error
 	for i, m := range order {
 		msg, sr, usage, err := m.Prov.Complete(ctx, req)
@@ -137,9 +153,11 @@ func (p *Pool) Complete(ctx context.Context, req llm.CompletionRequest) (llm.Mes
 			return msg, sr, usage, nil
 		}
 		if !shouldFailover(ctx, err) {
-			// Non-failover error (e.g. ctx cancel, deterministic 4xx): surface as-is
-			// without tripping health, matching Stream's non-failover path.
-			p.health.Pass(m.ID)
+			// Non-failover error (e.g. ctx cancel, deterministic 4xx): surface it as-is
+			// and leave health alone. It says nothing about the profile, so it must not
+			// count as a failure — and must not clear one either: Pass here would wipe a
+			// recorded trip and reset the backoff ladder without a single successful
+			// call. Stream already behaves this way.
 			return llm.Message{}, "", llm.Usage{}, err
 		}
 		lastErr = err
@@ -157,14 +175,14 @@ func (p *Pool) Complete(ctx context.Context, req llm.CompletionRequest) (llm.Mes
 		lastErr = ErrExhausted
 	}
 	log.Printf("[llmpool] 轮询链已耗尽(%d 个配置全部失败)，最后错误：%s", len(order), trimErr(lastErr))
-	return llm.Message{}, "", llm.Usage{}, fmt.Errorf("%w：%v", ErrExhausted, lastErr)
+	return llm.Message{}, "", llm.Usage{}, fmt.Errorf("%w：%w", ErrExhausted, lastErr)
 }
 
 // order picks the members to try, in order: skip those in a cooling-off window
 // and those whose context window can't hold this request, then rotate within each
-// equal-priority group so same-priority profiles share the load. Never returns an
-// empty slice — if everything is filtered out, the head of the chain is tried
-// anyway, since stalling the engine is worse than one more failed request.
+// equal-priority group so same-priority profiles share the load. Returns an empty
+// slice only when nothing is worth a round-trip right now (see lastResort); the
+// caller then reports ErrExhausted instead of stalling.
 func (p *Pool) order(req llm.CompletionRequest) []*Member {
 	est := estimateTokens(req)
 	var open []*Member
@@ -178,9 +196,72 @@ func (p *Pool) order(req llm.CompletionRequest) []*Member {
 		open = append(open, m)
 	}
 	if len(open) == 0 {
-		return p.members[:1] // last resort: probe the head rather than stall
+		return p.lastResort(est)
 	}
 	return rotateGroups(open, p.rr.Add(1)-1)
+}
+
+// probeEvery is the minimum interval between two last-resort probes of the same
+// member. Without it an all-down chain re-probes the head on every request — one
+// guaranteed wasted round-trip per call against a profile already known to be
+// broken — while a 30s cadence still finds a recovery just as quickly as a user
+// could act on it.
+const probeEvery = 30 * time.Second
+
+// lastResort picks the single member to try when nothing passed the filter, or nil
+// when nothing is worth a round-trip right now.
+//
+// Probing beats stalling, so a member that could actually hold this request is
+// preferred over one that would only answer with a length 400, and a member whose
+// breaker is open is probed at most once per probeEvery. A member that is merely
+// too small (but healthy) is still tried, so the caller gets the provider's real
+// "prompt too long" error rather than a generic "all unavailable".
+func (p *Pool) lastResort(est int) []*Member {
+	now := time.Now()
+	for i, m := range p.members {
+		if m.WindowTokens > 0 && est > m.WindowTokens {
+			continue // guaranteed length 400 — never a useful probe
+		}
+		if p.health.IsOpen(m.ID) && !p.claimProbe(i, now) {
+			continue // cooling off, and probed too recently
+		}
+		return p.members[i : i+1]
+	}
+	for i, m := range p.members {
+		if !p.health.IsOpen(m.ID) {
+			return p.members[i : i+1] // healthy but too small: let it report why
+		}
+	}
+	return nil // every member is cooling off and was just probed: fail fast
+}
+
+// claimProbe reserves this round's last-resort probe of members[i], reporting
+// false when one was already spent within probeEvery.
+func (p *Pool) claimProbe(i int, now time.Time) bool {
+	prev := p.probedAt[i].Load()
+	if prev != 0 && now.Sub(time.Unix(0, prev)) < probeEvery {
+		return false
+	}
+	return p.probedAt[i].CompareAndSwap(prev, now.UnixNano())
+}
+
+// exhaustedError reports "nothing could be tried" in the same shape as a chain
+// that ran and failed: it wraps ErrExhausted plus the most recent failure on
+// record, so callers can still tell a 402 from a 429.
+func (p *Pool) exhaustedError() error {
+	var last error
+	var newest time.Time
+	for _, m := range p.members {
+		st := p.health.Get(m.ID)
+		if st.LastError == "" || !st.LastAt.After(newest) {
+			continue
+		}
+		newest, last = st.LastAt, errors.New(st.LastError)
+	}
+	if last == nil {
+		return ErrExhausted
+	}
+	return fmt.Errorf("%w：%w", ErrExhausted, last)
 }
 
 // rotateGroups rotates each run of equal-ranked members by n, so profiles sharing
@@ -259,41 +340,107 @@ func isHardFailure(err error) bool {
 	return false
 }
 
-// trimErr shortens an error for logs/UI — provider bodies can be long.
+// maxErrLen is how much of a provider error is kept for logs, the UI and the
+// persisted breaker row.
+const maxErrLen = 300
+
+// trimErr shortens an error for logs/UI — provider bodies can be long. The cut
+// lands on a rune boundary: a byte slice would leave an invalid UTF-8 tail behind,
+// and upstream bodies here are frequently Chinese (3 bytes per character).
 func trimErr(err error) string {
 	s := strings.TrimSpace(strings.ReplaceAll(err.Error(), "\n", " "))
-	if len(s) > 300 {
-		s = s[:300] + "…"
+	if len(s) <= maxErrLen {
+		return s
 	}
-	return s
+	cut := maxErrLen
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
 }
 
-// estimateTokens roughly sizes a request so members whose context window clearly
-// can't hold it are skipped. Deliberately crude (~3.5 chars/token) and biased to
-// over-estimate slightly; it only needs to tell "fits" from "nowhere near".
+// defaultOutputReserve is the output budget assumed when a request leaves
+// MaxTokens at 0: the SDK then sends its own default (8192 for Anthropic), and the
+// window has to hold prompt + max_tokens, not just the prompt.
+const defaultOutputReserve = 8192
+
+// Small fixed per-item JSON overhead (keys, punctuation) — free to count.
+const (
+	messageOverhead = 4
+	blockOverhead   = 4
+	toolOverhead    = 4
+)
+
+// estimateTokens sizes a request, in tokens, so members whose context window
+// can't hold it are skipped instead of 400-ing. It stays deliberately crude, but
+// it must not UNDER-estimate: a length 400 is not failover-eligible, so an
+// under-estimate kills the whole request even though a larger profile could have
+// served it. Hence everything that reaches the wire is counted — the output
+// budget, thinking signatures, and the real shape of the tool schemas.
 func estimateTokens(req llm.CompletionRequest) int {
-	n := 0
+	out := req.MaxTokens
+	if out <= 0 {
+		out = defaultOutputReserve
+	}
+	n := out
 	for _, s := range req.System {
-		n += len(s)
+		n += textTokens(s)
 	}
 	for _, m := range req.Messages {
-		n += blocksLen(m.Content)
+		n += messageOverhead + blocksTokens(m.Content)
 	}
 	for _, t := range req.Tools {
-		// InputSchema is a decoded map, so its serialized size isn't available
-		// cheaply — charge a flat ~120 chars per top-level property instead.
-		n += len(t.Name) + len(t.Description) + len(t.InputSchema)*120
-	}
-	return n * 2 / 7 // ≈ len/3.5
-}
-
-func blocksLen(bs []llm.ContentBlock) int {
-	n := 0
-	for _, b := range bs {
-		n += len(b.Text) + len(b.Thinking) + len(b.Input) + len(b.Name)
-		if len(b.Content) > 0 {
-			n += blocksLen(b.Content)
-		}
+		n += toolOverhead + textTokens(t.Name) + textTokens(t.Description) + schemaTokens(t.InputSchema)
 	}
 	return n
+}
+
+func blocksTokens(bs []llm.ContentBlock) int {
+	n := 0
+	for _, b := range bs {
+		n += blockOverhead + textTokens(b.Text) + textTokens(b.Thinking) +
+			textTokens(b.Signature) + textTokens(b.Name) + textTokens(b.ID) +
+			textTokens(b.ToolUseID) + textTokens(string(b.Input))
+		n += blocksTokens(b.Content)
+	}
+	return n
+}
+
+// textTokens approximates a string's token count. ASCII runs ~3.5 bytes per
+// token; a non-ASCII rune is charged a full token, because the byte ratio would
+// count a CJK character (3 bytes) as less than one when tokenizers spend 1-2.
+func textTokens(s string) int {
+	ascii, wide := 0, 0
+	for _, r := range s {
+		if r < utf8.RuneSelf {
+			ascii++
+		} else {
+			wide++
+		}
+	}
+	return (ascii*2+6)/7 + wide
+}
+
+// schemaTokens approximates the serialized size of a decoded JSON schema. Walking
+// the value is the only way to see nested properties: a flat charge per top-level
+// key badly under-counts a schema whose one "options" property holds an object
+// with dozens of documented fields.
+func schemaTokens(v any) int {
+	switch x := v.(type) {
+	case string:
+		return textTokens(x) + 2 // quotes
+	case map[string]any:
+		n := 2 // braces
+		for k, val := range x {
+			n += textTokens(k) + 4 + schemaTokens(val) // "key": value,
+		}
+		return n
+	case []any:
+		n := 2 // brackets
+		for _, e := range x {
+			n += schemaTokens(e) + 1 // separator
+		}
+		return n
+	}
+	return 1 // number / bool / null
 }

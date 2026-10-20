@@ -88,7 +88,7 @@ func sqlText(v driver.Value) string {
 
 func parseNetwork(s string) (netip.Prefix, error) {
 	if p, err := netip.ParsePrefix(s); err == nil {
-		return p.Masked(), nil
+		return unmapPrefix(p.Masked()), nil
 	}
 	a, err := netip.ParseAddr(s)
 	if err != nil {
@@ -96,6 +96,20 @@ func parseNetwork(s string) (netip.Prefix, error) {
 	}
 	a = a.Unmap()
 	return netip.PrefixFrom(a, a.BitLen()), nil
+}
+
+// unmapPrefix folds an IPv4-mapped IPv6 prefix (::ffff:a.b.c.d/N) onto its IPv4
+// equivalent, mirroring what the bare-address branch above does with Unmap. Left
+// mapped, the prefix keeps a 128-bit address while an IPv4 asset address is 32
+// bits, so liora_net_contains' equal-bit-length guard rejects every comparison
+// and a mapped CIDR rule silently matches nothing. Masked() already zeroed every
+// host bit, so Is4In6 surviving means the 96-bit mapped header is intact and can
+// simply be dropped from the width.
+func unmapPrefix(p netip.Prefix) netip.Prefix {
+	if !p.Addr().Is4In6() || p.Bits() < 96 {
+		return p
+	}
+	return netip.PrefixFrom(p.Addr().Unmap(), p.Bits()-96)
 }
 
 func mergeJSONArray(args []driver.Value, kind string) (driver.Value, error) {

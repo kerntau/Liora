@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -81,8 +82,7 @@ func (c *Compactor) OnPlannerRound(ctx context.Context, ts *db.ExplorationStore)
 	if !c.tryStart(ts.ID()) {
 		return // already running, or within cooldown —派生态最终一致，下轮再压
 	}
-	go func() {
-		defer c.finish(ts.ID())
+	go c.runCompaction(ts.ID(), func() {
 		bg, cancel := context.WithTimeout(context.WithoutCancel(ctx), c.maxDur)
 		defer cancel()
 		if needMajor {
@@ -90,8 +90,25 @@ func (c *Compactor) OnPlannerRound(ctx context.Context, ts *db.ExplorationStore)
 		} else {
 			c.minor(bg, ts)
 		}
-	}()
+	})
 	_ = round
+}
+
+// runCompaction is the background half of OnPlannerRound. It runs on a goroutine
+// that outlives the planner round, so it sits outside every caller's recover (tool
+// handlers get guardPanic; this path had nothing) and an unrecovered panic would
+// take the whole process down mid-task. Contain it and log: compaction is
+// best-effort derived state, the planner round already returned, and the next
+// round simply tries again. finish is deferred inside the guard so a panic there
+// is contained too, and the per-task lock is always released.
+func (c *Compactor) runCompaction(expID int64, body func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[compaction] exp=%d panic: %v\n%s", expID, r, debug.Stack())
+		}
+	}()
+	defer c.finish(expID)
+	body()
 }
 
 // maintain bumps round_no, recomputes hot/cold over the whole graph, and applies

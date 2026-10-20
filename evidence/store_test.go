@@ -181,7 +181,9 @@ func TestEvidenceAtomicFailuresAndLegacy(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			input := in
 			refs := []db.TrafficRef{{TrafficID: "valid"}, {TrafficID: "absent"}}
-			local := *s
+			// Build a variant store instead of copying the struct: Store carries a
+			// mutex, so a copy would duplicate lock state (go vet flags it).
+			local := &Store{DB: s.DB, Traffic: s.Traffic, Dir: s.Dir}
 			switch kind {
 			case "missing_body":
 				seedExchange(t, s, "broken", []byte("more than preview"), false)

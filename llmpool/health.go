@@ -23,7 +23,7 @@ var backoff = []time.Duration{time.Minute, 5 * time.Minute, 30 * time.Minute}
 // State is one profile's circuit-breaker state.
 type State struct {
 	Fails     int       // consecutive failures; reset by a success
-	Trips     int       // total trips, indexes the backoff ladder
+	Trips     int       // trips since the last success; indexes the backoff ladder
 	OpenUntil time.Time // zero / past = closed (usable)
 	LastError string
 	LastAt    time.Time
@@ -46,7 +46,8 @@ type Registry struct {
 	m  map[int64]*State
 
 	// persist / forget mirror state to the DB so a cooling-off window survives a
-	// restart. Both may be nil (no DB); both are called off the hot path.
+	// restart. Both may be nil (no DB), and both are called outside r.mu so a slow
+	// write can never stall another profile's breaker.
 	persist func(id int64, st State)
 	forget  func(id int64)
 
@@ -114,8 +115,11 @@ func (r *Registry) Get(id int64) State {
 // IsOpen reports whether a profile is in its cooling-off window.
 func (r *Registry) IsOpen(id int64) bool { return r.Get(id).Open() }
 
-// Pass records a successful call: clears the failure counters so a profile that
-// recovers is fully trusted again (and drops the persisted row).
+// Pass records a successful call: it drops the whole state, so a profile that
+// recovers is fully trusted again — from the first rung of the ladder, not from
+// wherever it had climbed to. That reset is deliberate (a served request is the
+// only proof we get that a profile works), which is also why a non-failover error
+// must never call it: a 400 or a cancelled context is not a success.
 func (r *Registry) Pass(id int64) {
 	r.mu.Lock()
 	st := r.m[id]

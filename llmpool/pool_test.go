@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Autumn-27/norma/llm"
 )
@@ -162,6 +163,27 @@ func TestPassResetsCounters(t *testing.T) {
 	}
 }
 
+// Pass drops the ladder too, not just the consecutive-failure counter: a profile
+// that served a request starts again from the first rung. The flip side — that a
+// non-failover error must NOT do this — is TestNonFailoverErrorLeavesBreakerStateAlone.
+func TestPassResetsBackoffLadder(t *testing.T) {
+	reg := NewRegistry(nil, nil)
+	for range 3 {
+		reg.Trip(1, "402", true)
+	}
+	if got := reg.Get(1).Trips; got != 3 {
+		t.Fatalf("Trips=%d, want 3", got)
+	}
+	reg.Pass(1)
+	reg.Trip(1, "402", true)
+	if got := reg.Get(1).Trips; got != 1 {
+		t.Fatalf("Trips=%d after Pass+Trip, want 1 — the ladder was not reset", got)
+	}
+	if d := time.Until(reg.Get(1).OpenUntil); d > 2*time.Minute {
+		t.Fatalf("cooldown=%v after a success, want the first rung (~1min)", d)
+	}
+}
+
 func TestBackoffLadderGrows(t *testing.T) {
 	reg := NewRegistry(nil, nil)
 	var prev time.Duration
@@ -228,6 +250,32 @@ func TestNoFailoverOnCancel(t *testing.T) {
 	}
 }
 
+// A non-failover error (400, cancelled context) says nothing about the profile's
+// health, so it must neither count as a failure nor clear one that is already
+// recorded — clearing would reset the backoff ladder without a successful call.
+func TestNonFailoverErrorLeavesBreakerStateAlone(t *testing.T) {
+	reg := NewRegistry(nil, nil)
+	reg.Trip(1, "429", false) // one transient failure: degraded, breaker still closed
+	a := failProv("a", 400)
+	p := New([]*Member{member(1, "a", 10, a)}, reg)
+
+	if _, _, _, err := p.Complete(context.Background(), llm.CompletionRequest{}); err == nil {
+		t.Fatal("a 400 must be surfaced, not swallowed")
+	}
+	if got := reg.Get(1).Fails; got != 1 {
+		t.Fatalf("Complete: Fails=%d after a 400, want the pre-existing 1 — the error must not touch health", got)
+	}
+	if _, err := drain(p.Stream(context.Background(), llm.CompletionRequest{})); err == nil {
+		t.Fatal("a 400 must be surfaced by Stream too")
+	}
+	if got := reg.Get(1).Fails; got != 1 {
+		t.Fatalf("Stream: Fails=%d after a 400, want the pre-existing 1 — the error must not touch health", got)
+	}
+	if reg.IsOpen(1) {
+		t.Fatal("a 400 must not trip the breaker either")
+	}
+}
+
 func TestShouldFailoverByStatus(t *testing.T) {
 	cases := []struct {
 		status int
@@ -265,6 +313,80 @@ func TestHardVsSoftClassification(t *testing.T) {
 
 // A member whose context window can't hold the request is a guaranteed 400 —
 // skip it rather than spend a round-trip proving it.
+// The output budget counts against the window too: Anthropic rejects
+// prompt + max_tokens > window, so a big MaxTokens must keep the request off a
+// member that can only hold the prompt.
+func TestOutputBudgetCountsAgainstWindow(t *testing.T) {
+	small, big := okProv("small", "s"), okProv("big", "b")
+	ms := member(1, "small", 10, small)
+	ms.WindowTokens = 32_000
+	mb := member(2, "big", 5, big)
+	mb.WindowTokens = 200_000
+	p := New([]*Member{ms, mb}, NewRegistry(nil, nil))
+
+	req := llm.CompletionRequest{
+		Messages:  []llm.Message{llm.UserText(strings.Repeat("x", 60_000))}, // ≈17k tokens
+		MaxTokens: 30_000,
+	}
+	if got, err := drain(p.Stream(context.Background(), req)); err != nil || got != "b" {
+		t.Fatalf("got %q / %v, want the large-window member", got, err)
+	}
+	if small.calls != 0 {
+		t.Fatalf("routed prompt+output to a 32k member (calls=%d)", small.calls)
+	}
+}
+
+// A tool schema's bulk is in its nested properties, not in its top-level key
+// count — the old flat per-key charge saw one property and moved on.
+func TestEstimateCountsNestedSchema(t *testing.T) {
+	props := map[string]any{}
+	for i := range 40 {
+		props[fmt.Sprintf("field_%02d", i)] = map[string]any{
+			"type":        "string",
+			"description": strings.Repeat("d", 200),
+		}
+	}
+	req := llm.CompletionRequest{
+		MaxTokens: 1, // isolate the schema from the output reserve
+		Tools: []llm.ToolSchema{{
+			Name: "t",
+			InputSchema: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"options": map[string]any{"type": "object", "properties": props}},
+			},
+		}},
+	}
+	if got := estimateTokens(req); got < 2000 {
+		t.Fatalf("estimate=%d, want >= 2000 — 40 nested 200-char descriptions must be counted", got)
+	}
+}
+
+// CJK text is not 3.5 bytes per token: a wide character costs about a token, so a
+// byte-ratio estimate under-counts a Chinese conversation by ~3x.
+func TestEstimateCountsWideText(t *testing.T) {
+	req := llm.CompletionRequest{MaxTokens: 1, Messages: []llm.Message{llm.UserText(strings.Repeat("错", 1000))}}
+	if got := estimateTokens(req); got < 1000 {
+		t.Fatalf("estimate=%d for 1000 CJK characters, want >= 1000", got)
+	}
+}
+
+// ... and a request that does fit must stay on the head: the estimate may not
+// over-skip either.
+func TestEstimateKeepsFittingRequestOnHead(t *testing.T) {
+	head := okProv("head", "H")
+	mh := member(1, "head", RankActive, head)
+	mh.WindowTokens = 32_000
+	p := New([]*Member{mh, member(2, "b", 5, okProv("b", "b"))}, NewRegistry(nil, nil))
+
+	req := llm.CompletionRequest{
+		Messages:  []llm.Message{llm.UserText(strings.Repeat("x", 8_000))},
+		MaxTokens: 4096,
+	}
+	if got, err := drain(p.Stream(context.Background(), req)); err != nil || got != "H" {
+		t.Fatalf("got %q / %v, want the head to serve a request that fits", got, err)
+	}
+}
+
 func TestSkipsMembersTooSmallForRequest(t *testing.T) {
 	small, big := okProv("small", "s"), okProv("big", "b")
 	ms := member(1, "small", 10, small)
@@ -287,6 +409,72 @@ func TestSkipsMembersTooSmallForRequest(t *testing.T) {
 }
 
 // Everything tripped: probing the head beats stalling the engine outright.
+// When every profile is cooling off, probing one of them still beats stalling —
+// but only once per member per probeEvery. A head that is confirmed dead must not
+// cost a round-trip on every single request.
+func TestAllTrippedProbesAtMostOncePerMemberPerInterval(t *testing.T) {
+	a, b := failProv("a", 402), failProv("b", 402)
+	reg := NewRegistry(nil, nil)
+	reg.Trip(1, "anthropic: status 402: no credit", true)
+	reg.Trip(2, "anthropic: status 402: no credit", true)
+	p := New([]*Member{member(1, "a", 10, a), member(2, "b", 5, b)}, reg)
+
+	// Two requests, one probe each: the fallback spreads its probes instead of
+	// hammering the head.
+	for range 2 {
+		if _, err := drain(p.Stream(context.Background(), llm.CompletionRequest{})); !errors.Is(err, ErrExhausted) {
+			t.Fatalf("err = %v, want ErrExhausted", err)
+		}
+	}
+	if a.calls != 1 || b.calls != 1 {
+		t.Fatalf("calls a=%d b=%d, want each cooling-off member probed exactly once", a.calls, b.calls)
+	}
+
+	// Both were probed inside the window: fail fast with no round-trip, but keep the
+	// recorded cause so callers can still classify the outage.
+	_, err := drain(p.Stream(context.Background(), llm.CompletionRequest{}))
+	if !errors.Is(err, ErrExhausted) || !strings.Contains(err.Error(), "402") {
+		t.Fatalf("err = %v, want ErrExhausted wrapping the recorded 402", err)
+	}
+	if a.calls != 1 || b.calls != 1 {
+		t.Fatalf("re-probed a cooling-off member within probeEvery (a=%d b=%d)", a.calls, b.calls)
+	}
+
+	// Once the interval has passed, probes resume — that is how a recovery is found.
+	for i := range p.probedAt {
+		p.probedAt[i].Store(time.Now().Add(-2 * probeEvery).UnixNano())
+	}
+	_, _ = drain(p.Stream(context.Background(), llm.CompletionRequest{}))
+	if a.calls+b.calls != 3 {
+		t.Fatalf("probes did not resume after probeEvery (a=%d b=%d)", a.calls, b.calls)
+	}
+}
+
+// A last-resort probe must not be spent on a member that cannot hold the request:
+// that is a guaranteed length 400, while the next member down might answer.
+func TestLastResortSkipsMemberTooSmallForRequest(t *testing.T) {
+	small, big := failProv("small", 402), failProv("big", 429)
+	ms := member(1, "small", 10, small)
+	ms.WindowTokens = 1000
+	mb := member(2, "big", 5, big)
+	mb.WindowTokens = 1_000_000
+	reg := NewRegistry(nil, nil)
+	reg.Trip(1, "402", true)
+	reg.Trip(2, "429", true)
+	p := New([]*Member{ms, mb}, reg)
+
+	req := llm.CompletionRequest{Messages: []llm.Message{llm.UserText(strings.Repeat("x", 100_000))}}
+	if _, err := drain(p.Stream(context.Background(), req)); !errors.Is(err, ErrExhausted) {
+		t.Fatalf("err = %v, want ErrExhausted", err)
+	}
+	if small.calls != 0 {
+		t.Fatalf("last-resort probed a member that cannot hold the request (calls=%d)", small.calls)
+	}
+	if big.calls != 1 {
+		t.Fatalf("big member calls=%d, want 1 — it was the only useful probe", big.calls)
+	}
+}
+
 func TestAllTrippedStillProbesHead(t *testing.T) {
 	a, b := okProv("a", "a"), okProv("b", "b")
 	reg := NewRegistry(nil, nil)
@@ -310,6 +498,21 @@ func TestExhaustedChainReportsClearly(t *testing.T) {
 	_, err := drain(p.Stream(context.Background(), llm.CompletionRequest{}))
 	if !errors.Is(err, ErrExhausted) {
 		t.Fatalf("err = %v, want it to wrap ErrExhausted", err)
+	}
+}
+
+// Exhaustion must not flatten the last failure into text: a caller needs to tell
+// "out of credit" from "rate-limited" without parsing the message.
+func TestExhaustedChainKeepsCause(t *testing.T) {
+	cause := errors.New("upstream 402")
+	a := &fakeProv{name: "a", errs: []error{fmt.Errorf("anthropic: status 402: %w", cause)}}
+	p := New([]*Member{member(1, "a", 10, a)}, NewRegistry(nil, nil))
+
+	if _, err := drain(p.Stream(context.Background(), llm.CompletionRequest{})); !errors.Is(err, ErrExhausted) || !errors.Is(err, cause) {
+		t.Fatalf("stream err = %v, want it to wrap both ErrExhausted and the provider cause", err)
+	}
+	if _, _, _, err := p.Complete(context.Background(), llm.CompletionRequest{}); !errors.Is(err, ErrExhausted) || !errors.Is(err, cause) {
+		t.Fatalf("complete err = %v, want it to wrap both ErrExhausted and the provider cause", err)
 	}
 }
 
@@ -351,6 +554,25 @@ func TestSingleMemberPassthrough(t *testing.T) {
 	got, err := drain(p.Stream(context.Background(), llm.CompletionRequest{}))
 	if err != nil || got != "solo" {
 		t.Fatalf("got %q / %v, want solo / nil", got, err)
+	}
+}
+
+// A truncated error must stay valid UTF-8: it is logged, shown in the UI and
+// persisted, and a 300-byte cut lands inside a Chinese character more often than
+// not (3 bytes each).
+func TestTrimErrCutsOnRuneBoundary(t *testing.T) {
+	got := trimErr(errors.New("a" + strings.Repeat("错", 200)))
+	if !utf8.ValidString(got) {
+		t.Fatalf("trimErr produced invalid UTF-8: %q", got)
+	}
+	if !strings.HasSuffix(got, "…") {
+		t.Fatalf("long error was not shortened: %q", got)
+	}
+	if len(got) > maxErrLen+len("…") {
+		t.Fatalf("trimmed error is %d bytes, want about %d", len(got), maxErrLen)
+	}
+	if short := trimErr(errors.New("短错误")); short != "短错误" {
+		t.Fatalf("short error was mangled: %q", short)
 	}
 }
 

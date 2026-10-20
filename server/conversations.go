@@ -134,7 +134,7 @@ func (s *Server) pgConversationMessages(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	q := r.URL.Query()
-	limit := atoiDefault(q.Get("limit"), 200)
+	limit := pageLimit(q.Get("limit"), 200)
 	s.chatMu.Lock()
 	running := s.chatBusy[s.convBusyKey(c.ID)]
 	s.chatMu.Unlock()

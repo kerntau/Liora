@@ -79,12 +79,14 @@ func (e *Engine) taskDeadline(t *Task) int64 {
 	return 0
 }
 
-// resetTimeoutRevival clears only the per-run timeout state after PostgreSQL has
-// atomically committed timeout -> running and reset first_run_at/deadline_at. The
+// resetTerminalRevival clears only the per-run terminal state after PostgreSQL has
+// atomically committed <terminal> -> running and reset first_run_at/deadline_at. The
 // configured TimeoutSeconds remains on Task, so the next real Planner/Worker run
 // stamps a fresh full budget. coordStarted is reset because the coordinator that
-// produced the timeout has already completed (or is in its final return path).
-func (e *Engine) resetTimeoutRevival(taskID string) {
+// produced the terminal state has already completed (or is in its final return
+// path). Applies to every terminal status: a deadline-settled task can land on
+// "done" (goals met in the final round) and be revived by set_goals.
+func (e *Engine) resetTerminalRevival(taskID string) {
 	e.settling.Delete(taskID)
 	e.deadline.Delete(taskID)
 	e.stamped.Delete(taskID)

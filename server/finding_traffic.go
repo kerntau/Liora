@@ -19,8 +19,18 @@ import (
 	"liora/evidence"
 )
 
+// evidenceStore returns the process-wide evidence store, creating it on first use.
+// It must be a single instance: Store.restoreMu is the only thing that keeps
+// Collect (RunGC, every hour) from deleting bodies that an in-flight archive
+// restore has installed but not yet referenced from metadata. Returning a new
+// Store per call would hand out a new mutex per call, i.e. no mutual exclusion.
 func (s *Server) evidenceStore() *evidence.Store {
-	return evidence.New(s.m.pg, s.m.traffic, filepath.Join(s.m.dir, "evidence"))
+	s.evidenceMu.Lock()
+	defer s.evidenceMu.Unlock()
+	if s.evidence == nil {
+		s.evidence = evidence.New(s.m.pg, s.m.traffic, filepath.Join(s.m.dir, "evidence"))
+	}
+	return s.evidence
 }
 
 // Add only new optional properties; preserve edited descriptions, existing

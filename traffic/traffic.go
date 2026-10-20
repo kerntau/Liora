@@ -331,8 +331,8 @@ func (t *Traffic) record(f *mproxy.Flow) {
 
 	ct := f.Response.Header.Get("Content-Type")
 	url := f.Request.URL.String()
-	reqHead := fmt.Sprintf("%s %s %s\n%s", method, f.Request.URL.RequestURI(), f.Request.Proto, requestHeaderLines(f.Request))
-	respHead := fmt.Sprintf("HTTP %d\n%s", f.Response.StatusCode, headerLines(f.Response.Header))
+	reqHead := requestHead(f.Request)
+	respHead := responseHead(f.Response.StatusCode, f.Response.Header)
 	// Bodies are spilled before the transaction opens: blob writes are filesystem
 	// work and must not sit inside the SQLite write lock.
 	reqB := t.spill(f.Request.Body, f.Request.Header.Get("Content-Type"))
@@ -380,9 +380,22 @@ VALUES(?,?,?,?,?,?,?)`,
 
 	if t.fts {
 		// The index is fed from memory, so a body that spilled to _blobs is still
-		// fully searchable even though only its preview is stored inline.
-		idx := strings.Join([]string{url, reqHead, reqB.index, respHead, respB.index}, "\n")
-		if _, err := tx.Exec(`INSERT INTO ex_fts(rowid,content) VALUES(?,?)`, rowid, idx); err != nil {
+		// fully searchable even though only its preview is stored inline. It is
+		// assembled in one Grow-sized buffer and handed over via Builder.String,
+		// which does not copy: the body bytes are copied out of the flow exactly
+		// once, however large the exchange is.
+		var idx strings.Builder
+		idx.Grow(len(url) + len(reqHead) + len(respHead) + len(reqB.index) + len(respB.index) + 4)
+		idx.WriteString(url)
+		idx.WriteByte('\n')
+		idx.WriteString(reqHead)
+		idx.WriteByte('\n')
+		idx.Write(reqB.index)
+		idx.WriteByte('\n')
+		idx.WriteString(respHead)
+		idx.WriteByte('\n')
+		idx.Write(respB.index)
+		if _, err := tx.Exec(`INSERT INTO ex_fts(rowid,content) VALUES(?,?)`, rowid, idx.String()); err != nil {
 			log.Printf("[traffic] 记录 %s 失败（写全文索引）：%v", url, err)
 			return
 		}
@@ -399,7 +412,11 @@ VALUES(?,?,?,?,?,?,?)`,
 type storedBody struct {
 	inline []byte
 	hash   string
-	index  string
+	// index is a view of the body text handed to the full-text index; empty for
+	// binary bodies. It stays a []byte on purpose: record() copies it once into
+	// the index buffer, whereas a string here would copy the whole body (up to
+	// maxIndexBody per side) before that buffer was even started.
+	index []byte
 }
 
 // spill decides where one body lives. Small bodies stay inline. Large ones are
@@ -412,11 +429,11 @@ func (t *Traffic) spill(body []byte, contentType string) storedBody {
 		return storedBody{}
 	}
 	text := !isBinaryBody(contentType, body)
-	indexText := func() string {
+	indexText := func() []byte {
 		if !text {
-			return ""
+			return nil
 		}
-		return string(clipBytes(body, maxIndexBody))
+		return clipBytes(body, maxIndexBody)
 	}
 	if len(body) <= maxInlineBody {
 		return storedBody{inline: body, index: indexText()}
@@ -440,7 +457,7 @@ func (t *Traffic) spill(body []byte, contentType string) storedBody {
 	}
 	sb := storedBody{hash: h, index: indexText()}
 	if text {
-		sb.inline = []byte(truncateUTF8(body, blobPreview))
+		sb.inline = truncateUTF8Bytes(body, blobPreview)
 	} else {
 		sb.inline = []byte(binaryTag(contentType, body))
 	}
@@ -496,8 +513,16 @@ func clipBytes(b []byte, n int) []byte {
 // truncateUTF8 cuts b to at most n bytes without splitting a multi-byte rune,
 // so a preview never ends in half a CJK character.
 func truncateUTF8(b []byte, n int) string {
+	return string(truncateUTF8Bytes(b, n))
+}
+
+// truncateUTF8Bytes is truncateUTF8 without the string conversion. It returns a
+// sub-slice of b when a cut is needed, which lets the recorder keep an inline
+// preview of a large body without copying those bytes twice (once to a string,
+// once back to a []byte for the database).
+func truncateUTF8Bytes(b []byte, n int) []byte {
 	if len(b) <= n {
-		return string(b)
+		return b
 	}
 	b = b[:n]
 	// A rune is at most 4 bytes, so backing off 3 bytes always finds the boundary
@@ -508,7 +533,7 @@ func truncateUTF8(b []byte, n int) string {
 		}
 		b = b[:len(b)-1]
 	}
-	return string(b)
+	return b
 }
 
 func nullIfEmpty(s string) any {
@@ -520,7 +545,34 @@ func nullIfEmpty(s string) any {
 
 func headerLines(h map[string][]string) string {
 	var b strings.Builder
+	b.Grow(headerSize(h, ""))
+	writeHeaderLines(&b, h, "")
+	return b.String()
+}
+
+// headerSize is the exact number of bytes writeHeaderLines appends for h, so
+// callers can Grow their builder once instead of reallocating while it fills.
+func headerSize(h map[string][]string, skip string) int {
+	n := 0
 	for k, vs := range h {
+		if k == skip {
+			continue
+		}
+		for _, v := range vs {
+			n += len(k) + 2 + len(v) + 1 // "Key: Value\n"
+		}
+	}
+	return n
+}
+
+// writeHeaderLines appends each header as "Key: Value\n". skip names one key to
+// leave out ("" skips nothing): the request path needs the Host header placed
+// first, and this way it can do that without cloning the whole header map.
+func writeHeaderLines(b *strings.Builder, h map[string][]string, skip string) {
+	for k, vs := range h {
+		if k == skip {
+			continue
+		}
 		for _, v := range vs {
 			b.WriteString(k)
 			b.WriteString(": ")
@@ -528,26 +580,68 @@ func headerLines(h map[string][]string) string {
 			b.WriteByte('\n')
 		}
 	}
-	return b.String()
+}
+
+// requestHost is the host the request was actually sent to: net/http moves it
+// off Header onto Request.Host, and the raw request (when the proxy kept one)
+// carries the on-the-wire value, which may include an explicit port.
+func requestHost(req *mproxy.Request) string {
+	host := req.URL.Host
+	if raw := req.Raw(); raw != nil && strings.TrimSpace(raw.Host) != "" {
+		host = raw.Host
+	}
+	return strings.TrimSpace(host)
+}
+
+// writeRequestHeaders appends "Host: ..." followed by the other request
+// headers. host is passed in so callers that already resolved it (to size the
+// builder) do not resolve it twice.
+func writeRequestHeaders(b *strings.Builder, req *mproxy.Request, host string) {
+	if host != "" {
+		b.WriteString("Host: ")
+		b.WriteString(host)
+		b.WriteByte('\n')
+	}
+	writeHeaderLines(b, req.Header, "Host")
 }
 
 // requestHeaderLines restores the HTTP Host header, which net/http stores on
 // Request.Host rather than in Header. Keeping it in request.http makes the raw
 // capture complete and directly replayable.
 func requestHeaderLines(req *mproxy.Request) string {
-	headers := req.Header.Clone()
-	headers.Del("Host")
-	host := req.URL.Host
-	if raw := req.Raw(); raw != nil && strings.TrimSpace(raw.Host) != "" {
-		host = raw.Host
-	}
+	host := requestHost(req)
 	var b strings.Builder
-	if host = strings.TrimSpace(host); host != "" {
-		b.WriteString("Host: ")
-		b.WriteString(host)
-		b.WriteByte('\n')
-	}
-	b.WriteString(headerLines(headers))
+	b.Grow(len(host) + 8 + headerSize(req.Header, "Host"))
+	writeRequestHeaders(&b, req, host)
+	return b.String()
+}
+
+// requestHead renders the request line and the headers into one buffer. The
+// recorded head used to be built as a header block string and then copied into
+// an fmt.Sprintf result; this is the same bytes in one allocation.
+func requestHead(req *mproxy.Request) string {
+	uri := req.URL.RequestURI()
+	host := requestHost(req)
+	var b strings.Builder
+	b.Grow(len(req.Method) + len(uri) + len(req.Proto) + len(host) + 11 + headerSize(req.Header, "Host"))
+	b.WriteString(req.Method)
+	b.WriteByte(' ')
+	b.WriteString(uri)
+	b.WriteByte(' ')
+	b.WriteString(req.Proto)
+	b.WriteByte('\n')
+	writeRequestHeaders(&b, req, host)
+	return b.String()
+}
+
+// responseHead renders the status line and the response headers.
+func responseHead(status int, header http.Header) string {
+	var b strings.Builder
+	b.Grow(13 + headerSize(header, ""))
+	b.WriteString("HTTP ")
+	b.WriteString(strconv.Itoa(status))
+	b.WriteByte('\n')
+	writeHeaderLines(&b, header, "")
 	return b.String()
 }
 

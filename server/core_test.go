@@ -72,9 +72,15 @@ func TestCoreTaskLifecyclePG(t *testing.T) {
 		t.Fatalf("bad task payload: %v", out)
 	}
 
-	// the exploration owns goal node(s) — goal seeding is async, poll briefly
+	// the exploration owns goal node(s) — goal seeding is async (createTask →
+	// launchTask → startTaskEngine → createGoals on its own goroutine), so poll.
+	// The window is deliberately generous: `go test ./...` runs the packages in
+	// parallel and a full suite leaves background schedulers/engines ticking, which
+	// can starve this goroutine for several seconds on a loaded machine. The old
+	// 3s window was hit exactly ("expected goal nodes seeded, got 0" after 3.07s /
+	// 3.08s) twice in 11 full-suite runs, while the package always passed on its own.
 	var goals []*db.Node
-	for i := 0; i < 30; i++ {
+	for i := 0; i < 100; i++ {
 		goals, err = m.pg.Exploration(expID).ListByKind("goal", 10)
 		if err != nil || len(goals) > 0 {
 			break

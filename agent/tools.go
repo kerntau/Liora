@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 
@@ -1327,11 +1328,22 @@ func (t *ToolSet) proveGoal() actool.CoreTool {
 			if err != nil || evidenceNode == nil || (evidenceNode.Kind != db.KindFact && evidenceNode.Kind != db.KindFinding) {
 				return actool.Errorf("evidence_id 必须是本任务或直接关联任务的事实/漏洞节点"), nil
 			}
-			_ = t.ts.Link(ev, db.RelProves, goal)
-			_ = t.ts.SetNodeState(goal, "met")
+			if err := t.ts.Link(ev, db.RelProves, goal); err != nil {
+				return actool.Errorf(fmt.Sprintf("记录证据关系失败（目标未标记 met，可重试）：%v", err)), nil
+			}
+			if err := t.ts.SetNodeState(goal, "met"); err != nil {
+				return actool.Errorf(fmt.Sprintf("标记目标 met 失败（状态未写入，可重试）：%v", err)), nil
+			}
 			// 每标记一个目标 met，就检查本任务是否【所有目标】都已 met；若是，自动判定
 			// 任务完成（置 GoalMet），无需再依赖模型显式调 goal_met。
-			if goals, err := t.ts.ListByKind(db.KindGoal, 1000); err == nil && len(goals) > 0 {
+			goals, err := t.ts.ListByKind(db.KindGoal, 1000)
+			if err != nil {
+				// 目标本身已置 met（写成功），但读不到目标列表就无法判断是否全部达成：
+				// 完成状态未知，必须让模型知道，否则它会以为一切正常继续空转。
+				log.Printf("[tools] prove_goal: 读取目标列表失败 exp=%d goal=%d: %v", t.ts.ID(), goal, err)
+				return actool.Text(fmt.Sprintf("goal %d marked met；但读取目标列表失败（%v），无法判断任务是否全部达成，完成状态未知——可重试 prove_goal 或调用 list_goals 确认", goal, err)), nil
+			}
+			if len(goals) > 0 {
 				allMet := true
 				for _, g := range goals {
 					if g.State != "met" {

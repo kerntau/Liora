@@ -83,6 +83,14 @@ func retryableWorkerModelError(reason harness.TerminalReason, err error) bool {
 	return reason == harness.ReasonModelError && !isTaskLLMRuntimeError(err)
 }
 
+// shouldRetryModelError reports whether a model_error run may be replayed.
+// Replaying is only safe when the attempt executed nothing: the SDK executes a
+// tool as soon as its block completes, but discards the entire turn when the
+// stream errors afterwards, so a replay would not see that the tool already ran.
+func shouldRetryModelError(reason harness.TerminalReason, err error, toolRan bool) bool {
+	return !toolRan && retryableWorkerModelError(reason, err)
+}
+
 // Engine drives the event-driven exploration loop with real LLM agents
 // (docs §4.3/§4.4): on asset/exploration-graph change (debounced) it wakes the
 // planner, which reads the route, queries assets, judges goals and emits intents;
@@ -429,6 +437,8 @@ func (e *Engine) ControlWork(ctx context.Context, intentID int64, action string)
 		return fmt.Errorf("unsupported work action %q", action)
 	}
 	if ctx == nil {
+		// Defensive fallback for programmatic callers; the wait below is still
+		// bounded by workControlWaitTimeout, so a nil ctx cannot hang forever.
 		ctx = context.Background()
 	}
 	e.workMu.Lock()
@@ -983,7 +993,19 @@ func (e *Engine) runIntent(ctx context.Context, t *Task, name string, worker *ag
 	hasChatMessage := message != ""
 	e.stampFirstRun(t) // 首次真正执行 → 盖 first_run_at + 算 deadline(仅带 timeout 的任务)
 	e.touch(t.ID)
-	emit := func(r db.Activity) { e.emitActivity(t, r) }
+	// toolRan marks the point of no return for this attempt: the harness executes a
+	// tool as soon as its block completes (harness/query.go finalizeTool), but on a
+	// stream error it drops the whole turn instead of persisting it. A replay would
+	// therefore not know the tool already ran and could run it again — for a
+	// destructive tool that is a real side effect on the target, so a run that has
+	// executed anything is never retried.
+	var toolRan atomic.Bool
+	emit := func(r db.Activity) {
+		if r.Kind == "tool_use" {
+			toolRan.Store(true)
+		}
+		e.emitActivity(t, r)
+	}
 	ectx := e.clockCtx(e.execContextFor(ctx, t.ID), t, false) // cancellable by Pause; 带任务 deadline
 	if ectx.Err() != nil || e.IsDeleting(t.ID) {
 		if err := transitionIntentState(t.Store, intent.ID, "running", "open"); err != nil {
@@ -1029,13 +1051,14 @@ func (e *Engine) runIntent(ctx context.Context, t *Task, name string, worker *ag
 	// 再重试,避免退避挤占其他 worker 的优雅收尾窗口)。
 	maxRetries, retryBackoff := e.modelErrorRetryPolicy()
 	for attempt := 1; attempt <= maxRetries &&
-		retryableWorkerModelError(reason, err) &&
+		shouldRetryModelError(reason, err, toolRan.Load()) &&
 		workCtx.Err() == nil && ectx.Err() == nil && !e.IsPaused(t.ID) && !e.isSettling(t.ID); attempt++ {
 		log.Printf("[worker %s] task %s 意图 #%d model_error 收场，%v 后重试 (%d/%d)",
 			name, t.ID, intent.ID, retryBackoff, attempt, maxRetries)
 		if sleepCtx(workCtx, retryBackoff) {
 			break // 退避期间被取消（终止/暂停）→ 交给下方分支处理
 		}
+		toolRan.Store(false) // only this attempt's tools make the replay unsafe
 		e.BeginLLMCall(t.ID)
 		if hasChatMessage {
 			reason, wrote, err = worker.ExecuteWithMessage(workCtx, name, wTaskID, e.m.assets, t.Store, intent, hooks, emit, e.m.enrich, t.NotifyFinding, requestID, message)

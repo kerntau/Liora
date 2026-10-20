@@ -77,7 +77,12 @@ func migrateLLMRecords(tx *sql.Tx) error {
 		}
 		cols[name] = true
 	}
-	rows.Close()
+	// Close reports the iteration error, so a partial column set can never drive
+	// the ALTER TABLE loop below (which would then try to add an existing column
+	// and fail with a misleading "duplicate column name").
+	if err := rows.Close(); err != nil {
+		return err
+	}
 	for _, col := range []string{"task_id", "worker", "profile_name", "raw_request", "raw_response"} {
 		if !cols[col] {
 			if _, err := tx.Exec(`ALTER TABLE llm_records ADD COLUMN ` + col + ` TEXT`); err != nil {

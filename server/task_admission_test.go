@@ -298,6 +298,73 @@ func TestTimedOutTaskRevivalResetsClockAndSettlingAcrossFIFO(t *testing.T) {
 	}
 }
 
+// A task that hits its deadline can be settled as "done" (the final planner round
+// judged the goals met) rather than "timeout". Reviving it with set_goals must
+// reset the same Engine gates as a timeout revival — otherwise settling stays set
+// forever and the planner/workers skip every future round, and the stale past
+// deadline clamps the revived run to a zero budget.
+func TestDeadlineCompletedTaskRevivalResetsClockAndSettling(t *testing.T) {
+	m, err := NewManager(t.TempDir(), "")
+	if err != nil {
+		t.Fatalf("SQLite unavailable (%v) - skipping", err)
+	}
+	defer m.Close()
+	defer restoreConcurrencySetting(t, m)()
+
+	task, err := m.CreateTask("deadline completed follow-up", "revive after done", nil, 120, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _, _ = m.DeleteTask(task.ID, DeleteTaskOptions{}) }()
+	if _, err := m.StampTaskFirstRun(task.ID); err != nil {
+		t.Fatal(err)
+	}
+	oldClock := task.lifecycleSnapshot()
+	if oldClock.FirstRunAt == 0 || oldClock.DeadlineAt == 0 {
+		t.Fatalf("test setup did not stamp the original clock: %+v", oldClock)
+	}
+	// settleTask judged the goals met in its final round, so the deadline produced
+	// "done" rather than "timeout".
+	if err := m.SetTaskStatus(task.ID, "done"); err != nil {
+		t.Fatal(err)
+	}
+
+	s := newAdmissionTestServer(m, nil)
+	s.engine.settling.Store(task.ID, true)
+	s.engine.deadline.Store(task.ID, oldClock.DeadlineAt)
+	s.engine.stamped.Store(task.ID, true)
+	s.engine.coordStarted.Store(task.ID, true)
+
+	if _, err := s.admitTask(task, "resume"); err != nil {
+		t.Fatal(err)
+	}
+	if s.engine.isSettling(task.ID) {
+		t.Fatal("revived deadline-completed task retained the settling gate")
+	}
+	if _, ok := s.engine.deadline.Load(task.ID); ok {
+		t.Fatal("revived deadline-completed task retained the old in-memory deadline")
+	}
+	if _, ok := s.engine.stamped.Load(task.ID); ok {
+		t.Fatal("revived deadline-completed task retained the old first-run stamp")
+	}
+	state := task.lifecycleSnapshot()
+	if state.Status != "running" || state.FirstRunAt != 0 || state.DeadlineAt != 0 {
+		t.Fatalf("revived deadline-completed task kept its expired clock: %+v", state)
+	}
+	stored, err := m.pg.GetTask(mustTaskID(t, task.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored == nil || stored.TimeoutSeconds != 120 || stored.FirstRunAt != nil || stored.DeadlineAt != nil {
+		t.Fatalf("persisted revival clock mismatch: %+v", stored)
+	}
+	if s.engine.isSettling(task.ID) || s.engine.IsPaused(task.ID) {
+		t.Fatal("revived task is still gated after admission")
+	}
+	if execCtx := s.engine.execContextFor(context.Background(), task.ID); execCtx.Err() != nil {
+		t.Fatalf("revived task did not receive a live execution context: %v", context.Cause(execCtx))
+	}
+}
 func TestQueuedTaskCanPauseAndResumeAtFIFOTail(t *testing.T) {
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {
@@ -386,7 +453,9 @@ func TestReadyFIFOIsAdmittedBeforeNewTask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !queued || !incoming.Queued || incoming.QueuedAt <= older.QueuedAt {
+	// The raw stamps can invert (two clock sources; Windows' clock steps back a few
+	// hundred microseconds), so assert the decision, not the timestamps.
+	if !queued || !incoming.Queued {
 		t.Fatalf("new task bypassed ready FIFO: queued=%v older=%+v incoming=%+v", queued, older, incoming)
 	}
 	s.reconcileConcurrency()

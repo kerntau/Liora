@@ -763,14 +763,14 @@ ORDER BY id DESC LIMIT $4`, s.expID, kind, before, limit+1)
 }
 
 // listByKindPageFiltered is ListByKindPage with an optional summary keyword
-// filter (payload->>'summary' LIKE %q%). Fetches one extra row so the caller can
-// probe hasMore. Empty q = no filter. Newest-first by id.
+// filter (a literal substring of payload->>'summary'; % and _ in q are matched
+// as text). Fetches one extra row so the caller can probe hasMore. Empty q = no
+// filter. Newest-first by id.
 func (s *ExplorationStore) listByKindPageFiltered(kind string, before int64, limit int, q string) ([]*Node, error) {
 	where := `exploration_id=$1 AND kind=$2 AND ($3 <= 0 OR id < $3)`
 	args := []any{s.expID, kind, before}
 	if q != "" {
-		args = append(args, "%"+q+"%")
-		where += fmt.Sprintf(` AND payload->>'summary' LIKE $%d`, len(args))
+		where += " AND " + likePredicate("payload->>'summary'", &args, q)
 	}
 	args = append(args, limit+1)
 	rows, err := s.db.Query(`SELECT `+nodeCols+` FROM exploration_nodes
@@ -788,8 +788,7 @@ func (s *ExplorationStore) countByKindFiltered(kind, q string) (int, error) {
 	where := `exploration_id=$1 AND kind=$2`
 	args := []any{s.expID, kind}
 	if q != "" {
-		args = append(args, "%"+q+"%")
-		where += fmt.Sprintf(` AND payload->>'summary' LIKE $%d`, len(args))
+		where += " AND " + likePredicate("payload->>'summary'", &args, q)
 	}
 	var n int
 	err := s.db.QueryRow(`SELECT COUNT(*) FROM exploration_nodes WHERE `+where, args...).Scan(&n)

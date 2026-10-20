@@ -214,16 +214,15 @@ func (f FindingFilter) where() (string, []any) {
 		conds = append(conds, fmt.Sprintf("EXISTS (SELECT 1 FROM json_each(f.asset_ids) WHERE value IN (SELECT value FROM json_each($%d)))", len(args)))
 	}
 	if query := strings.TrimSpace(f.Query); query != "" {
-		escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
-		args = append(args, "%"+escaped+"%")
-		placeholder := fmt.Sprintf("$%d", len(args))
-		conds = append(conds, fmt.Sprintf(`(
-			COALESCE(f.name, '') LIKE %s ESCAPE '\' OR
-			f.vulnclass LIKE %s ESCAPE '\' OR
-			f.summary LIKE %s ESCAPE '\' OR
-			f.evidence LIKE %s ESCAPE '\' OR
-			COALESCE(f.report, '') LIKE %s ESCAPE '\'
-		)`, placeholder, placeholder, placeholder, placeholder, placeholder))
+		// One predicate per column: likePredicate owns the escaping and the
+		// ESCAPE declaration together, so the two can never drift apart.
+		conds = append(conds, "("+strings.Join([]string{
+			likePredicate("COALESCE(f.name, '')", &args, query),
+			likePredicate("f.vulnclass", &args, query),
+			likePredicate("f.summary", &args, query),
+			likePredicate("f.evidence", &args, query),
+			likePredicate("COALESCE(f.report, '')", &args, query),
+		}, " OR ")+")")
 	}
 	if len(conds) == 0 {
 		return "", args
@@ -651,13 +650,22 @@ func (d *DB) GetFinding(id int64) (*DBFinding, error) {
 	return f, nil
 }
 
-// DeleteFinding removes a finding entirely: the standalone findings row and its
-// originating exploration node (kind='finding'), so it disappears from the findings
-// list, the per-task 发现 Tab, and the exploration graph alike. Deleting the node
-// cascades its edges + node_assets and nulls any activity referencing it. Returns
-// rows affected (0 = no finding with that id).
-func (d *DB) DeleteFinding(id int64) (n int64, err error) {
-	err = d.WithEvidenceTx(context.Background(), func(tx *sql.Tx) error {
+// DeleteFinding removes a finding entirely. It is the background-context
+// convenience wrapper; request handlers should call DeleteFindingContext with the
+// request context so an aborted client stops the write instead of letting the
+// transaction run to completion.
+func (d *DB) DeleteFinding(id int64) (int64, error) {
+	return d.DeleteFindingContext(context.Background(), id)
+}
+
+// DeleteFindingContext removes a finding entirely: the standalone findings row and
+// its originating exploration node (kind='finding'), so it disappears from the
+// findings list, the per-task 发现 Tab, and the exploration graph alike. Deleting
+// the node cascades its edges + node_assets and nulls any activity referencing it.
+// Returns rows affected (0 = no finding with that id). The transaction is bound to
+// ctx, so cancelling it aborts the delete before commit.
+func (d *DB) DeleteFindingContext(ctx context.Context, id int64) (n int64, err error) {
+	err = d.WithEvidenceTx(ctx, func(tx *sql.Tx) error {
 		if err := LockFindingEvidenceTx(tx, id, nil); err != nil {
 			if errors.Is(err, ErrFindingNotFound) {
 				return nil

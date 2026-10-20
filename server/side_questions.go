@@ -101,6 +101,10 @@ func (s *Server) flushSideSnapshots() {
 	s.side.pending = map[string]sidequestion.Snapshot{}
 	s.side.mu.Unlock()
 	for key, snap := range pending {
+		// Detached on purpose: the ticker's final flush still runs after s.ctx
+		// is cancelled, and a checkpoint admitted before task drain must be
+		// persisted even if the drain request goes away. The per-write timeout
+		// bounds a dead database instead of letting it stall the loop.
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		err := s.m.pg.SaveSideSnapshot(ctx, snap)
 		cancel()
@@ -453,6 +457,9 @@ func (s *Server) runSide(ctx context.Context, cancel context.CancelFunc, e sideq
 	lastSave := time.Now()
 	persist := func() (bool, error) {
 		e.Sequence++
+		// Detached on purpose: after a user stop or the 120s deadline ctx is
+		// already cancelled, but the final status/usage write must still land.
+		// The 3s bound keeps a dead database from blocking the run's teardown.
 		writeCtx, stop := context.WithTimeout(context.Background(), 3*time.Second)
 		defer stop()
 		ok, err := s.m.pg.UpdateSideRequest(writeCtx, e)

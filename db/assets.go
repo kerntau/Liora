@@ -136,6 +136,10 @@ func (s *AssetStore) resolveCompanyWithICP(rootDomain, ipStr, icp string) (*int6
 // =====================================================================
 
 // calcCSegment computes the /24 (IPv4) or /48 (IPv6) network for an IP string.
+// The address is masked, never spliced from the input text: an IPv4-mapped IPv6
+// literal ("::ffff:192.168.1.5") satisfies To4() but does not split into four
+// dotted octets, so text splicing produced the malformed CIDR
+// "::ffff:192.168.1.0/24" for it.
 func calcCSegment(ipStr string) string {
 	if ipStr == "" {
 		return ""
@@ -144,20 +148,18 @@ func calcCSegment(ipStr string) string {
 	if ip == nil {
 		return ""
 	}
-	if ip.To4() != nil {
+	if ip4 := ip.To4(); ip4 != nil {
 		// IPv4 /24
-		parts := strings.Split(ipStr, ".")
-		if len(parts) == 4 {
-			return parts[0] + "." + parts[1] + "." + parts[2] + ".0/24"
-		}
-		return ""
+		mask := net.CIDRMask(24, 32)
+		return (&net.IPNet{IP: ip4.Mask(mask), Mask: mask}).String()
 	}
 	// IPv6 /48
-	_, ipnet, err := net.ParseCIDR(ipStr + "/48")
-	if err != nil {
+	ip6 := ip.To16()
+	if ip6 == nil {
 		return ""
 	}
-	return ipnet.String()
+	mask := net.CIDRMask(48, 128)
+	return (&net.IPNet{IP: ip6.Mask(mask), Mask: mask}).String()
 }
 
 // normalizeURL lowercases scheme and host, strips trailing slash from bare roots.

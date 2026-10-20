@@ -24,6 +24,7 @@ import (
 	"github.com/Autumn-27/norma/transcript"
 	"liora/agent"
 	"liora/db"
+	"liora/evidence"
 	"liora/intercept"
 	"liora/llmpool"
 	"liora/llmrec"
@@ -118,6 +119,14 @@ type Server struct {
 	archiveWake chan struct{}
 	archiveWG   sync.WaitGroup
 	side        *sideQuestionState
+
+	// evidence is the ONE evidence.Store for this process. Sharing it matters:
+	// Store.restoreMu is what stops a GC pass from reaping evidence bodies while
+	// an archive restore is installing them, so building a fresh Store per request
+	// (as evidenceStore used to) gave every caller its own mutex — no exclusion at
+	// all — and allocated a new store on every evidence read.
+	evidenceMu sync.Mutex
+	evidence   *evidence.Store
 }
 
 // provEntry is a cached provider + its config for one LLM profile id.
@@ -1828,7 +1837,7 @@ func (s *Server) frontier(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, []any{})
 		return
 	}
-	fr, _ := t.Store.Frontier(atoiDefault(r.URL.Query().Get("limit"), 100))
+	fr, _ := t.Store.Frontier(pageLimit(r.URL.Query().Get("limit"), 100))
 	writeJSON(w, 200, taskNodeDTOs(fr))
 }
 
@@ -2269,7 +2278,7 @@ func (s *Server) deleteFinding(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "bad finding id")
 		return
 	}
-	n, err := s.m.pg.DeleteFinding(id)
+	n, err := s.m.pg.DeleteFindingContext(r.Context(), id)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -2562,7 +2571,7 @@ func (s *Server) activity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	since := int64(atoiDefault(r.URL.Query().Get("since"), 0))
-	limit := atoiDefault(r.URL.Query().Get("limit"), 300)
+	limit := pageLimit(r.URL.Query().Get("limit"), 300)
 	var intentPtr *int64
 	if iv := r.URL.Query().Get("intent"); iv != "" {
 		if n, err := strconv.ParseInt(iv, 10, 64); err == nil {
@@ -2818,9 +2827,9 @@ func (s *Server) getLogsHistory(w http.ResponseWriter, r *http.Request) {
 		err  error
 	)
 	if before <= 0 {
-		rows, err = s.m.pg.RecentLogs(limit)
+		rows, err = s.m.pg.RecentLogsContext(r.Context(), limit)
 	} else {
-		rows, err = s.m.pg.ListLogsBefore(before, limit)
+		rows, err = s.m.pg.ListLogsBeforeContext(r.Context(), before, limit)
 	}
 	if err != nil {
 		writeErr(w, 500, "db: "+err.Error())
@@ -3655,4 +3664,26 @@ func atoiDefault(s string, d int) int {
 		return n
 	}
 	return d
+}
+
+// maxReadPageSize bounds a client-supplied ?limit/?size on the read endpoints.
+// Several handlers pass the raw query value straight into a SQL LIMIT, so without
+// a ceiling `?limit=1000000000` turns one request into a full-table scan that
+// materializes every row (and its DTO) in memory before the JSON is written —
+// enough to OOM the process on a long-lived task. Sibling endpoints already clamp
+// by hand (activityHistory, getLogsHistory); this keeps the rule in one place.
+const maxReadPageSize = 500
+
+// pageLimit parses a client page size and clamps it to [1, maxReadPageSize].
+// Missing/invalid/non-positive values fall back to def, matching the DB helpers
+// that treat limit<=0 as "use the default".
+func pageLimit(raw string, def int) int {
+	limit := atoiDefault(raw, def)
+	if limit <= 0 {
+		limit = def
+	}
+	if limit > maxReadPageSize {
+		limit = maxReadPageSize
+	}
+	return limit
 }

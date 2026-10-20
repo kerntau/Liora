@@ -132,6 +132,14 @@ type overriddenTool struct {
 func (o *overriddenTool) Description() string         { return o.desc }
 func (o *overriddenTool) InputSchema() map[string]any { return o.schema }
 
+// AcceptsRawInput forwards the wrapped tool's opt-out (see tool.Spec.RawInput),
+// so a DB-overridden description/schema never silently re-enables validation
+// for a tool that parses its own input.
+func (o *overriddenTool) AcceptsRawInput() bool {
+	r, ok := o.CoreTool.(interface{ AcceptsRawInput() bool })
+	return ok && r.AcceptsRawInput()
+}
+
 func (o *overriddenTool) Call(ctx context.Context, in json.RawMessage, tc *actool.ToolContext) (actool.Result, error) {
 	return o.CoreTool.Call(ctx, injectDefaults(in, o.schema), tc)
 }
@@ -148,6 +156,9 @@ func injectDefaults(in json.RawMessage, schema map[string]any) json.RawMessage {
 	if len(in) > 0 {
 		if err := json.Unmarshal(in, &m); err != nil {
 			return in // non-object input: don't touch it
+		}
+		if m == nil { // JSON null unmarshals into a nil map; treat it as no arguments
+			m = map[string]json.RawMessage{}
 		}
 	}
 	changed := false
