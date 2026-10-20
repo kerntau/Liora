@@ -159,10 +159,6 @@ type WriteCounts struct {
 	Findings int
 }
 
-// Total is every node persisted this run, regardless of kind — the
-// "explored but persisted nothing" signal (Total == 0).
-func (w WriteCounts) Total() int { return w.Facts + w.Assets + w.Findings }
-
 // String renders the per-kind breakdown for logs, e.g. "事实1 资产25 漏洞0".
 func (w WriteCounts) String() string {
 	return fmt.Sprintf("事实%d 资产%d 漏洞%d", w.Facts, w.Assets, w.Findings)
@@ -188,9 +184,6 @@ func (t *ToolSet) SetTaskID(id int64) { t.taskID = id }
 // either way, because task_scope is the task's range boundary (the filter basis for
 // asset queries), not merely a coverage denominator.
 func (t *ToolSet) SetCoverageEnabled(enabled bool) { t.coverageDisabled = !enabled }
-
-// CoverageDisabled reports whether the coverage feature is off for this task.
-func (t *ToolSet) CoverageDisabled() bool { return t.coverageDisabled }
 
 // coverageOnlyTools are the LLM tools that only make sense when asset coverage is
 // on. When the feature is off they are filtered out of the agent's tool list so

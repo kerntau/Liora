@@ -53,6 +53,18 @@ func newWebUIHandler(root fs.FS) (http.Handler, error) {
 			http.ServeFileFS(w, r, root, name)
 			return
 		}
+		// A browser navigation to an unknown page renders the app's own localized
+		// 404 screen. Serve the SPA shell but keep the 404 status so probes, caches
+		// and the retired-route contract still see "not found".
+		if path.Ext(p) == "" && strings.Contains(r.Header.Get("Accept"), "text/html") {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.WriteHeader(http.StatusNotFound)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write(index)
+			}
+			return
+		}
 		http.NotFound(w, r)
 	}), nil
 }

@@ -204,12 +204,6 @@ FROM companies WHERE nkey = $1`, nkey).Scan(
 	return c, err
 }
 
-// UpsertByName creates the company if it doesn't exist, then returns its id.
-func (s *CompanyStore) UpsertByName(name string) (int64, error) {
-	id, _, err := s.UpsertCompany(name, "")
-	return id, err
-}
-
 // DeleteCompany deletes a company and re-evaluates automatic ownership against
 // the remaining companies in the same transaction. Explicitly-owned assets are
 // detached by the FK and may then fall back to a remaining scope match.

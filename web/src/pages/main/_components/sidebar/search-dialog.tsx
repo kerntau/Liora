@@ -180,7 +180,7 @@ export function SearchDialog() {
         triggerRef.current?.focus();
       }}>
         <Command>
-          <CommandInput placeholder="搜索任务、资产、漏洞和设置…" value={query} onValueChange={setQuery} />
+          <CommandInput placeholder="搜索页面与设置…" value={query} onValueChange={setQuery} />
           <CommandList>
             <CommandEmpty>没有匹配的页面。</CommandEmpty>
             {renderGroups(recommendations)}

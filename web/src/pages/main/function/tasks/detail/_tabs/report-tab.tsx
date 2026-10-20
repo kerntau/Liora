@@ -2,7 +2,7 @@
 
 import * as React from "react";
 
-import { CheckIcon, CopyIcon, FileTextIcon } from "lucide-react";
+import { CheckIcon, CopyIcon, DownloadIcon, FileTextIcon, RefreshCwIcon } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 
 import { Markdown } from "@/components/markdown";
@@ -14,26 +14,39 @@ import { copyText } from "@/lib/utils";
 export function ReportTab({ taskId }: { taskId: string }) {
   const [report, setReport] = React.useState<string>("");
   const [loading, setLoading] = React.useState(true);
+  const [refreshing, setRefreshing] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
+  const requestSeq = React.useRef(0);
+
+  // 统一加载入口：首次加载展示整块 loading；手动刷新只切按钮态，失败时保留旧内容。
+  const load = React.useCallback(
+    async (silent = false): Promise<boolean> => {
+      const seq = ++requestSeq.current;
+      if (silent) setRefreshing(true);
+      else setLoading(true);
+      try {
+        const text = await api.report(taskId);
+        if (seq !== requestSeq.current) return false;
+        setReport(text);
+        return true;
+      } catch {
+        if (seq !== requestSeq.current) return false;
+        if (!silent) setReport("");
+        return false;
+      } finally {
+        if (silent) setRefreshing(false);
+        else setLoading(false);
+      }
+    },
+    [taskId],
+  );
 
   React.useEffect(() => {
-    let active = true;
-    setLoading(true);
-    api
-      .report(taskId)
-      .then((text) => {
-        if (active) setReport(text);
-      })
-      .catch(() => {
-        if (active) setReport("");
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
+    void load();
     return () => {
-      active = false;
+      requestSeq.current++;
     };
-  }, [taskId]);
+  }, [load]);
 
   async function copy() {
     if (!report) return;
@@ -45,6 +58,26 @@ export function ReportTab({ taskId }: { taskId: string }) {
     } else {
       toast.error("复制失败，请手动选择文本复制");
     }
+  }
+
+  function download() {
+    if (!report) return;
+    const blob = new Blob([report], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `liora-report-${taskId}.md`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function refresh() {
+    if (refreshing) return;
+    const ok = await load(true);
+    if (ok) toast.success("报告已刷新");
+    else toast.error("刷新失败，请稍后重试");
   }
 
   let content: React.ReactNode;
@@ -82,6 +115,13 @@ export function ReportTab({ taskId }: { taskId: string }) {
               {copied ? <CheckIcon /> : <CopyIcon />} 复制
             </Button>
           )}
+          <Button size="sm" variant="outline" disabled={!report} onClick={download}>
+            <DownloadIcon /> 下载 Markdown
+          </Button>
+          <Button size="sm" variant="outline" disabled={refreshing} onClick={() => void refresh()}>
+            <RefreshCwIcon className={refreshing ? "animate-spin" : undefined} />
+            {refreshing ? "刷新中…" : "刷新"}
+          </Button>
         </div>
       </CardHeader>
       <CardContent>{content}</CardContent>

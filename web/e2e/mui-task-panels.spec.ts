@@ -220,7 +220,7 @@ test("broadcast preserves node relationships, filters, pagination and the live-p
   const preview = page.getByRole("tooltip");
   await expect(preview.getByText("关联起点详情", { exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(page.locator(".MuiPopover-root")).toHaveCount(0);
+  await expect(page.locator('[data-slot="hover-card-content"]')).toHaveCount(0);
   const kinds = page.getByRole("group", { name: "播报类型" });
   await kinds.getByRole("button", { name: "事实", exact: true }).click();
   await kinds.getByRole("button", { name: "漏洞", exact: true }).click();

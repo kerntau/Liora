@@ -6,6 +6,14 @@
 
 ## [Unreleased]
 
+### 当前现状（2026-10-14 起）
+
+- **前端迁移到 React 19 + Rsbuild**：构建与开发均由 Rsbuild 驱动，路由使用 React Router；不再使用 Next.js。
+- **数据库改用 SQLite**（`modernc.org/sqlite`）：运行时不再依赖 PostgreSQL。
+- **撤销 MUI，恢复 shadcn/Radix/Base UI**：2026-10-19 用户要求恢复第一版 UI，2026-10-20 提交 `edacf91` 撤销 MUI；当前 `web/package.json` 无 `@mui/*`、`@emotion/*`，MUI 迁移属于历史。
+- **死代码清理**：外围功能与无引用组件、依赖按入口依赖图移除，明细见 [死代码清理记录](docs/死代码清理记录.md)。
+- **0.3.x 及以下条目为上游历史**：保留原始项目名称与实现描述，不代表当前技术栈；当前展示名为「Liora · 灵探」，正式产物为 `liora.exe`。
+
 ## [0.3.12] - 2026-09-17
 
 ### 探索链路播报板

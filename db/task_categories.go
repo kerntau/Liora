@@ -91,22 +91,6 @@ ORDER BY category.name, category.id`)
 	return categories, rows.Err()
 }
 
-func (d *DB) GetTaskCategory(id int64) (*TaskCategory, error) {
-	category, err := scanTaskCategory(d.QueryRow(`
-SELECT `+taskCategoryCols+`
-FROM task_categories category
-LEFT JOIN tasks task ON task.category_id=category.id
-WHERE category.id=$1
-GROUP BY category.id`, id))
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &category, nil
-}
-
 func (d *DB) RenameTaskCategory(id int64, name string) (*TaskCategory, error) {
 	name, nkey, err := normalizeTaskCategoryName(name)
 	if err != nil {

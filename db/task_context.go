@@ -359,28 +359,6 @@ ORDER BY id`, taskID)
 	return out, rows.Err()
 }
 
-func (d *DB) TaskSources(taskID int64) ([]TaskSource, error) {
-	rows, err := d.Query(`
-SELECT t.id, t.exploration_id, t.description, t.goal, t.status
-FROM task_relations r
-JOIN tasks t ON t.id=r.source_task_id AND t.deleted_at IS NULL
-WHERE r.task_id=$1
-ORDER BY r.created_at, r.source_task_id`, taskID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []TaskSource
-	for rows.Next() {
-		var source TaskSource
-		if err := rows.Scan(&source.TaskID, &source.ExplorationID, &source.Description, &source.Goal, &source.Status); err != nil {
-			return nil, err
-		}
-		out = append(out, source)
-	}
-	return out, rows.Err()
-}
-
 func (d *DB) TaskLLMProfiles(taskID int64) ([]TaskLLMProfile, error) {
 	rows, err := d.Query(`SELECT profile_id, position, status, COALESCE(last_error,''), exhausted_at
 FROM task_llm_profiles WHERE task_id=$1 ORDER BY position`, taskID)

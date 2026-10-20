@@ -1299,32 +1299,6 @@ func (m *Manager) EnqueueTask(id, mode string) error {
 	return nil
 }
 
-// DequeueTask removes the concurrency hold. clearMode=false is used when a user
-// pauses a queued task so a later resume still knows whether bootstrap is needed.
-func (m *Manager) DequeueTask(id string, clearMode bool) error {
-	m.taskStateMu.Lock()
-	defer m.taskStateMu.Unlock()
-	n, err := strconv.ParseInt(id, 10, 64)
-	if err != nil {
-		return err
-	}
-	if err := m.pg.Dequeue(n, clearMode); err != nil {
-		return err
-	}
-	m.mu.Lock()
-	if t := m.tasks[id]; t != nil {
-		t.updateLifecycle(func(state *taskLifecycleState) {
-			state.Queued = false
-			state.QueuedAt = 0
-			if clearMode {
-				state.QueueMode = ""
-			}
-		})
-	}
-	m.mu.Unlock()
-	return nil
-}
-
 // TaskStatus returns a task's current in-memory status (empty if unknown).
 func (m *Manager) TaskStatus(id string) string {
 	m.mu.RLock()

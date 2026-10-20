@@ -249,7 +249,7 @@ test("conversation keeps lazy tool detail, keyboard expansion and profile select
   await dialog.getByRole("button", { name: "Fixture Profile openai · fixture-model", exact: true }).click();
   await expect.poll(() => profiles).toEqual([9]);
   await expect(dialog).toBeHidden();
-  await expect(page.locator(".MuiPopover-root")).toHaveCount(0);
+  await expect(page.locator('[data-slot="popover-content"]')).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath("conversation-mobile.png"), fullPage: true });

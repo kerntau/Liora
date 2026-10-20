@@ -131,7 +131,7 @@ test("sessions preserve mention focus, attachments, conversation creation and wo
   await deletion.getByRole("textbox", { name: "删除原因（必填）" }).fill("Fixture complete");
   await deletion.getByRole("button", { name: "确认删除", exact: true }).click();
   await expect(deletion).toBeHidden();
-  await expect(page.locator(".MuiDialog-root")).toHaveCount(0);
+  await expect(page.locator('[data-slot="alert-dialog-content"]')).toHaveCount(0);
   expect(controls[1]).toEqual({ action: "cancel", reason: "Fixture complete", mode: "soft" });
   await page.setViewportSize({ width: 390, height: 844 });
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

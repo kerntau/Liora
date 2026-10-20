@@ -47,6 +47,8 @@ export function AgentEditor({ agentKey, onSaved }: { agentKey: string; onSaved?:
   const [diffVer, setDiffVer] = React.useState<PromptVersion | null>(null);
 
   const [prompt, setPrompt] = React.useState("");
+  // 用户改过提示词后，后台 reload（保存配置、可见性失败回滚等）不得覆盖编辑中的内容。
+  const promptDirty = React.useRef(false);
   const [mcpVisible, setMcpVisible] = React.useState<number[]>([]);
   const [skillVisible, setSkillVisible] = React.useState<string[]>([]);
   const [preview, setPreview] = React.useState("");
@@ -68,6 +70,10 @@ export function AgentEditor({ agentKey, onSaved }: { agentKey: string; onSaved?:
   const [ttTurns, setTtTurns] = React.useState("0");
   const [ttTurnsDefault, setTtTurnsDefault] = React.useState(5);
   const [settings, setSettings] = React.useState<Settings | null>(null);
+  // 名称与描述(仅自定义 agent 可改;内置 agent 不显示该区块)。
+  const [agentName, setAgentName] = React.useState("");
+  const [agentDesc, setAgentDesc] = React.useState("");
+  const [savingMeta, setSavingMeta] = React.useState(false);
 
   React.useEffect(() => {
     api.mcpServers().then(setMcp).catch(() => {});
@@ -84,7 +90,9 @@ export function AgentEditor({ agentKey, onSaved }: { agentKey: string; onSaved?:
       .getAgent(agentKey)
       .then((d) => {
         setDetail(d);
-        setPrompt(d.prompt ?? "");
+        setAgentName(d.agent?.name ?? "");
+        setAgentDesc(d.agent?.description ?? "");
+        if (!promptDirty.current) setPrompt(d.prompt ?? "");
         setVariables(d.variables ?? []);
         setVersions(d.versions ?? []);
         setMcpVisible(d.visibility?.mcp ?? []);
@@ -124,6 +132,7 @@ export function AgentEditor({ agentKey, onSaved }: { agentKey: string; onSaved?:
     try {
       const r = await api.saveAgentPrompt(agentKey, prompt);
       toast.success(`已保存为版本 v${r.version}`);
+      promptDirty.current = false; // 服务端已是这份内容，reload 可以安全回填
       reload();
       onSaved?.();
     } catch (e) {
@@ -134,6 +143,7 @@ export function AgentEditor({ agentKey, onSaved }: { agentKey: string; onSaved?:
     try {
       const r = await api.resetAgentPrompt(agentKey);
       toast.success(`已恢复为内置默认（v${r.version}）`);
+      promptDirty.current = false; // 显式恢复默认：允许 reload 覆盖本地编辑
       reload();
     } catch (e) {
       toast.error("恢复失败：" + (e as Error).message);
@@ -194,6 +204,25 @@ export function AgentEditor({ agentKey, onSaved }: { agentKey: string; onSaved?:
       reload();
     } catch (e) {
       toast.error("保存失败：" + (e as Error).message);
+    }
+  }
+  // saveAgentMeta 保存自定义 agent 的名称/描述(内置 agent 后端会拒绝,PATCH 只改这两个字段)。
+  async function saveAgentMeta() {
+    const name = agentName.trim();
+    if (!name) {
+      toast.error("名称不能为空");
+      return;
+    }
+    setSavingMeta(true);
+    try {
+      await api.updateAgent(agentKey, { name, description: agentDesc.trim() });
+      toast.success("名称与描述已保存");
+      onSaved?.();
+      reload();
+    } catch (e) {
+      toast.error("保存失败：" + (e as Error).message);
+    } finally {
+      setSavingMeta(false);
     }
   }
   // applyVis optimistically updates, persists, and toasts success/failure. On
@@ -266,6 +295,12 @@ export function AgentEditor({ agentKey, onSaved }: { agentKey: string; onSaved?:
   const showLLM = true;
   // triggers (P3) only attach to custom agents.
   const isCustom = !!detail && !detail.agent?.builtin;
+  // 名称/描述编辑态：trim 后与已保存值比较，有改动且名称非空才允许保存。
+  const metaNameValid = agentName.trim().length > 0;
+  const metaDirty =
+    !!detail?.agent &&
+    (agentName.trim() !== (detail.agent.name ?? "") || agentDesc.trim() !== (detail.agent.description ?? ""));
+  const canSaveMeta = metaDirty && metaNameValid && !savingMeta;
 
   return (
     <Tabs defaultValue="prompt" className="flex min-h-0 flex-1 flex-col">
@@ -281,6 +316,39 @@ export function AgentEditor({ agentKey, onSaved }: { agentKey: string; onSaved?:
       {/* 配置 + 提示词 */}
       <TabsContent value="prompt" className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
         <div className="grid gap-4">
+          {isCustom && (
+            <div className="grid gap-3 rounded-md border p-3">
+              <Label className="text-muted-foreground text-xs">名称与描述（仅自定义 Agent 可改，key 不可变）</Label>
+              <div className="grid gap-1.5">
+                <Label htmlFor="agent-name" className="text-xs">名称（必填）</Label>
+                <Input
+                  id="agent-name"
+                  className="h-8 w-72"
+                  value={agentName}
+                  placeholder="如：漏洞巡检助手"
+                  onChange={(e) => setAgentName(e.target.value)}
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="agent-desc" className="text-xs">描述（可空）</Label>
+                <Textarea
+                  id="agent-desc"
+                  className="text-xs"
+                  rows={3}
+                  value={agentDesc}
+                  placeholder="一句话说明这个 Agent 的用途，会展示在 Agent 列表卡片上"
+                  onChange={(e) => setAgentDesc(e.target.value)}
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button size="sm" variant="outline" onClick={saveAgentMeta} disabled={!canSaveMeta}>
+                  <SaveIcon /> {savingMeta ? "保存中…" : "保存名称与描述"}
+                </Button>
+                {!metaNameValid && <span className="text-destructive text-xs">名称不能为空</span>}
+              </div>
+            </div>
+          )}
+
           {(showLLM || showConfig || showWebSearch || showInteractiveShell) && (
             <div className="grid gap-3 rounded-md border p-3">
               {showLLM && (
@@ -367,7 +435,7 @@ export function AgentEditor({ agentKey, onSaved }: { agentKey: string; onSaved?:
               {variables.map((v) => (
                 <Tooltip key={v.name}>
                   <TooltipTrigger asChild>
-                    <button type="button" onClick={() => setPrompt((p) => `${p}{{.${v.name}}}`)}
+                    <button type="button" onClick={() => { promptDirty.current = true; setPrompt((p) => `${p}{{.${v.name}}}`); }}
                       className="hover:bg-muted inline-flex items-center gap-1 rounded-md border bg-muted/40 px-2 py-1 font-mono text-xs">
                       {`{{.${v.name}}}`}
                       <Badge variant="secondary" className="px-1 py-0 text-[10px]">{v.source}</Badge>
@@ -384,7 +452,7 @@ export function AgentEditor({ agentKey, onSaved }: { agentKey: string; onSaved?:
           </div>
 
           <Textarea aria-label="提示词正文" className="font-mono text-xs" rows={16} value={prompt}
-            placeholder="留空则使用内置默认提示词" onChange={(e) => setPrompt(e.target.value)} />
+            placeholder="留空则使用内置默认提示词" onChange={(e) => { promptDirty.current = true; setPrompt(e.target.value); }} />
 
           <div className="flex flex-wrap gap-2">
             <Dialog>
@@ -473,7 +541,7 @@ export function AgentEditor({ agentKey, onSaved }: { agentKey: string; onSaved?:
                   </Button>
                 )}
                 <Button size="sm" onClick={() => {
-                  if (viewVer) { setPrompt(viewVer.template_text); setViewVer(null); toast.success(`已加载 v${viewVer.version} 到编辑器，确认后点「保存为新版本」`); }
+                  if (viewVer) { promptDirty.current = true; setPrompt(viewVer.template_text); setViewVer(null); toast.success(`已加载 v${viewVer.version} 到编辑器，确认后点「保存为新版本」`); }
                 }}>
                   加载到编辑器
                 </Button>

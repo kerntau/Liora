@@ -401,11 +401,6 @@ func (s *ExplorationStore) RecordFinding(ctx context.Context, in RecordFindingIn
 	return
 }
 
-func (d *DB) FindingIDByNodeID(nodeID int64) (id int64, err error) {
-	err = d.QueryRow(`SELECT id FROM findings WHERE node_id=$1`, nodeID).Scan(&id)
-	return
-}
-
 // PopulateFindingTrafficIDs only enriches already-visible nodes. It performs no
 // discovery or ID guessing, and leaves the legacy node ID unchanged.
 func (s *ExplorationStore) PopulateFindingTrafficIDs(nodes []*Node) error {

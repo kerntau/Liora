@@ -127,6 +127,21 @@ export function sseUrl(path: string): string {
   return token ? `${base}${path}${sep}token=${encodeURIComponent(token)}` : `${base}${path}`;
 }
 
+// fetchBlobText reads a non-JSON body (e.g. /traffic/blob) with the same auth
+// header as http(), returning the raw text instead of parsing JSON.
+async function fetchBlobText(path: string): Promise<string> {
+  const token = getToken();
+  const r = await fetch(`/api${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
+  if (r.status === 401) {
+    if (typeof window !== "undefined") auth.clearToken();
+    throw new Error("未授权");
+  }
+  if (!r.ok) throw new Error(`GET ${path}: ${r.status}`);
+  return r.text();
+}
+
 const get = <T>(p: string) => http<T>(p);
 const post = <T>(p: string, body?: unknown) =>
   http<T>(p, { method: "POST", body: body ? JSON.stringify(body) : undefined });
@@ -638,6 +653,8 @@ export const api = {
         (q ? `&q=${encodeURIComponent(q)}` : ""),
     ),
   trafficExchange: (id: string) => get<TrafficDetail>(`/traffic/exchange?id=${encodeURIComponent(id)}`),
+  // 超大正文：exchange 只返回预览 + "@blob sha256:<hash>" 指针，这里按 hash 取全文。
+  trafficBlobText: (hash: string) => fetchBlobText(`/traffic/blob?hash=${encodeURIComponent(hash)}`),
 
   // ---- app settings (runtime toggles) ----
   settings: () => get<Settings>(`/settings`),
@@ -748,6 +765,9 @@ export const api = {
   agents: () => get<{ agents: Agent[] }>("/agents").then((r) => arr(r.agents)),
   getAgent: (key: string) => get<AgentDetail>(`/agents/${key}`),
   createAgent: (key: string, name: string, description = "") => post<Agent>("/agents", { key, name, description }),
+  // 自定义 agent 改名/改描述（内置 agent 后端会拒绝）。key 不可改。
+  updateAgent: (key: string, meta: { name: string; description?: string }) =>
+    patch<{ ok: boolean }>(`/agents/${key}`, { name: meta.name, description: meta.description ?? "" }),
   deleteAgent: (key: string) => del<{ deleted: string }>(`/agents/${key}`),
 
   // ---- conversations (chat page) ----

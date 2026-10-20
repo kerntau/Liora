@@ -27,7 +27,7 @@ import { shouldSubmitOnKey, useChatSendMode } from "@/lib/chat-send-mode";
 import { isBtwCommand } from "@/lib/side-questions";
 import type { Activity, Agent, ChatAttachment, Conversation, LLMProfile } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import Link from "@/lib/router-compat";
+import { useNavigate } from "react-router";
 import { useSearchParams } from "@/lib/router-compat";
 import { ArrowLeftIcon } from "lucide-react";
 const HISTORY_PAGE = 200;
@@ -627,6 +627,7 @@ function ChatView({
 
 function ConversationDetailInner() {
   const params = useSearchParams();
+  const navigate = useNavigate();
   const id = Number(params.get("c"));
   const [conv, setConv] = React.useState<Conversation | null>(null);
   const [loaded, setLoaded] = React.useState(false);
@@ -656,10 +657,16 @@ function ConversationDetailInner() {
     void api.llmProfiles().then(items => { if (alive) setProfiles(items); }).catch(() => {});
     return () => { alive = false; requestSeq.current++; clearTimeout(timer); };
   }, [reload]);
+  // 站内跳转进入（有历史栈）时回退上一页；直接打开链接时兜底回漏洞结果列表。
+  function goBack() {
+    const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0;
+    if (idx > 0) void navigate(-1);
+    else void navigate("/function/findings");
+  }
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex items-center gap-3 border-b px-4 py-3">
-        <Button asChild variant="ghost" size="sm"><Link href="/function/findings"><ArrowLeftIcon /> 返回漏洞结果</Link></Button>
+        <Button variant="ghost" size="sm" onClick={goBack}><ArrowLeftIcon /> 返回</Button>
         <h1 className="truncate text-sm font-semibold">{conv?.title || "执行会话"}</h1>
       </header>
       {conv ? <ChatView key={conv.id} conv={conv} agents={agents} profiles={profiles} onTitleMaybeChanged={reload} onConvUpdated={reload} /> :

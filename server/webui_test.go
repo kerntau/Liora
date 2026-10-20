@@ -45,6 +45,20 @@ func TestSPADeepLinksAndMissingResources(t *testing.T) {
 			}
 		})
 	}
+	// Browser navigations to unknown pages get the SPA shell with a 404 status so
+	// the localized in-app 404 screen renders; non-HTML clients keep the plain 404.
+	t.Run("GET /missing (browser)", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/missing", nil)
+		req.Header.Set("Accept", "text/html,application/xhtml+xml")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), "Liora") {
+			t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+		}
+		if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+			t.Fatalf("content-type=%s", ct)
+		}
+	})
 }
 
 func TestSPAFailsWithoutBuildManifest(t *testing.T) {

@@ -317,7 +317,7 @@ test("agent editor preserves typed config, prompt preview and versions, resource
   await page.getByRole("tab", { name: "Skill", exact: true }).click();
   rejectVisibility = true;
   const skill = page.getByRole("checkbox", { name: /fixture-skill/ });
-  await skill.check();
+  await skill.click();
   await expect(skill).not.toBeChecked();
   await expect(page.getByText(/Fixture authorization rejected/)).toBeVisible();
   rejectVisibility = false;

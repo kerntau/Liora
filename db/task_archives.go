@@ -175,14 +175,6 @@ func (d *DB) GetTaskArchive(id int64) (*TaskArchive, error) {
 	return item, err
 }
 
-func (d *DB) GetTaskArchiveByTask(taskID int64) (*TaskArchive, error) {
-	item, err := scanTaskArchive(d.QueryRow(`SELECT `+taskArchiveCols+` FROM task_archives WHERE task_id=$1`, taskID))
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
-	return item, err
-}
-
 func (d *DB) ListTaskArchives(search, state string, page, size int) (TaskArchivePage, error) {
 	if page < 1 {
 		page = 1

@@ -378,19 +378,6 @@ WHERE type = 'ip' AND ip = $2`, string(entry), ipStr)
 	return err
 }
 
-// AppendIPBoundDomain appends a domain to an existing IP asset's bound_domains.
-func (s *AssetStore) AppendIPBoundDomain(ipStr, domain string) error {
-	if ipStr == "" || domain == "" {
-		return nil
-	}
-	_, err := s.db.Exec(`
-UPDATE assets SET
-    bound_domains = liora_json_union(bound_domains, json_array($1)),
-    last_seen = strftime('%Y-%m-%d %H:%M:%f','now')
-WHERE type = 'ip' AND ip = $2`, domain, ipStr)
-	return err
-}
-
 // =====================================================================
 // UpsertSubdomain
 // =====================================================================
@@ -1323,15 +1310,6 @@ func (s *AssetStore) GetByIDs(ids []int64) ([]*Asset, error) {
 	}
 	defer rows.Close()
 	return scanAssets(rows)
-}
-
-// DeleteByCompanyID hard-deletes all assets belonging to a company. Returns rows deleted.
-func (s *AssetStore) DeleteByCompanyID(companyID int64) (int64, error) {
-	res, err := s.db.Exec(`DELETE FROM assets WHERE company_id = $1`, companyID)
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
 }
 
 // DeleteByHost hard-deletes every asset whose host exactly matches the given value:

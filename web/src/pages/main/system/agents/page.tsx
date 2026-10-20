@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { toast } from "@/components/ui/sonner";
-import { Bot, PlusIcon, Trash2Icon } from "lucide-react";
+import { Bot, ExternalLinkIcon, PlusIcon, Trash2Icon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -39,6 +39,7 @@ import {
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { AgentEditor } from "@/components/agent-editor";
 import { api } from "@/lib/api";
+import Link from "@/lib/router-compat";
 import type { Agent } from "@/lib/types";
 
 // AgentGridCard is one clickable tile opening the agent's editor drawer. Custom
@@ -92,6 +93,16 @@ function AgentGridCard({
           <span className="rounded border px-1.5 py-0.5">工具 {agent.tool_count ?? 0}</span>
         </div>
       </button>
+      <Button
+        asChild
+        variant="ghost"
+        size="icon-sm"
+        className={`text-muted-foreground absolute top-2 opacity-0 transition-opacity group-hover:opacity-100 ${agent.builtin ? "right-2" : "right-10"}`}
+      >
+        <Link href={`/system/agents/detail?key=${encodeURIComponent(agent.key)}`} aria-label={`在新页面打开 Agent ${agent.name}`}>
+          <ExternalLinkIcon className="size-3.5" />
+        </Link>
+      </Button>
       {!agent.builtin && (
         <AlertDialog>
           <AlertDialogTrigger asChild>

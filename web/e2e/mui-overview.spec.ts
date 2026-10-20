@@ -86,7 +86,7 @@ test("task overview preserves goal, constraint and scope editing against the bac
   const modelDialog = page.getByRole("dialog", { name: "任务 LLM 配置链" });
   await expect(modelDialog).toBeVisible();
   await modelDialog.getByRole("button", { name: "关闭", exact: true }).click();
-  await expect(page.locator(".MuiPopover-root")).toHaveCount(0);
+  await expect(page.locator('[data-slot="popover-content"]')).toHaveCount(0);
   await page.getByRole("button", { name: "暂停", exact: true }).click();
   await expect(page.getByRole("button", { name: "恢复", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "归档任务", exact: true }).click();
