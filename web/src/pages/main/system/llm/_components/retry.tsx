@@ -50,7 +50,7 @@ type LayerMeta = {
   offHint: string;
 };
 
-export const RETRY_LAYERS = {
+const RETRY_LAYERS = {
   connect: {
     title: "建连重试",
     where: "SDK · 拿到 200 之前",
@@ -163,7 +163,7 @@ function NumField({
 }
 
 /** 一层重试的两个旋钮。idPrefix 用来在同一页出现多次时保住 label 的 htmlFor。 */
-export function RetryRuleFields({
+function RetryRuleFields({
   layer,
   idPrefix,
   value,

@@ -120,10 +120,6 @@ func normalizeTaskTemplatePatch(patch TaskTemplatePatch) (TaskTemplatePatch, *st
 	return patch, nkey, nil
 }
 
-func taskTemplateUniqueViolation(err error) bool {
-	return IsUniqueViolation(err)
-}
-
 // CreateTaskTemplate inserts one globally reusable preset.
 func (d *DB) CreateTaskTemplate(in TaskTemplateInput) (*TaskTemplate, error) {
 	in, nkey, err := normalizeTaskTemplateInput(in)
@@ -208,7 +204,7 @@ RETURNING `+taskTemplateCols,
 	if err == sql.ErrNoRows {
 		return nil, ErrTaskTemplateNotFound
 	}
-	if taskTemplateUniqueViolation(err) {
+	if IsUniqueViolation(err) {
 		return nil, ErrTaskTemplateNameConflict
 	}
 	if err != nil {

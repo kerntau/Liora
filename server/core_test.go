@@ -23,6 +23,11 @@ func TestCoreTaskLifecyclePG(t *testing.T) {
 		t.Fatalf("SQLite unavailable (%v) — skipping", err)
 	}
 	defer m.Close()
+	// The package shares one SQLite file (see TestMain), so an LLM profile left
+	// active by another test turns this task's goal seeding into a real provider
+	// call with a fake key — which can blow the 10s poll window below and fail
+	// this test for reasons that have nothing to do with the task lifecycle.
+	clearLLMProfiles(t, m)
 	td := t.TempDir()
 	s := New(context.Background(), m, td, td, td)
 	h := s.Handler()

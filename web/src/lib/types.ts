@@ -2,7 +2,7 @@
 // Derived from the functional spec (section 7: 关键数据形状).
 
 export type TaskStatus = "created" | "queued" | "running" | "paused" | "done" | "failed" | "timeout";
-export type EngineMode = "exploring" | "paused" | "stalled" | "idle";
+type EngineMode = "exploring" | "paused" | "stalled" | "idle";
 
 export interface Task {
   id: string;
@@ -88,7 +88,7 @@ export type TaskArchiveState =
   | "deleting"
   | "delete_failed";
 
-export interface TaskArchiveTokenStats {
+interface TaskArchiveTokenStats {
   calls?: number;
   input_tokens?: number;
   output_tokens?: number;
@@ -145,35 +145,6 @@ export interface ArchiveBatchItem {
 }
 
 // ---- Asset graph (global, shared across tasks) ----
-export type AssetType =
-  | "company"
-  | "domain"
-  | "ip"
-  | "port"
-  | "service"
-  | "site"
-  | "endpoint"
-  | "parameter"
-  | "tech"
-  | "credential"
-  | "data";
-
-export type NodeState = "observed" | "confirmed" | "tombstoned";
-
-export interface AssetNode {
-  id: string;
-  type: AssetType;
-  name: string;
-  key: string; // nkey
-  value?: string;
-  company_id?: string; // 归属公司资产 id；空=未归属
-  state: NodeState;
-  confidence: number; // 0..1
-  attrs?: Record<string, unknown>;
-  first_seen: string;
-  last_seen: string;
-}
-
 export type AssetRel =
   | "owns"
   | "resolves"
@@ -191,26 +162,6 @@ export interface Edge {
   src: string;
   dst: string;
   rel: AssetRel | ExploreRel;
-}
-
-// Task asset view — server-side enriched, paginated.
-export interface TaskAssetRef {
-  id: string;
-  name?: string;
-  key: string;
-  attrs?: Record<string, unknown>;
-}
-
-export interface TaskAssetItem extends AssetNode {
-  techs?: TaskAssetRef[];
-  auth?: TaskAssetRef[];
-  params?: TaskAssetRef[];
-}
-
-export interface TaskAssetView {
-  counts: Record<string, number>;
-  total: number;
-  items: TaskAssetItem[];
 }
 
 // ---- New unified asset model (new backend) ----
@@ -360,7 +311,7 @@ export interface CompanyScopeMutation {
 }
 
 // 公司资产范围规则的一条（归属唯一真值来源）。
-export interface ScopeRow {
+interface ScopeRow {
   id: number;
   company_id: number;
   kind: CompanyScopeKind;
@@ -382,10 +333,7 @@ export interface Company {
 
 // ---- Exploration graph (per task) ----
 export type ExploreKind = "task" | "begin" | "goal" | "intent" | "fact" | "finding" | "hint" | "digest";
-export type GoalState = "open" | "met" | "abandoned";
-export type IntentState = "open" | "running" | "paused" | "done" | "blocked" | "exhausted" | "stopped";
-export type FindingState = "confirmed" | "dismissed";
-export type HintState = "active" | "consumed";
+type IntentState = "open" | "running" | "paused" | "done" | "blocked" | "exhausted" | "stopped";
 export type ExploreRel = "spawns" | "derived_from" | "yields" | "proves" | "covers";
 
 export interface TaskNode {
@@ -434,7 +382,7 @@ export interface TaskGoal {
 }
 
 // 约束管理卡片用的操作约束(allow=允许 / deny=禁止)。
-export type ConstraintKind = "allow" | "deny";
+type ConstraintKind = "allow" | "deny";
 export interface TaskConstraint {
   id: string;
   kind: ConstraintKind;
@@ -588,11 +536,8 @@ export interface FindingAssetTree {
   dropped_kinds?: string[];
 }
 
-// FINDING_UNASSIGNED_ASSET 与后端 db.FindingUnassignedAsset 对应。
-export const FINDING_UNASSIGNED_ASSET = "__none__";
-
 // ---- Activity / sessions ----
-export type ActivityKind =
+type ActivityKind =
   | "tool_use"
   | "tool_result"
   | "text"
@@ -638,7 +583,7 @@ export interface Activity {
   cache_write_tokens?: number;
 }
 
-export interface LLMAuditProfile {
+interface LLMAuditProfile {
   id: number;
   name: string;
   format: string;
@@ -734,7 +679,7 @@ export interface LogLine {
   text: string;
 }
 
-export type SessionRole = "mainagent" | "planner" | "worker" | "system";
+type SessionRole = "mainagent" | "planner" | "worker" | "system";
 export type SessionStatus = "running" | "paused" | "done" | "blocked" | "exhausted" | "pending" | "stopped" | "deleted";
 
 // Daily token aggregate bucket (GET /api/tokens/daily).
@@ -1145,8 +1090,8 @@ export interface Stats {
 
 // ---- Intercept Rules ----
 export type InterceptAction = "allow" | "deny" | "ask";
-export type InterceptMatchTarget = "tool_name" | "tool_input";
-export type InterceptMatchType = "string" | "regex";
+type InterceptMatchTarget = "tool_name" | "tool_input";
+type InterceptMatchType = "string" | "regex";
 
 export interface InterceptRule {
   id: number;

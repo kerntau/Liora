@@ -1,8 +1,8 @@
-import type { CompanyScopeKind, CompanyScopeRule } from "@/lib/types";
+import type { CompanyScopeRule } from "@/lib/types";
 
-export const MAX_COMPANY_SCOPE_VALUE_LENGTH = 1024;
+const MAX_COMPANY_SCOPE_VALUE_LENGTH = 1024;
 
-export type CompanyScopeTextIssue = {
+type CompanyScopeTextIssue = {
   line: number;
   rule?: CompanyScopeRule;
   error?: string;
@@ -12,12 +12,6 @@ export type ParsedCompanyScopeText = {
   rules: CompanyScopeRule[];
   errors: Array<{ line: number; error: string }>;
 };
-
-export const COMPANY_SCOPE_KINDS = new Set<CompanyScopeKind>(["domain", "ip", "cidr", "icp", "keyword"]);
-
-export function isCompanyScopeKind(value: unknown): value is CompanyScopeKind {
-  return typeof value === "string" && COMPANY_SCOPE_KINDS.has(value as CompanyScopeKind);
-}
 
 function isIPv4(value: string): boolean {
   const parts = value.split(".");
@@ -94,7 +88,7 @@ function domainHostname(value: string): string | null {
   }
 }
 
-export function companyScopeRuleError(rule: CompanyScopeRule): string {
+function companyScopeRuleError(rule: CompanyScopeRule): string {
   const value = rule.value.trim();
   if (!value) return "请填写范围值";
   if (Array.from(value).length > MAX_COMPANY_SCOPE_VALUE_LENGTH) {
@@ -131,7 +125,7 @@ export function companyScopeRuleError(rule: CompanyScopeRule): string {
   return "";
 }
 
-export function classifyCompanyScopeLine(
+function classifyCompanyScopeLine(
   raw: string,
   line: number,
   preservedRule?: CompanyScopeRule,
@@ -193,12 +187,4 @@ export function parseCompanyScopeText(
     rules: issues.flatMap((item) => (item.rule ? [item.rule] : [])),
     errors: issues.flatMap((item) => (item.error ? [{ line: item.line, error: item.error }] : [])),
   };
-}
-
-export function normalizeCompanyScopeValue(rule: CompanyScopeRule): string {
-  const value = rule.value.trim();
-  if (rule.kind === "domain") return domainHostname(value) ?? value.toLowerCase();
-  if (rule.kind === "icp") return value.toLowerCase().replace(/\s/gu, "");
-  if (rule.kind === "keyword") return value.toLowerCase().split(/\s+/u).filter(Boolean).join(" ");
-  return value.toLowerCase();
 }

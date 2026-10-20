@@ -2,7 +2,6 @@ package db
 
 // Exploration node kinds (exploration_nodes.kind).
 const (
-	KindBegin   = "begin"   // DEPRECATED: legacy task root; new tasks seed an origin fact (KindFact + StateOrigin) instead
 	KindGoal    = "goal"    // a task objective
 	KindIntent  = "intent"  // an exploration direction (planner-generated)
 	KindFact    = "fact"    // a worker's exploration result/conclusion (incl. negative results), tied to its intent

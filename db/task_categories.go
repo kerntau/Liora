@@ -53,10 +53,6 @@ func normalizeTaskCategoryName(name string) (string, string, error) {
 	return name, strings.ToLower(name), nil
 }
 
-func taskCategoryUniqueViolation(err error) bool {
-	return IsUniqueViolation(err)
-}
-
 func (d *DB) CreateTaskCategory(name string) (*TaskCategory, error) {
 	name, nkey, err := normalizeTaskCategoryName(name)
 	if err != nil {
@@ -121,7 +117,7 @@ UPDATE task_categories SET name=$2,nkey=$3 WHERE id=$1 RETURNING id,name,nkey,(S
 	if err == sql.ErrNoRows {
 		return nil, ErrTaskCategoryNotFound
 	}
-	if taskCategoryUniqueViolation(err) {
+	if IsUniqueViolation(err) {
 		return nil, ErrTaskCategoryNameConflict
 	}
 	if err != nil {

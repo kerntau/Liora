@@ -60,23 +60,6 @@ type Asset struct {
 	TaskSourceNodeID  *int64         `json:"task_source_node_id,omitempty"`
 }
 
-// AuthItem is one entry in the auth array.
-type AuthItem struct {
-	Type        string `json:"type,omitempty"`
-	Username    string `json:"username,omitempty"`
-	Password    string `json:"password,omitempty"`
-	Token       string `json:"token,omitempty"`
-	Description string `json:"description,omitempty"`
-}
-
-// ParamItem is one entry in the params array.
-type ParamItem struct {
-	Location string `json:"location"`
-	Name     string `json:"name"`
-	Value    string `json:"value,omitempty"`
-	Type     string `json:"type,omitempty"`
-}
-
 // PortService is one entry in open_ports: {"port":22,"service":"ssh"}.
 type PortService struct {
 	Port    int    `json:"port"`

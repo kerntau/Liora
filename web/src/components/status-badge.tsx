@@ -4,7 +4,6 @@ import {
   toneClasses,
   toneDot,
   type StatusDomain,
-  type Tone,
 } from "@/lib/status";
 
 export function StatusBadge({
@@ -33,8 +32,4 @@ export function StatusBadge({
       {meta.label}
     </span>
   );
-}
-
-export function ToneDot({ tone }: { tone: Tone }) {
-  return <span className={cn("size-2 rounded-full", toneDot[tone])} />;
 }

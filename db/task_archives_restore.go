@@ -355,14 +355,6 @@ func restoreTaskStub(tx *sql.Tx, row map[string]any, taskID, remaining int64) er
 		"completed_at", "created_at", "updated_at"})
 }
 
-func firstArchiveRow(raw json.RawMessage) json.RawMessage {
-	var rows []json.RawMessage
-	if json.Unmarshal(raw, &rows) != nil || len(rows) == 0 {
-		return json.RawMessage("{}")
-	}
-	return rows[0]
-}
-
 func decodeArchiveRows(raw json.RawMessage) ([]map[string]any, error) {
 	if len(raw) == 0 {
 		return nil, nil

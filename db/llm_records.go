@@ -57,9 +57,6 @@ CREATE INDEX IF NOT EXISTS idx_llm_records_ts ON llm_records(ts);
 CREATE INDEX IF NOT EXISTS idx_llm_records_session ON llm_records(session_id);
 `
 
-// llmRecordsMigrate adds new columns to existing tables.
-const llmRecordsMigrate = ``
-
 func migrateLLMRecords(tx *sql.Tx) error {
 	rows, err := tx.Query(`PRAGMA table_info(llm_records)`)
 	if err != nil {

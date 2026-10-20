@@ -657,8 +657,8 @@ func (m *Manager) syncBrowserMCPProxy() {
 	proxy := m.ProxyAddr()  // "" when capture off
 	cert := m.ProxyCACert() // "" when capture off
 
-	args := stripProxyArgs(decodeStrSlice(srv.Args))
-	env := decodeStrMap(srv.Env)
+	args := stripProxyArgs(jsonStrSlice(srv.Args))
+	env := jsonStrMap(srv.Env)
 	delete(env, "NODE_EXTRA_CA_CERTS")
 	if proxy != "" {
 		args = append(args, "--proxy-server", proxy)
@@ -694,22 +694,6 @@ func stripProxyArgs(args []string) []string {
 			continue
 		}
 		out = append(out, a)
-	}
-	return out
-}
-
-func decodeStrSlice(raw json.RawMessage) []string {
-	var out []string
-	if len(raw) > 0 {
-		_ = json.Unmarshal(raw, &out)
-	}
-	return out
-}
-
-func decodeStrMap(raw json.RawMessage) map[string]string {
-	out := map[string]string{}
-	if len(raw) > 0 {
-		_ = json.Unmarshal(raw, &out)
 	}
 	return out
 }

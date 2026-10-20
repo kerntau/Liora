@@ -387,7 +387,7 @@ func (s *Server) reviveTask(t *Task) {
 // meaningless 2-way splits). If the LLM yields nothing (an error), the raw task goal
 // is used verbatim as a single goal so the task still has something to judge against.
 // Returns the seeded specs so callers can emit activity records for them.
-// emit, when non-nil, is forwarded to DecomposeGoals so LLM steps are visible in the UI.
+// emit, when non-nil, is forwarded to DecomposeGoalsWithProvider so LLM steps are visible in the UI.
 func (s *Server) createGoals(ctx context.Context, t *Task, emit func(db.Activity)) []goalSpec {
 	if t == nil {
 		return nil

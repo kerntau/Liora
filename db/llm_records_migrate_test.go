@@ -5,7 +5,7 @@ import (
 )
 
 // The raw-body columns were added after release, so existing installs only get
-// them through llmRecordsMigrate. This runs the real migration against the dev
+// them through migrateLLMRecords. This runs the real migration against the dev
 // PG on a table stripped back to its pre-upgrade shape, inside a transaction
 // that is always rolled back — PG does transactional DDL, so nothing persists.
 func TestLLMRecordsMigrateAddsRawColumnsToOldTable(t *testing.T) {

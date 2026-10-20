@@ -5,7 +5,7 @@ import { getLocalStorageValue, setLocalStorageValue } from "@/lib/local-storage.
 
 export type SortDirection = "asc" | "desc";
 
-export interface SortPreference<Field extends string> {
+interface SortPreference<Field extends string> {
   field: Field;
   direction: SortDirection;
 }

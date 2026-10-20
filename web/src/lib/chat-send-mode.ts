@@ -8,8 +8,8 @@ import { getLocalStorageValue, setLocalStorageValue } from "@/lib/local-storage.
 // 这里把旧键位还回来作为可选项。
 export type ChatSendMode = "enter" | "ctrl-enter";
 
-export const CHAT_SEND_MODE_KEY = "liora_chat_send_mode";
-export const DEFAULT_CHAT_SEND_MODE: ChatSendMode = "enter";
+const CHAT_SEND_MODE_KEY = "liora_chat_send_mode";
+const DEFAULT_CHAT_SEND_MODE: ChatSendMode = "enter";
 
 export const CHAT_SEND_MODE_OPTIONS: { value: ChatSendMode; label: string }[] = [
   { value: "enter", label: "Enter 发送，Shift+Enter 换行" },

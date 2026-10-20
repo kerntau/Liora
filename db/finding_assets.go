@@ -666,13 +666,3 @@ func (d *DB) applyAssetScope(f FindingFilter) (FindingFilter, error) {
 	}
 	return f, nil
 }
-
-// assetIDContainments 把资产 id 变成 jsonb 包含判断的右操作数集合,配合
-// idx_findings_asset_ids(GIN jsonb_path_ops)使用。
-func assetIDContainments(ids []int64) []string {
-	out := make([]string, 0, len(ids))
-	for _, id := range ids {
-		out = append(out, "["+strconv.FormatInt(id, 10)+"]")
-	}
-	return out
-}

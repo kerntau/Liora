@@ -1,6 +1,6 @@
 import { http } from "@/lib/api";
 
-export interface SideModel {
+interface SideModel {
   model: string;
   name: string;
   format: string;

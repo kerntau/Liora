@@ -105,24 +105,6 @@ func (s *Server) convByID(w http.ResponseWriter, r *http.Request) (*db.DB, *db.C
 	return pg, c, true
 }
 
-const maxConversationDeleteBatch = 100
-
-type conversationDeleteItem struct {
-	ID    int64  `json:"id"`
-	OK    bool   `json:"ok"`
-	Error string `json:"error,omitempty"`
-}
-
-func (s *Server) cancelConversation(id int64) {
-	busyKey := s.convBusyKey(id)
-	s.chatMu.Lock()
-	cancel := s.chatCancel[busyKey]
-	s.chatMu.Unlock()
-	if cancel != nil {
-		cancel(agent.AbortChatStoppedByUser)
-	}
-}
-
 func (s *Server) convBusyKey(id int64) string { return "conv-" + strconv.FormatInt(id, 10) }
 
 // pgConversationMessages returns steps after ?since=cursor plus whether a turn is

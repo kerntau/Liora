@@ -16,12 +16,12 @@ import type { FontKey } from "@/lib/fonts/registry";
 import type { ContentLayout, NavbarStyle, SidebarCollapsible, SidebarVariant } from "./layout";
 import type { ThemeMode, ThemePreset } from "./theme";
 
-export type PreferencePersistence = "none" | "client-cookie" | "server-cookie" | "localStorage";
+type PreferencePersistence = "none" | "client-cookie" | "server-cookie" | "localStorage";
 
 /**
  * All available preference keys and their value types.
  */
-export type PreferenceValueMap = {
+type PreferenceValueMap = {
   theme_mode: ThemeMode;
   theme_preset: ThemePreset;
   font: FontKey;
@@ -37,13 +37,13 @@ export type PreferenceKey = keyof PreferenceValueMap;
  * Layout-critical keys → these affect SSR UI (sidebar shape)
  * so they must be accessible on the server.
  */
-export const LAYOUT_CRITICAL_KEYS = ["sidebar_variant", "sidebar_collapsible"] as const;
-export type LayoutCriticalKey = (typeof LAYOUT_CRITICAL_KEYS)[number];
+const LAYOUT_CRITICAL_KEYS = ["sidebar_variant", "sidebar_collapsible"] as const;
+type LayoutCriticalKey = (typeof LAYOUT_CRITICAL_KEYS)[number];
 
 /**
  * Everything else is non-critical and can be read from the client.
  */
-export type NonCriticalKey = Exclude<PreferenceKey, LayoutCriticalKey>;
+type NonCriticalKey = Exclude<PreferenceKey, LayoutCriticalKey>;
 
 /**
  * Layout-critical cannot use "localStorage" because SSR needs the value.

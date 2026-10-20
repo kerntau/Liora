@@ -205,17 +205,3 @@ func (d Database) buildDSN() string {
 	u.RawQuery = url.Values{"sslmode": {ssl}}.Encode()
 	return u.String()
 }
-
-// String is a redacted view of the resolved DSN (password masked) for logging.
-func Redact(dsn string) string {
-	u, err := url.Parse(dsn)
-	if err != nil {
-		return dsn
-	}
-	if u.User != nil {
-		if _, hasPw := u.User.Password(); hasPw {
-			u.User = url.UserPassword(u.User.Username(), "****")
-		}
-	}
-	return fmt.Sprintf("%s", u.String())
-}

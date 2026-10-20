@@ -10,7 +10,7 @@ export const mentionKinds = [
   { kind: "service", label: "服务", alias: "service" },
 ] as const;
 
-export type MentionKind = (typeof mentionKinds)[number]["kind"];
+type MentionKind = (typeof mentionKinds)[number]["kind"];
 export interface ChatMention {
   kind: MentionKind;
   id: number;

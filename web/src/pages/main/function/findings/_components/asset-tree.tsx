@@ -104,7 +104,7 @@ function shortLabel(node: FindingAssetNode, parent?: FindingAssetNode): string {
   return `${scheme} :${port}`;
 }
 
-export function buildAssetTree(nodes: FindingAssetNode[]): TreeNode[] {
+function buildAssetTree(nodes: FindingAssetNode[]): TreeNode[] {
   const byKey = new Map<string, TreeNode>();
   for (const node of nodes) {
     byKey.set(node.key, { ...node, children: [], depth: 0, display: node.label });
