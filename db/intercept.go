@@ -172,6 +172,30 @@ func scanInterceptPending(s interface{ Scan(...any) error }, p *InterceptPending
 		&p.ToolName, &p.ToolInput, &p.Status, &p.Reason, &p.DecidedAt, &p.CreatedAt, &p.DecisionSource)
 }
 
+// RecoverInterceptPending settles approvals left pending by a previous process.
+// The in-memory wait channel dies with the process, so such a row can never be
+// consumed: it would keep showing as 待审批 while approving it has no effect.
+// Every pre-existing pending row becomes timeout (deny) with an audit reason;
+// terminal rows are untouched. Returns the number of rows settled.
+func (d *DB) RecoverInterceptPending() (int64, error) {
+	patch, err := json.Marshal(map[string]any{
+		"effective_action": "deny",
+		"decision_reason":  "服务重启，审批已失效（按拒绝处理）",
+		"execution_status": "not_executed",
+	})
+	if err != nil {
+		return 0, err
+	}
+	res, err := d.Exec(`UPDATE intercept_pending SET status='timeout',
+		decided_at=strftime('%Y-%m-%d %H:%M:%f','now'),
+		audit=CASE WHEN audit IS NULL THEN NULL ELSE liora_json_merge(audit,$1) END
+		WHERE status='pending'`, patch)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // ListPendingIntercepts returns all unresolved approval requests, newest first.
 func (d *DB) ListPendingIntercepts() ([]InterceptPending, error) {
 	rows, err := d.Query(`SELECT ` + interceptPendingCols + ` FROM intercept_pending WHERE status='pending' ORDER BY created_at DESC`)
@@ -224,11 +248,15 @@ const approvalDecisionSource = `COALESCE(NULLIF(ip.decision_source,''), CASE
  WHEN ip.rule_id IS NOT NULL THEN 'rule'
  WHEN ip.reason LIKE '[模型]%' THEN 'model' ELSE 'unknown' END)`
 
+// rule_name prefers the current rule; when the rule was deleted or renamed away
+// from the snapshot, fall back to the name captured in audit at decision time.
+// Without this, deleting a rule erases the provenance of every historical
+// approval even though the snapshot is still in the row.
 const approvalRowColumns = `ip.id, ip.rule_id, ip.conversation_id, ip.task_id, ip.agent_name,
        ip.tool_name, ip.tool_input, ip.status, ip.reason, ip.decided_at, ip.created_at, ` + approvalDecisionSource + `,
        COALESCE(c.title,'') AS conv_title,
        COALESCE(c.agent_key,'') AS conv_agent_key,
-       COALESCE(ir.name,'') AS rule_name`
+       COALESCE(NULLIF(ir.name,''), NULLIF(json_extract(ip.audit,'$.rule_name'),''), '') AS rule_name`
 
 const approvalRowJoins = `
 FROM intercept_pending ip

@@ -96,6 +96,13 @@ func run() int {
 		log.Fatalf("open stores: %v", err)
 	}
 	defer mgr.Close()
+	// Approvals are waited on by an in-process channel. After a restart nobody
+	// consumes a decision, so settle leftovers before serving any request.
+	if n, err := mgr.RecoverPendingIntercepts(); err != nil {
+		log.Printf("[intercept] 恢复遗留审批失败: %v", err)
+	} else if n > 0 {
+		log.Printf("[intercept] 已失效 %d 条重启前遗留的待审批记录（按拒绝处理）", n)
+	}
 
 	skillDir := config.SkillDir()
 	if abs, err := filepath.Abs(skillDir); err == nil {

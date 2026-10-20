@@ -440,6 +440,13 @@ func NewManager(dir, proxyAddr string) (*Manager, error) {
 	return m, nil
 }
 
+// RecoverPendingIntercepts settles approval rows left pending by a previous
+// process. Call once at startup, before serving HTTP: the wait channel that
+// would consume a decision does not survive a restart.
+func (m *Manager) RecoverPendingIntercepts() (int64, error) {
+	return m.pg.RecoverInterceptPending()
+}
+
 // TrafficEnabled reports whether traffic capture is on (default off). When off,
 // no proxy/traffic tools/prompt are injected into agents (nothing is recorded).
 func (m *Manager) TrafficEnabled() bool {

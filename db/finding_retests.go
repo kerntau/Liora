@@ -256,6 +256,38 @@ func (d *DB) FinishFindingRetest(id int64, status, reason string) error {
 	return tx.Commit()
 }
 
+// LatestCompletedRetestsByFindingIDs returns the newest completed retest for each
+// finding. Findings never retested (or only interrupted) are absent from the map.
+func (d *DB) LatestCompletedRetestsByFindingIDs(ctx context.Context, findingIDs []int64) (map[int64]*FindingRetest, error) {
+	out := make(map[int64]*FindingRetest, len(findingIDs))
+	if len(findingIDs) == 0 {
+		return out, nil
+	}
+	ph := make([]string, len(findingIDs))
+	args := make([]any, len(findingIDs))
+	for i, id := range findingIDs {
+		ph[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = id
+	}
+	rows, err := d.QueryContext(ctx, `SELECT `+retestCols+` FROM finding_retests r
+WHERE r.status='completed' AND r.finding_id IN (`+strings.Join(ph, ",")+`)
+AND r.id=(SELECT MAX(x.id) FROM finding_retests x WHERE x.finding_id=r.finding_id AND x.status='completed')`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		r, err := scanRetest(rows)
+		if err != nil {
+			return nil, err
+		}
+		if r != nil {
+			out[r.FindingID] = r
+		}
+	}
+	return out, rows.Err()
+}
+
 func (d *DB) RecoverFindingRetests() error {
 	_, err := d.Exec(`UPDATE finding_retests SET status='stopped', error='服务重启，复测已中断，请重新发起', finished_at=strftime('%Y-%m-%d %H:%M:%f','now') WHERE status IN ('pending','running')`)
 	return err

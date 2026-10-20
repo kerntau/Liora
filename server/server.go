@@ -3588,23 +3588,49 @@ func (s *Server) fallbackChat(t *Task, msg string) string {
 	}
 }
 
+// getReport renders the task's deliverable report from the findings table — the
+// same source as the findings page and export — so a finding visible in the UI
+// can never be missing from the report. Any read failure is a 500: rendering an
+// empty "no findings" report on a database error would misstate the result.
 func (s *Server) getReport(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.URL.Query().Get("task"))
 	if t == nil {
 		writeErr(w, 404, "no active task")
 		return
 	}
-	findings, _ := t.Store.ListByKind(db.KindFinding, 1000) // 纯漏洞（事实是独立的 KindFact，不进报告）
+	findings, err := s.m.pg.ListFindingsForExport(db.FindingFilter{TaskID: t.ID}, nil)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取发现失败: "+err.Error())
+		return
+	}
+	ids := make([]int64, 0, len(findings))
+	for _, f := range findings {
+		ids = append(ids, f.ID)
+	}
+	traffic, err := s.m.pg.ListFindingTrafficByFindingIDs(r.Context(), ids)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取流量证据失败: "+err.Error())
+		return
+	}
+	retests, err := s.m.pg.LatestCompletedRetestsByFindingIDs(r.Context(), ids)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取复测结论失败: "+err.Error())
+		return
+	}
 	counts := map[string]int{}
 	for _, ty := range []string{"root_domain", "ip", "subdomain", "app", "service", "endpoint"} {
-		ns, _ := s.m.Assets().QueryByType(ty, 100000, 0)
+		ns, err := s.m.Assets().QueryByType(ty, 100000, 0)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "读取资产失败: "+err.Error())
+			return
+		}
 		if len(ns) > 0 {
 			counts[ty] = len(ns)
 		}
 	}
 	md := report.Markdown(report.Input{
 		Title: t.Description, Goal: t.Goal, GeneratedAt: time.Now(),
-		AssetCounts: counts, Findings: findings,
+		AssetCounts: counts, Findings: findings, Traffic: traffic, Retests: retests,
 	})
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	w.WriteHeader(200)

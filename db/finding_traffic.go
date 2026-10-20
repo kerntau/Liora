@@ -275,6 +275,43 @@ func (d *DB) GetFindingTraffic(ctx context.Context, findingID int64) (out *Findi
 	return
 }
 
+// ListFindingTrafficByFindingIDs loads the bound evidence for many findings in
+// one query, ordered by finding and binding position. Findings without bindings
+// are absent from the map. Used by the task report so a 1000-finding report does
+// not issue 1000 queries.
+func (d *DB) ListFindingTrafficByFindingIDs(ctx context.Context, findingIDs []int64) (map[int64][]FindingTrafficBinding, error) {
+	out := make(map[int64][]FindingTrafficBinding, len(findingIDs))
+	if len(findingIDs) == 0 {
+		return out, nil
+	}
+	ph := make([]string, len(findingIDs))
+	args := make([]any, len(findingIDs))
+	for i, id := range findingIDs {
+		ph[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = id
+	}
+	rows, err := d.QueryContext(ctx, `SELECT b.id,b.finding_id,b.snapshot_id,b.role,b.note,b.position,b.created_at,
+json_object('id',s.id,'source_traffic_id',s.source_traffic_id,'captured_at',s.captured_at,'url',s.url,'method',s.method,'status',s.status,'content_type',s.content_type,'req_head',s.req_head,'resp_head',s.resp_head,'req_hash',s.req_hash,'resp_hash',s.resp_hash,'req_len',s.req_len,'resp_len',s.resp_len,'unreferenced_at',s.unreferenced_at,'created_at',strftime('%Y-%m-%dT%H:%M:%fZ',s.created_at))
+FROM finding_traffic_bindings b JOIN traffic_evidence_snapshots s ON s.id=b.snapshot_id
+WHERE b.finding_id IN (`+strings.Join(ph, ",")+`) ORDER BY b.finding_id,b.position,b.id`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var b FindingTrafficBinding
+		var raw []byte
+		if err := rows.Scan(&b.ID, &b.FindingID, &b.SnapshotID, &b.Role, &b.Note, &b.Position, &b.CreatedAt, &raw); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(raw, &b.Snapshot); err != nil {
+			return nil, err
+		}
+		out[b.FindingID] = append(out[b.FindingID], b)
+	}
+	return out, rows.Err()
+}
+
 func (d *DB) EditFindingTraffic(ctx context.Context, findingID, bindingID, version int64, role, note *string, remove bool, order []int64) error {
 	if role != nil && !ValidTrafficRole(*role) {
 		return errors.New("无效的流量用途")
