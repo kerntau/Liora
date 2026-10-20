@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 )
 
 var archiveTables = map[string]bool{
@@ -57,10 +56,8 @@ func archiveValue(value any, typ string) (any, error) {
 	}
 	if typ == "DATETIME" {
 		if s, ok := value.(string); ok {
-			for _, layout := range []string{time.RFC3339Nano, "2006-01-02 15:04:05.999999999Z07:00", "2006-01-02 15:04:05.999999999"} {
-				if t, err := time.Parse(layout, s); err == nil {
-					return t, nil
-				}
+			if t, ok := parseSQLiteTime(s); ok {
+				return t, nil
 			}
 			return nil, fmt.Errorf("invalid archived timestamp %q", s)
 		}

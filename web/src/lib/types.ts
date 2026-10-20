@@ -217,12 +217,6 @@ export interface IntentAsset {
   inherited: boolean;
 }
 
-export interface TaskAssetMutation {
-  requested: number;
-  attached: number;
-  existing: number;
-}
-
 export interface TaskAssetScopeMutation {
   requested: number;
   assets_linked: number;
@@ -682,15 +676,6 @@ export interface LogLine {
 type SessionRole = "mainagent" | "planner" | "worker" | "system";
 export type SessionStatus = "running" | "paused" | "done" | "blocked" | "exhausted" | "pending" | "stopped" | "deleted";
 
-// Daily token aggregate bucket (GET /api/tokens/daily).
-export interface DailyTokenBucket {
-  date: string; // "YYYY-MM-DD"
-  input_tokens: number;
-  output_tokens: number;
-  cache_read_tokens: number;
-  cache_write_tokens: number;
-}
-
 // Per-worker token usage (GET /api/exploration/tokens).
 export interface TokenUsage {
   worker: string;
@@ -788,11 +773,6 @@ export interface AuditEntry {
   action: "allow" | "block";
   reason?: string;
   command?: string;
-}
-
-export interface Audit {
-  entries?: AuditEntry[];
-  attributions?: Record<string, number>;
 }
 
 // ---- Traffic ----

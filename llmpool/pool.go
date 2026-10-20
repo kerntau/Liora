@@ -76,9 +76,6 @@ func New(members []*Member, health *Registry) *Pool {
 // Members returns the chain in order (read-only).
 func (p *Pool) Members() []*Member { return p.members }
 
-// Head returns the first member of the chain.
-func (p *Pool) Head() *Member { return p.members[0] }
-
 // Stream implements llm.Provider with failover.
 //
 // The one hard rule: a member may only be abandoned BEFORE it has yielded any

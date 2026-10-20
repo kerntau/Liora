@@ -736,7 +736,7 @@ func (t *Traffic) BlobRange(hash string, offset, length int64) (data []byte, tot
 	return buf[:n], size, nil
 }
 
-// ExchangeMeta is one row of the index (returned by Search).
+// ExchangeMeta is one row of the index (returned by Page).
 type ExchangeMeta struct {
 	ID          string `json:"id"`
 	TS          int64  `json:"ts"`
@@ -748,35 +748,6 @@ type ExchangeMeta struct {
 	ContentType string `json:"content_type"`
 	RespLen     int    `json:"resp_len"`
 	Path        string `json:"path"`
-}
-
-// Search returns paged exchange metadata (never bodies).
-func (t *Traffic) Search(host string, page, size int) ([]ExchangeMeta, error) {
-	if size <= 0 || size > 500 {
-		size = 100
-	}
-	q := `SELECT id,ts,host,method,url_template,url,status,content_type,resp_len,path FROM exchanges`
-	args := []any{}
-	if host != "" {
-		q += ` WHERE host=?`
-		args = append(args, host)
-	}
-	q += ` ORDER BY ts DESC LIMIT ? OFFSET ?`
-	args = append(args, size, page*size)
-	rows, err := t.db.Query(q, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []ExchangeMeta
-	for rows.Next() {
-		var m ExchangeMeta
-		if err := rows.Scan(&m.ID, &m.TS, &m.Host, &m.Method, &m.URLTemplate, &m.URL, &m.Status, &m.ContentType, &m.RespLen, &m.Path); err != nil {
-			return nil, err
-		}
-		out = append(out, m)
-	}
-	return out, rows.Err()
 }
 
 // ftsFilter builds the SQL condition restricting rows to those whose indexed

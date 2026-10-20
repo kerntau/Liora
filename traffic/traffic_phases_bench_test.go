@@ -175,14 +175,6 @@ func mustBenchRecord(b *testing.B, t *Traffic, f *mproxy.Flow, sk benchSkip) {
 	}
 }
 
-// benchRecordLocked is the replica with the lock taken, reporting the error
-// instead of failing, so callers can measure how a missing lock behaves.
-func benchRecordLocked(t *Traffic, f *mproxy.Flow, sk benchSkip) error {
-	t.wmu.Lock()
-	defer t.wmu.Unlock()
-	return benchRecord(t, f, sk)
-}
-
 // benchTrafficNoSync is benchTraffic with the commit's durability fsync turned
 // off, so the gap against a normal instance is exactly what FlushFileBuffers
 // costs inside the lock. Test-only: production keeps SQLite's default.

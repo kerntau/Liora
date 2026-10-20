@@ -71,15 +71,6 @@ func markInheritedActivities(in []Activity, taskID int64) []Activity {
 	return in
 }
 
-func inheritedIntentTerminal(state string) bool {
-	switch state {
-	case "done", "blocked", "exhausted", "stopped":
-		return true
-	default:
-		return false
-	}
-}
-
 // ListByKindWithSources returns local nodes followed by nodes from each direct
 // source in relation order. The limit remains per exploration, matching the
 // existing ListByKind contract while ensuring one large task cannot hide all
@@ -99,7 +90,7 @@ func (s *ExplorationStore) ListByKindWithSources(kind string, limit int) ([]*Nod
 			return nil, err
 		}
 		for _, node := range nodes {
-			if kind == KindIntent && !inheritedIntentTerminal(node.State) {
+			if kind == KindIntent && !IsTerminalIntentState(node.State) {
 				continue
 			}
 			out = append(out, markInheritedNode(node, source.Task.TaskID))
@@ -173,7 +164,7 @@ func (s *ExplorationStore) GetNodeWithSources(id int64) (*Node, error) {
 			return nil, err
 		}
 		if node != nil {
-			if node.Kind == KindIntent && !inheritedIntentTerminal(node.State) {
+			if node.Kind == KindIntent && !IsTerminalIntentState(node.State) {
 				continue
 			}
 			return markInheritedNode(node, source.Task.TaskID), nil
@@ -384,7 +375,7 @@ func (s *ExplorationStore) AssetRefsWithSources(assetID int64) ([]AssetRef, erro
 			return nil, err
 		}
 		for i := range refs {
-			if refs[i].Kind == KindIntent && !inheritedIntentTerminal(refs[i].State) {
+			if refs[i].Kind == KindIntent && !IsTerminalIntentState(refs[i].State) {
 				continue
 			}
 			refs[i].SourceTaskID = source.Task.TaskID

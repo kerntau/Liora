@@ -100,9 +100,6 @@ type ToolSet struct {
 	// intent id (engine callback, wired by the planner): the worker injects it before
 	// its next tool call and re-plans, without being killed. nil = tool unavailable.
 	steerWork func(intentID int64, msg string) error
-	// enrich, if set, receives async auto-completion triggers (DNS resolve for a
-	// domain, HTTP probe for a site). nil = no engine enrichment.
-	enrich EnrichTrigger
 	// notify, if set, wakes the task's planner after a graph change that should be
 	// re-planned promptly (currently: a new hint). nil = no wake (the hint is still
 	// stored and read on the next round triggered by other events). debounced.
@@ -151,13 +148,6 @@ func (t *ToolSet) SetNotify(fn func()) { t.notify = fn }
 
 // SetNotifyFinding wires the finding-wake callback (see ToolSet.notifyFinding).
 func (t *ToolSet) SetNotifyFinding(fn func(int64, string)) { t.notifyFinding = fn }
-
-// EnrichTrigger is the enrichment engine seen from the tool layer (see package
-// enrich). Kept as an interface here to avoid coupling agent → enrich.
-type EnrichTrigger interface {
-	ResolveDomain(id int64, host string)
-	ProbeSite(id int64, url string)
-}
 
 // WriteCounts breaks down what a worker persisted this run, by node kind, so the
 // engine can log an accurate "wrote back" summary instead of lumping assets and
@@ -239,9 +229,6 @@ func (t *ToolSet) ListWorkerTracesTool() actool.CoreTool   { return t.listWorker
 func (t *ToolSet) SearchWorkerTracesTool() actool.CoreTool { return t.searchAllWorkerTraces() }
 func (t *ToolSet) NodeDetailTool() actool.CoreTool         { return t.nodeDetail() }
 func (t *ToolSet) AddHintTool() actool.CoreTool            { return t.addHint() }
-
-// SetEnrich wires the async enrichment engine (DNS/HTTP auto-completion).
-func (t *ToolSet) SetEnrich(e EnrichTrigger) { t.enrich = e }
 
 // SetOwnerNode sets the exploration node that writes anchor to (worker: its
 // intent node; planner/main: the begin root). Assets created/referenced while
@@ -437,10 +424,10 @@ func (t *ToolSet) graphOverviewData() map[string]any {
 	all, _ := t.ts.ListByKind(db.KindIntent, 300)
 	var running, recentDone []*db.Node
 	for _, n := range all {
-		switch n.State {
-		case "running":
+		switch {
+		case n.State == "running":
 			running = append(running, n)
-		case "done", "blocked", "exhausted":
+		case db.IsFinishedIntentState(n.State):
 			if hidden(n.ID) {
 				continue // in a cold_digest and still cold — shown via cold_digests (§6.2)
 			}
@@ -777,8 +764,7 @@ func recentTerminalIntents(store *db.ExplorationStore, limit int) []*db.Node {
 			break
 		}
 		for _, intent := range page {
-			switch intent.State {
-			case "done", "blocked", "exhausted", "stopped":
+			if db.IsTerminalIntentState(intent.State) {
 				out = append(out, intent)
 			}
 			if len(out) >= limit {
@@ -864,7 +850,7 @@ func (t *ToolSet) relatedTaskOverviews() []map[string]any {
 		intentNodes, _ := ts.ListByKind(db.KindIntent, 300)
 		terminalIntent := make(map[int64]bool, len(intentNodes))
 		for _, intent := range intentNodes {
-			terminalIntent[intent.ID] = inheritedIntentSummaryState(intent.State)
+			terminalIntent[intent.ID] = db.IsTerminalIntentState(intent.State)
 		}
 		item["facts"] = len(facts)
 		item["findings"] = len(findings)
@@ -992,15 +978,6 @@ func (t *ToolSet) relatedTaskOverviews() []map[string]any {
 		out = append(out, item)
 	}
 	return out
-}
-
-func inheritedIntentSummaryState(state string) bool {
-	switch state {
-	case "done", "blocked", "exhausted", "stopped":
-		return true
-	default:
-		return false
-	}
 }
 
 // compactNode distills any exploration node to id + summary + state, dropping the

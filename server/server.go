@@ -2344,15 +2344,6 @@ func (s *Server) intents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"items": taskNodeDTOs(in), "has_more": hasMore})
 }
 
-func inheritedIntentResult(state string) bool {
-	switch state {
-	case "done", "blocked", "exhausted", "stopped":
-		return true
-	default:
-		return false
-	}
-}
-
 // inheritedGraphSnapshot exposes immutable source-task history without leaking
 // work that is still open or running. Edges are filtered with the nodes so the
 // response cannot contain dangling ids that reveal hidden live intent topology.
@@ -2360,7 +2351,7 @@ func inheritedGraphSnapshot(nodes []*db.Node, edges []db.Edge, sourceTaskID int6
 	visible := make(map[int64]struct{}, len(nodes))
 	filteredNodes := make([]*db.Node, 0, len(nodes))
 	for _, node := range nodes {
-		if node == nil || (node.Kind == db.KindIntent && !inheritedIntentResult(node.State)) {
+		if node == nil || (node.Kind == db.KindIntent && !db.IsTerminalIntentState(node.State)) {
 			continue
 		}
 		node.SourceTaskID = sourceTaskID
@@ -2397,7 +2388,7 @@ func taskIntentHistoryPage(store *db.ExplorationStore, before int64, limit int, 
 			return nil, false, err
 		}
 		for _, node := range page {
-			if !inheritedIntentResult(node.State) {
+			if !db.IsTerminalIntentState(node.State) {
 				continue
 			}
 			node.SourceTaskID = sourceTaskID
@@ -2639,7 +2630,7 @@ func activitySessionStore(t *Task, filter db.ActivitySessionFilter) (*db.Explora
 	if !node.Inherited {
 		return t.Store, 0, nil
 	}
-	if !inheritedIntentResult(node.State) {
+	if !db.IsTerminalIntentState(node.State) {
 		return nil, 0, nil
 	}
 	sources, err := t.Store.DirectSourceStores()

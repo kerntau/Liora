@@ -48,14 +48,20 @@ func TestInheritedDTOProvenance(t *testing.T) {
 	}
 }
 
-func TestInheritedIntentResultOnlyAllowsHistory(t *testing.T) {
+// inheritedGraphSnapshot is the server-side gate on source-task history: a live
+// intent (open/running/paused) must never leak through, a terminal one always
+// must. The set itself lives in db (db.IsTerminalIntentState); this pins the
+// behavior at the boundary that actually filters responses.
+func TestInheritedGraphSnapshotOnlyAllowsTerminalIntents(t *testing.T) {
 	for _, state := range []string{"done", "blocked", "exhausted", "stopped"} {
-		if !inheritedIntentResult(state) {
-			t.Errorf("terminal state %q should be inherited history", state)
+		nodes, _ := inheritedGraphSnapshot([]*db.Node{{ID: 1, Kind: db.KindIntent, State: state}}, nil, 9)
+		if len(nodes) != 1 {
+			t.Errorf("terminal state %q should be inherited history, got %d nodes", state, len(nodes))
 		}
 	}
-	for _, state := range []string{"open", "running", ""} {
-		if inheritedIntentResult(state) {
+	for _, state := range []string{"open", "running", "paused", "deleted", ""} {
+		nodes, _ := inheritedGraphSnapshot([]*db.Node{{ID: 1, Kind: db.KindIntent, State: state}}, nil, 9)
+		if len(nodes) != 0 {
 			t.Errorf("live state %q must not enter inherited history", state)
 		}
 	}
