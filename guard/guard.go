@@ -74,8 +74,14 @@ func (g *Guard) preToolUse(ctx context.Context, ev hook.Event) hook.Result {
 		_ = json.Unmarshal(ev.Input, &in)
 		cmd = in.Text
 	}
-	g.record(ev.ToolName, "allow", "", cmd)
-	return g.applyIntercept(ctx, ev)
+	res := g.applyIntercept(ctx, ev)
+	if res.Decision != "block" {
+		// Record the allow only once the call is actually allowed: a blocked call
+		// already wrote its own "block" row, and an "allow" row next to it would
+		// misstate the audit trail served by GET /api/audit.
+		g.record(ev.ToolName, "allow", "", cmd)
+	}
+	return res
 }
 
 // applyIntercept evaluates user-configured intercept rules against the tool call.

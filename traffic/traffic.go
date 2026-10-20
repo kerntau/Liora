@@ -140,15 +140,25 @@ func Open(dir, addr string) (*Traffic, error) {
 			return nil, err
 		}
 	}
-	db, err := sql.Open("sqlite", filepath.Join(dir, "_index", "index.sqlite"))
+	// Pragmas belong in the DSN, not in a one-off Exec: busy_timeout is a
+	// per-connection setting, and database/sql hands out a fresh connection for
+	// every concurrent writer. Setting it through Exec only configured whichever
+	// connection that statement happened to grab, so every other pooled connection
+	// kept a zero timeout and a second writer failed instantly with SQLITE_BUSY
+	// instead of waiting. The record path holds the write lock today, which masks
+	// it — but any writer outside that lock (archive import, host delete) would
+	// hit it, and record() only logs the error before dropping the row.
+	indexPath := filepath.ToSlash(filepath.Join(dir, "_index", "index.sqlite"))
+	if !strings.HasPrefix(indexPath, "/") {
+		indexPath = "/" + indexPath
+	}
+	u := url.URL{Scheme: "file", Path: indexPath}
+	options := url.Values{}
+	options.Add("_pragma", "busy_timeout(5000)")
+	options.Add("_pragma", "journal_mode(WAL)")
+	db, err := sql.Open("sqlite", u.String()+"?"+options.Encode())
 	if err != nil {
 		return nil, err
-	}
-	for _, p := range []string{"PRAGMA journal_mode=WAL", "PRAGMA busy_timeout=5000"} {
-		if _, err := db.Exec(p); err != nil {
-			db.Close()
-			return nil, err
-		}
 	}
 	if _, err := db.Exec(indexSchema); err != nil {
 		db.Close()

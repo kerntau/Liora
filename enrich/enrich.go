@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"liora/db"
 
@@ -126,6 +127,11 @@ func (e *Engine) enqueue(j job) {
 		return
 	}
 	select {
+	case <-e.closed:
+		return // no worker is left to run this job
+	default:
+	}
+	select {
 	case e.jobs <- j:
 	default: // queue full → drop (best-effort enrichment)
 		log.Printf("[enrich] 队列已满，丢弃任务 kind=%d id=%d", j.kind, j.id)
@@ -221,6 +227,10 @@ func (e *Engine) doDNS(id int64, host string) {
 
 var reTitle = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
 
+// maxTitleLen bounds the stored <title>. The body is already capped at 1 MiB, but
+// page_title is part of every asset row and list response, and the page controls it.
+const maxTitleLen = 512
+
 func (e *Engine) doHTTP(id int64, rawURL string) {
 	host := hostOf(rawURL)
 	if host == "" {
@@ -253,7 +263,20 @@ func extractTitle(body []byte) string {
 	if m == nil {
 		return ""
 	}
-	return strings.TrimSpace(html.UnescapeString(string(m[1])))
+	return strings.TrimSpace(truncateRunes(html.UnescapeString(string(m[1])), maxTitleLen))
+}
+
+// truncateRunes cuts s to at most n runes without splitting one.
+func truncateRunes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	i := 0
+	for count := 0; count < n; count++ {
+		_, size := utf8.DecodeRuneInString(s[i:])
+		i += size
+	}
+	return s[:i]
 }
 
 func hostOf(rawURL string) string {

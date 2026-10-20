@@ -52,6 +52,12 @@ func WithReviewWorkingDirectory(ctx context.Context, workingDir string) context.
 }
 
 func BuildReviewInput(ctx context.Context, tool string, arguments json.RawMessage) (ReviewInput, error) {
+	// A tool called without arguments reaches PreToolUse with an empty input
+	// (norma's schema validation normalizes it to {}). That is not invalid JSON:
+	// rejecting it would force a human approval for every such call.
+	if len(strings.TrimSpace(string(arguments))) == 0 {
+		arguments = json.RawMessage(`{}`)
+	}
 	if !json.Valid(arguments) {
 		return ReviewInput{}, fmt.Errorf("工具参数不是有效 JSON")
 	}

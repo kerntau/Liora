@@ -42,10 +42,13 @@ type rpcRequest struct {
 }
 
 type rpcResponse struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int             `json:"id"`
-	Result  json.RawMessage `json:"result"`
-	Error   *rpcError       `json:"error"`
+	JSONRPC string `json:"jsonrpc"`
+	ID      int    `json:"id"`
+	// Method is set only on server-initiated requests/notifications. JSON-RPC ids
+	// are per-direction, so such a frame must never be taken for a response.
+	Method string          `json:"method,omitempty"`
+	Result json.RawMessage `json:"result"`
+	Error  *rpcError       `json:"error"`
 }
 
 type rpcError struct {
@@ -140,7 +143,7 @@ func NewSSE(ctx context.Context, server, sseURL string, headers map[string]strin
 	for k, v := range cleanHeaders {
 		req.Header.Set(k, v)
 	}
-	resp, err := hc.Do(req)
+	resp, err := doHandshake(ctx, hc, req, cancel)
 	if err != nil {
 		cancel()
 		return nil, err
@@ -151,11 +154,31 @@ func NewSSE(ctx context.Context, server, sseURL string, headers map[string]strin
 		return nil, fmt.Errorf("mcp sse http %d: %s", resp.StatusCode, readSnippet(resp.Body))
 	}
 	reader := bufio.NewReader(resp.Body)
-	endpoint, err := readSSEEndpoint(reader, sseURL)
-	if err != nil {
+	// The endpoint event announces the POST target. A server that accepts the
+	// stream and stays silent must not block the caller: closing the body
+	// unblocks the pending read and its goroutine exits through the buffered channel.
+	type endpointResult struct {
+		url string
+		err error
+	}
+	endpointCh := make(chan endpointResult, 1)
+	go func() {
+		u, err := readSSEEndpoint(reader, sseURL)
+		endpointCh <- endpointResult{url: u, err: err}
+	}()
+	var endpoint string
+	select {
+	case res := <-endpointCh:
+		if res.err != nil {
+			resp.Body.Close()
+			cancel()
+			return nil, res.err
+		}
+		endpoint = res.url
+	case <-ctx.Done():
 		resp.Body.Close()
 		cancel()
-		return nil, err
+		return nil, ctx.Err()
 	}
 	c := &Client{
 		server:       server,
@@ -208,6 +231,33 @@ func readSSEEndpoint(r *bufio.Reader, base string) (string, error) {
 	}
 }
 
+// doHandshake issues the long-lived SSE GET while keeping the caller's context
+// meaningful: the stream itself is governed by streamCtx (cancel), but a server
+// that never answers must not block NewSSE forever. The goroutine always exits
+// through the buffered channel, closing a response that arrived too late.
+func doHandshake(ctx context.Context, hc *http.Client, req *http.Request, cancel context.CancelFunc) (*http.Response, error) {
+	type result struct {
+		resp *http.Response
+		err  error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		resp, err := hc.Do(req)
+		if err == nil && ctx.Err() != nil {
+			resp.Body.Close()
+			resp, err = nil, ctx.Err()
+		}
+		ch <- result{resp: resp, err: err}
+	}()
+	select {
+	case r := <-ch:
+		return r.resp, r.err
+	case <-ctx.Done():
+		cancel() // aborts the in-flight GET
+		return nil, ctx.Err()
+	}
+}
+
 func (c *Client) readLegacySSE(r *bufio.Reader) {
 	defer close(c.streamDone)
 	for {
@@ -226,7 +276,7 @@ func (c *Client) readLegacySSE(r *bufio.Reader) {
 			continue
 		}
 		var response rpcResponse
-		if err := json.Unmarshal([]byte(strings.TrimSpace(strings.TrimPrefix(line, "data:"))), &response); err != nil || response.ID == 0 {
+		if err := json.Unmarshal([]byte(strings.TrimSpace(strings.TrimPrefix(line, "data:"))), &response); err != nil || response.ID == 0 || response.Method != "" {
 			continue
 		}
 		c.pendingMu.Lock()
@@ -533,17 +583,30 @@ func parseSSE(r io.Reader, wantID int) (*rpcResponse, error) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 	var dataBuf strings.Builder
+	haveData := false
 	flush := func() (*rpcResponse, bool) {
-		if dataBuf.Len() == 0 {
+		if !haveData {
 			return nil, false
 		}
 		payload := dataBuf.String()
 		dataBuf.Reset()
+		haveData = false
 		var out rpcResponse
 		if err := json.Unmarshal([]byte(payload), &out); err != nil {
 			return nil, false
 		}
+		if out.Method != "" {
+			// A server-initiated request/notification. Its id lives in the
+			// server's namespace, so a match with wantID is coincidental.
+			return nil, false
+		}
 		if out.ID != wantID {
+			// "id": null — the server could not correlate the request
+			// (parse error / invalid request). Surface its error rather than
+			// reporting a generic missing response.
+			if out.Error != nil && out.ID == 0 {
+				return &out, true
+			}
 			return nil, false
 		}
 		return &out, true
@@ -557,7 +620,11 @@ func parseSSE(r io.Reader, wantID int) (*rpcResponse, error) {
 			continue
 		}
 		if strings.HasPrefix(line, "data:") {
-			dataBuf.WriteString(strings.TrimSpace(line[len("data:"):]))
+			if haveData {
+				dataBuf.WriteByte('\n') // multi-line data frames join with \n
+			}
+			dataBuf.WriteString(strings.TrimPrefix(line, "data:"))
+			haveData = true
 		}
 	}
 	if resp, ok := flush(); ok {
