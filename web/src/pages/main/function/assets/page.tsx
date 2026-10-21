@@ -137,13 +137,20 @@ export default function AssetsPage() {
   const [companyDeleting, setCompanyDeleting] = React.useState(false);
 
   // Companies + per-type counts (tab badges) — loaded on demand, no background polling.
+  // 企业列表失败时保留上一份快照,错误交给「企业」页签内的错误卡片/重试。
+  const [metaError, setMetaError] = React.useState<Error | null>(null);
+  const [metaLoaded, setMetaLoaded] = React.useState(false);
   const loadMeta = React.useCallback(() => {
     api
       .companies()
-      .then(setCompanies)
-      .catch(() => {
-        /* Keep the last successful company snapshot on a transient failure. */
-      });
+      .then((next) => {
+        setCompanies(next);
+        setMetaError(null);
+      })
+      .catch((error: unknown) => {
+        setMetaError(error instanceof Error ? error : new Error(String(error)));
+      })
+      .finally(() => setMetaLoaded(true));
     api
       .assetCounts()
       .then(setCounts)
@@ -359,69 +366,87 @@ export default function AssetsPage() {
         {/* 企业 */}
         <TabsContent value="company" className="mt-0 flex min-h-0 flex-1 flex-col">
           <Card className="flex min-h-0 flex-1 flex-col overflow-hidden py-0">
-            <div className="min-h-0 flex-1 overflow-auto">
-              <Table>
-                <TableHeader className="sticky top-0 z-10 bg-card">
-                  <TableRow>
-                    <TableHead>企业</TableHead>
-                    <TableHead className="w-24 text-right">资产数</TableHead>
-                    <TableHead>资产范围</TableHead>
-                    <TableHead className="w-36 text-right">操作</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {companies.map((c) => (
-                    <TableRow key={c.id}>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <CompanyAvatar name={c.name} logo={c.logo} />
-                          <span className="font-medium">{c.name}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums text-sm">{c.asset_count}</TableCell>
-                      <TableCell>
-                        {c.scope?.length ? (
-                          <div className="flex flex-wrap gap-1">
-                            {c.scope.map((s, i) => (
-                              <Badge key={i} variant="secondary" className="font-mono text-[11px]">
-                                {s.raw}
-                              </Badge>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">未设置范围</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <EditScopeDialog company={c} onSaved={refresh} />
-                          <AppendScopeDialog company={c} onSaved={refresh} />
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-7 text-muted-foreground hover:text-destructive"
-                            onClick={() => {
-                              setCompanyDeleteTarget(c);
-                              setCompanyDeleteAssets(false);
-                            }}
-                            aria-label={`删除企业 ${c.name}`}
-                          >
-                            <Trash2Icon className="size-3.5" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {companies.length === 0 && (
+            <AsyncState
+              status={!metaLoaded ? "loading" : metaError && companies.length === 0 ? "error" : "ready"}
+              error={metaError}
+              onRetry={loadMeta}
+              className="m-4"
+            >
+              {metaError && companies.length > 0 && (
+                <div
+                  role="alert"
+                  className="m-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed px-3 py-2 text-muted-foreground text-xs"
+                >
+                  <span className="min-w-0 [overflow-wrap:anywhere]">刷新企业列表失败：{metaError.message}</span>
+                  <Button size="sm" variant="outline" onClick={loadMeta}>
+                    重试
+                  </Button>
+                </div>
+              )}
+              <div className="min-h-0 flex-1 overflow-auto">
+                <Table>
+                  <TableHeader className="sticky top-0 z-10 bg-card">
                     <TableRow>
-                      <TableCell colSpan={4} className="py-10 text-center text-sm text-muted-foreground">
-                        还没有企业。点击右上角「新增企业」并填写资产范围，系统会自动认领命中的资产。
-                      </TableCell>
+                      <TableHead>企业</TableHead>
+                      <TableHead className="w-24 text-right">资产数</TableHead>
+                      <TableHead>资产范围</TableHead>
+                      <TableHead className="w-36 text-right">操作</TableHead>
                     </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {companies.map((c) => (
+                      <TableRow key={c.id}>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <CompanyAvatar name={c.name} logo={c.logo} />
+                            <span className="font-medium">{c.name}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums text-sm">{c.asset_count}</TableCell>
+                        <TableCell>
+                          {c.scope?.length ? (
+                            <div className="flex flex-wrap gap-1">
+                              {c.scope.map((s, i) => (
+                                <Badge key={i} variant="secondary" className="font-mono text-[11px]">
+                                  {s.raw}
+                                </Badge>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">未设置范围</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <EditScopeDialog company={c} onSaved={refresh} />
+                            <AppendScopeDialog company={c} onSaved={refresh} />
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-7 text-muted-foreground hover:text-destructive"
+                              onClick={() => {
+                                setCompanyDeleteTarget(c);
+                                setCompanyDeleteAssets(false);
+                              }}
+                              aria-label={`删除企业 ${c.name}`}
+                            >
+                              <Trash2Icon className="size-3.5" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {metaLoaded && !metaError && companies.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={4} className="py-10 text-center text-sm text-muted-foreground">
+                          还没有企业。点击右上角「新增企业」并填写资产范围，系统会自动认领命中的资产。
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </AsyncState>
           </Card>
         </TabsContent>
 

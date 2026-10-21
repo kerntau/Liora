@@ -7,8 +7,10 @@ import Link from "@/lib/router-compat";
 import { ArrowDownIcon, ArrowUpIcon, ArrowUpRightIcon, ChevronRightIcon } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 
+import { AsyncState } from "@/components/async-state";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { api } from "@/lib/api";
@@ -139,6 +141,10 @@ function Row({
 
 export function FindingsTab({ taskId }: { taskId: string }) {
   const [findings, setFindings] = React.useState<Finding[]>([]);
+  // 首载/失败分开记录:首载用骨架,失败才显示错误卡片,轮询失败保留旧数据。
+  const [loaded, setLoaded] = React.useState(false);
+  const [loadError, setLoadError] = React.useState<Error | null>(null);
+  const [reloadKey, setReloadKey] = React.useState(0);
   const [sortPreference, setSortPreference] = useStoredSortPreference(
     FINDING_SORT_PREFERENCE_KEY,
     FINDING_SORT_FIELDS,
@@ -146,16 +152,23 @@ export function FindingsTab({ taskId }: { taskId: string }) {
     "desc",
   );
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reloadKey 是手动重试的触发器。
   React.useEffect(() => {
     let active = true;
     const load = () => {
       api
         .findings(taskId)
         .then((fs) => {
-          if (active) setFindings(fs);
+          if (!active) return;
+          setFindings(fs);
+          setLoadError(null);
+          setLoaded(true);
         })
-        .catch(() => {
+        .catch((error: unknown) => {
           // Keep the last successful snapshot during transient refresh failures.
+          if (!active) return;
+          setLoadError(error instanceof Error ? error : new Error(String(error)));
+          setLoaded(true);
         });
     };
     load();
@@ -164,7 +177,13 @@ export function FindingsTab({ taskId }: { taskId: string }) {
       active = false;
       clearInterval(t);
     };
-  }, [taskId]);
+  }, [taskId, reloadKey]);
+
+  const retry = React.useCallback(() => {
+    setLoaded(false);
+    setLoadError(null);
+    setReloadKey((key) => key + 1);
+  }, []);
 
   const onStatus = React.useCallback(async (f: Finding, next: FindingStatus) => {
     if (f.inherited || !f.finding_id || next === f.status) return;
@@ -211,12 +230,31 @@ export function FindingsTab({ taskId }: { taskId: string }) {
             )}
           </button>
         </div>
-        {items.map((f) => (
-          <Row key={f.id} f={f} contextTaskId={taskId} onStatus={onStatus} />
-        ))}
-        {items.length === 0 && (
-          <p className="px-4 py-8 text-center text-sm text-muted-foreground">本任务及直接关联任务暂无确认发现。</p>
-        )}
+        <AsyncState
+          status={!loaded ? "loading" : loadError && items.length === 0 ? "error" : "ready"}
+          error={loadError}
+          onRetry={retry}
+          isEmpty={loaded && !loadError && items.length === 0}
+          empty={
+            <p className="px-4 py-8 text-center text-muted-foreground text-sm">本任务及直接关联任务暂无确认发现。</p>
+          }
+          className="px-4 py-8"
+        >
+          {loadError && items.length > 0 && (
+            <div
+              role="alert"
+              className="mx-4 my-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed px-3 py-2 text-muted-foreground text-xs"
+            >
+              <span className="min-w-0 [overflow-wrap:anywhere]">刷新漏洞列表失败：{loadError.message}</span>
+              <Button size="sm" variant="outline" onClick={retry}>
+                重试
+              </Button>
+            </div>
+          )}
+          {items.map((f) => (
+            <Row key={f.id} f={f} contextTaskId={taskId} onStatus={onStatus} />
+          ))}
+        </AsyncState>
       </CardContent>
     </Card>
   );

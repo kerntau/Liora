@@ -19,8 +19,7 @@ type companyScopeInputs []db.ScopeInput
 const maxCompanyMutationBodyBytes = 2 << 20
 
 func decodeCompanyMutationRequest(w http.ResponseWriter, r *http.Request, value any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, maxCompanyMutationBodyBytes)
-	if err := json.NewDecoder(r.Body).Decode(value); err != nil {
+	if err := decodeBody(w, r, maxCompanyMutationBodyBytes, value); err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
 			writeErr(w, http.StatusRequestEntityTooLarge, "请求正文过大")

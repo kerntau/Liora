@@ -477,7 +477,14 @@ function WorkerAssetBadge({ assets }: { assets: IntentAsset[] }) {
   );
 }
 
-export function SessionsTab({ taskId }: { taskId: string }) {
+export function SessionsTab({
+  taskId,
+  pendingIntercepts: externalPendingIntercepts,
+}: {
+  taskId: string;
+  /** 待审批拦截由任务详情页统一轮询后传入；传入时本组件不再自行轮询。 */
+  pendingIntercepts?: InterceptApprovalRow[];
+}) {
   const approvalFocus = useApprovalFocus({ taskId });
   const [selectedSessionId, setActiveId] = React.useState(MAIN_ID);
   const focusSession = React.useMemo<Session | undefined>(() => {
@@ -639,7 +646,10 @@ export function SessionsTab({ taskId }: { taskId: string }) {
   const [sessionTokens, setSessionTokens] = React.useState<Record<string, SessionTokenUsage>>({});
   const [llmResolutions, setLLMResolutions] = React.useState<TaskLLMResolutions | null>(null);
   // Pending intercept requests for this task — used to show warning icons on sessions.
-  const [pendingIntercepts, setPendingIntercepts] = React.useState<InterceptApprovalRow[]>([]);
+  // 无外部传入时自己轮询（保持旧行为）；详情页已统一轮询时只读 props，避免同一接口两处每 5s 各打一次。
+  const [internalPendingIntercepts, setInternalPendingIntercepts] = React.useState<InterceptApprovalRow[]>([]);
+  const usesExternalPendingIntercepts = externalPendingIntercepts !== undefined;
+  const pendingIntercepts = externalPendingIntercepts ?? internalPendingIntercepts;
 
   // Refs backing SSE/loading without re-render churn.
   const snapshotRef = React.useRef(0); // task-level snapshot cursor → SSE since=
@@ -843,12 +853,13 @@ export function SessionsTab({ taskId }: { taskId: string }) {
   }, [taskId]);
 
   React.useEffect(() => {
+    if (usesExternalPendingIntercepts) return;
     let alive = true;
     const load = () =>
       api
         .interceptTask(taskId)
         .then((rows) => {
-          if (alive) setPendingIntercepts(rows.filter((r) => r.status === "pending"));
+          if (alive) setInternalPendingIntercepts(rows.filter((r) => r.status === "pending"));
         })
         .catch(() => {
           // Polling is best-effort; the next interval retries automatically.
@@ -859,7 +870,7 @@ export function SessionsTab({ taskId }: { taskId: string }) {
       alive = false;
       clearInterval(t);
     };
-  }, [taskId]);
+  }, [taskId, usesExternalPendingIntercepts]);
 
   // Re-render on a timer so "streaming" liveness recomputes as activity goes stale.
   const [, setTick] = React.useState(0);

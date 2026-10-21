@@ -32,9 +32,8 @@ func (s *Server) constraintInjectWorker() bool {
 
 // listConstraints 返回本任务的全部操作约束(allow 在前、deny 在后)。
 func (s *Server) listConstraints(w http.ResponseWriter, r *http.Request) {
-	t, ok := s.m.Task(r.PathValue("id"))
+	t, ok := s.taskOr404(w, r)
 	if !ok {
-		writeErr(w, 404, "task not found")
 		return
 	}
 	rows, err := t.Store.ListConstraints()
@@ -47,9 +46,8 @@ func (s *Server) listConstraints(w http.ResponseWriter, r *http.Request) {
 
 // addConstraint 人工新增一条操作约束(kind=allow|deny)。不通知 planner。
 func (s *Server) addConstraint(w http.ResponseWriter, r *http.Request) {
-	t, ok := s.m.Task(r.PathValue("id"))
+	t, ok := s.taskOr404(w, r)
 	if !ok {
-		writeErr(w, 404, "task not found")
 		return
 	}
 	if !s.engine.beginTaskOperation(t.ID) {
@@ -86,9 +84,8 @@ func (s *Server) addConstraint(w http.ResponseWriter, r *http.Request) {
 
 // editConstraint 人工修改一条约束(kind + text)。不通知 planner。
 func (s *Server) editConstraint(w http.ResponseWriter, r *http.Request) {
-	t, ok := s.m.Task(r.PathValue("id"))
+	t, ok := s.taskOr404(w, r)
 	if !ok {
-		writeErr(w, 404, "task not found")
 		return
 	}
 	if !s.engine.beginTaskOperation(t.ID) {
@@ -129,9 +126,8 @@ func (s *Server) editConstraint(w http.ResponseWriter, r *http.Request) {
 
 // deleteConstraint 人工删除一条约束。不通知 planner。
 func (s *Server) deleteConstraint(w http.ResponseWriter, r *http.Request) {
-	t, ok := s.m.Task(r.PathValue("id"))
+	t, ok := s.taskOr404(w, r)
 	if !ok {
-		writeErr(w, 404, "task not found")
 		return
 	}
 	if !s.engine.beginTaskOperation(t.ID) {

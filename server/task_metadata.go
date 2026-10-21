@@ -23,12 +23,11 @@ func (s *Server) updateTaskMetadata(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "task not found")
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxTaskMetadataRequestSize)
 	var request struct {
 		Name   *string `json:"name"`
 		Pinned *bool   `json:"pinned"`
 	}
-	if err := decode(r, &request); err != nil {
+	if err := decodeBody(w, r, maxTaskMetadataRequestSize, &request); err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
 			writeErr(w, http.StatusRequestEntityTooLarge, "请求正文过大")

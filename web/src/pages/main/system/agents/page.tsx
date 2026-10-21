@@ -4,6 +4,7 @@ import * as React from "react";
 import { toast } from "@/components/ui/sonner";
 import { Bot, ExternalLinkIcon, PlusIcon, Trash2Icon } from "lucide-react";
 
+import { AsyncState } from "@/components/async-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +38,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
 import { AgentEditor } from "@/components/agent-editor";
 import { api } from "@/lib/api";
 import Link from "@/lib/router-compat";
@@ -221,9 +223,21 @@ function CreateAgentDialog({ onCreated }: { onCreated: (key: string) => void }) 
 export default function AgentsPage() {
   const [agents, setAgents] = React.useState<Agent[]>([]);
   const [editKey, setEditKey] = React.useState<string | null>(null);
+  // 失败时保留旧清单并记录 error,列表区据此显示错误/重试,而不是伪装成「0 个」。
+  const [loadError, setLoadError] = React.useState<Error | null>(null);
+  const [loaded, setLoaded] = React.useState(false);
 
   const reload = React.useCallback(() => {
-    api.agents().then(setAgents).catch(() => setAgents([]));
+    api
+      .agents()
+      .then((next) => {
+        setAgents(next);
+        setLoadError(null);
+      })
+      .catch((error: unknown) => {
+        setLoadError(error instanceof Error ? error : new Error(String(error)));
+      })
+      .finally(() => setLoaded(true));
   }, []);
   React.useEffect(() => {
     reload();
@@ -251,18 +265,42 @@ export default function AgentsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Agent 清单</CardTitle>
-          <CardDescription>共 {agents.length} 个</CardDescription>
+          <CardDescription>{loadError ? "数量暂不可用" : `共 ${agents.length} 个`}</CardDescription>
         </CardHeader>
         <CardContent>
-          {agents.length === 0 ? (
-            <p className="text-muted-foreground py-6 text-center text-sm">（暂无 Agent）</p>
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {agents.map((a) => (
-                <AgentGridCard key={a.key} agent={a} onOpen={() => setEditKey(a.key)} onDeleted={reload} />
-              ))}
-            </div>
-          )}
+          <AsyncState
+            status={!loaded ? "loading" : loadError && agents.length === 0 ? "error" : "ready"}
+            error={loadError}
+            onRetry={reload}
+            isEmpty={loaded && !loadError && agents.length === 0}
+            empty={<p className="text-muted-foreground py-6 text-center text-sm">（暂无 Agent）</p>}
+            skeleton={
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {[0, 1, 2, 3, 4, 5].map((key) => (
+                  <Skeleton key={key} className="h-28 w-full" />
+                ))}
+              </div>
+            }
+          >
+            <>
+              {loadError && agents.length > 0 && (
+                <div
+                  role="alert"
+                  className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed px-3 py-2 text-muted-foreground text-xs"
+                >
+                  <span className="min-w-0 [overflow-wrap:anywhere]">刷新 Agent 清单失败：{loadError.message}</span>
+                  <Button size="sm" variant="outline" onClick={reload}>
+                    重试
+                  </Button>
+                </div>
+              )}
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {agents.map((a) => (
+                  <AgentGridCard key={a.key} agent={a} onOpen={() => setEditKey(a.key)} onDeleted={reload} />
+                ))}
+              </div>
+            </>
+          </AsyncState>
         </CardContent>
       </Card>
 

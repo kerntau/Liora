@@ -386,6 +386,7 @@ function JudgeCard() {
 export default function InterceptPage() {
   const [rules, setRules]     = React.useState<InterceptRule[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [open, setOpen]       = React.useState(false);
   const [editing, setEditing] = React.useState<InterceptRule | null>(null);
   const [form, setForm]       = React.useState<RuleForm>(defaultForm());
@@ -420,8 +421,9 @@ export default function InterceptPage() {
     try {
       const r = await api.interceptRules();
       setRules(r);
-    } catch {
-      toast.error("加载拦截规则失败");
+      setLoadError(null);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : String(error));
     } finally {
       setLoading(false);
     }
@@ -644,6 +646,15 @@ export default function InterceptPage() {
             <CardContent className="p-0">
           {loading ? (
             <p className="p-6 text-sm text-muted-foreground">加载中…</p>
+          ) : loadError ? (
+            <div role="alert" className="flex flex-col items-center justify-center gap-2 py-16 text-center">
+              <ShieldAlertIcon className="h-8 w-8 text-muted-foreground/40" />
+              <p className="text-muted-foreground text-sm">加载拦截规则失败</p>
+              <p className="max-w-md text-muted-foreground text-xs [overflow-wrap:anywhere]">{loadError}</p>
+              <Button size="sm" variant="outline" onClick={() => void load()}>
+                重试
+              </Button>
+            </div>
           ) : rules.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
               <ShieldAlertIcon className="h-8 w-8 text-muted-foreground/40" />

@@ -22,6 +22,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { AsyncButton } from "@/components/ui/async-button";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -37,7 +38,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
-import type { LLMProfile, Task } from "@/lib/types";
+import type { InterceptApprovalRow, LLMProfile, Task } from "@/lib/types";
 
 import { AssetsTab } from "./_tabs/assets-tab";
 import { BroadcastTab } from "./_tabs/broadcast-tab";
@@ -67,6 +68,11 @@ const TAB_VALUES = new Set(TABS.map((tab) => tab.value));
 // 非法或缺失的 tab 参数回落到默认页签，手工改 URL 不会渲染出空白内容区。
 function normalizeTab(value: string | null) {
   return value && TAB_VALUES.has(value) ? value : DEFAULT_TAB;
+}
+
+// pending 列表每 5s 拉一次:内容未变时复用旧数组,避免整页每 5s 白白重渲染。
+function samePendingIntercepts(a: InterceptApprovalRow[], b: InterceptApprovalRow[]): boolean {
+  return a.length === b.length && a.every((row, index) => row.id === b[index].id);
 }
 
 function taskProfileIDs(task: Task): string[] {
@@ -218,7 +224,12 @@ function TaskDetailInner() {
   const [task, setTask] = React.useState<Task | null>(null);
   const [paused, setPaused] = React.useState(false);
   const [loaded, setLoaded] = React.useState(false);
-  const [interceptPendingCount, setInterceptPendingCount] = React.useState(0);
+  // 首载失败:404 与其它错误分开,前者才断言「已被删除/归档/不存在」。
+  const [loadError, setLoadError] = React.useState<Error | null>(null);
+  const [notFound, setNotFound] = React.useState(false);
+  const [controlling, setControlling] = React.useState(false);
+  // 待审批拦截由本页统一轮询,再传给执行过程页签,避免两处各轮询一次。
+  const [pendingIntercepts, setPendingIntercepts] = React.useState<InterceptApprovalRow[]>([]);
   const [profiles, setProfiles] = React.useState<LLMProfile[]>([]);
   const [archiving, setArchiving] = React.useState(false);
 
@@ -235,7 +246,9 @@ function TaskDetailInner() {
       api
         .interceptTask(id)
         .then((rows) => {
-          if (alive) setInterceptPendingCount(rows.filter((r) => r.status === "pending").length);
+          if (!alive) return;
+          const next = rows.filter((r) => r.status === "pending");
+          setPendingIntercepts((prev) => (samePendingIntercepts(prev, next) ? prev : next));
         })
         .catch(() => {
           // Polling is best-effort; the next interval retries automatically.
@@ -266,9 +279,15 @@ function TaskDetailInner() {
         }
         setTask(base);
         setPaused(at?.paused ?? base.paused ?? false);
+        setLoadError(null);
+        setNotFound(false);
       })
-      .catch(() => {
-        // Keep the last rendered task state during a transient poll failure.
+      .catch((error: unknown) => {
+        // 保留上一份任务状态;只有 404 才把任务判为不存在,其余按「加载失败」并可重试。
+        if (taskLoadInFlight.current !== id) return;
+        const cause = error instanceof Error ? error : new Error(String(error));
+        setLoadError(cause);
+        setNotFound(cause.message === "task not found");
       })
       .finally(() => {
         if (taskLoadInFlight.current === id) {
@@ -304,14 +323,18 @@ function TaskDetailInner() {
   }, [router]);
 
   async function togglePause() {
+    if (controlling) return;
     if (task && ["done", "failed", "timeout"].includes(task.status)) return;
     const next = !paused;
+    setControlling(true);
     try {
       await api.controlTask(id, next ? "pause" : "resume");
       setPaused(next);
       toast.success(next ? "已暂停探索" : "已恢复探索");
     } catch (e) {
       toast.error("操作失败：" + (e as Error).message);
+    } finally {
+      setControlling(false);
     }
   }
 
@@ -329,21 +352,49 @@ function TaskDetailInner() {
   }
 
   if (!task) {
+    const backToList = (
+      <Button asChild variant="outline">
+        <Link href="/function/tasks">
+          <ArrowLeftIcon /> 返回任务列表
+        </Link>
+      </Button>
+    );
+    if (!loaded) {
+      return (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-10 text-center">
+          <p className="text-muted-foreground">加载中…</p>
+        </div>
+      );
+    }
+    // 首载失败先看 loadError:只有后端明确回 404 才断言任务不存在,
+    // 其它错误(网络/5xx/超时)按「加载失败」给重试,不能谎报为已删除。
+    if (loadError && !notFound) {
+      return (
+        <div
+          role="alert"
+          className="flex flex-1 flex-col items-center justify-center gap-2 p-10 text-center text-muted-foreground text-sm"
+        >
+          <div className="text-foreground">任务加载失败</div>
+          <div className="max-w-md text-xs [overflow-wrap:anywhere]">{loadError.message}</div>
+          <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
+            <Button size="sm" variant="outline" onClick={load}>
+              重试
+            </Button>
+            {backToList}
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 p-10 text-center">
-        <p className="text-muted-foreground">{loaded ? `任务 ${id} 已被删除、归档或不存在` : "加载中…"}</p>
-        {loaded && (
-          <Button asChild variant="outline">
-            <Link href="/function/tasks">
-              <ArrowLeftIcon /> 返回任务列表
-            </Link>
-          </Button>
-        )}
+        <p className="text-muted-foreground">任务 {id} 已被删除、归档或不存在</p>
+        {backToList}
       </div>
     );
   }
 
   const completed = task.status === "done";
+  const interceptPendingCount = pendingIntercepts.length;
   const terminal = ["done", "failed", "timeout"].includes(task.status);
   const archiveLifecycleEligible = terminal || paused || task.status === "paused";
   const canArchive = archiveLifecycleEligible && !task.archive_blocked_by_task_id;
@@ -418,10 +469,16 @@ function TaskDetailInner() {
               <TooltipContent>{archiveDisabledReason}</TooltipContent>
             </Tooltip>
           )}
-          <Button size="sm" variant={controlVariant} onClick={togglePause} disabled={terminal}>
-            {controlIcon}
+          <AsyncButton
+            size="sm"
+            variant={controlVariant}
+            loading={controlling}
+            onClick={togglePause}
+            disabled={terminal}
+          >
+            {controlling ? null : controlIcon}
             {controlLabel}
-          </Button>
+          </AsyncButton>
         </div>
         <p className="truncate text-xs text-muted-foreground">{task.goal}</p>
         {/* Tabs */}
@@ -444,7 +501,7 @@ function TaskDetailInner() {
       {/* Tab content */}
       <div className="flex-1 p-4 lg:p-6">
         <TabsContent value="sessions" className="mt-0">
-          <SessionsTab taskId={id} />
+          <SessionsTab taskId={id} pendingIntercepts={pendingIntercepts} />
         </TabsContent>
         <TabsContent value="overview" className="mt-0">
           <OverviewTab taskId={id} />

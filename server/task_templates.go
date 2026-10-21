@@ -21,8 +21,7 @@ type taskTemplateRequest struct {
 }
 
 func decodeTaskTemplateRequest(w http.ResponseWriter, r *http.Request, req *taskTemplateRequest) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, maxTaskTemplateRequestBytes)
-	if err := decode(r, req); err != nil {
+	if err := decodeBody(w, r, maxTaskTemplateRequestBytes, req); err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
 			writeErr(w, http.StatusRequestEntityTooLarge, "请求正文过大")

@@ -1050,9 +1050,8 @@ func (s *Server) setActive(w http.ResponseWriter, r *http.Request) {
 
 // control pauses/resumes a task's autonomous execution (planner + workers).
 func (s *Server) control(w http.ResponseWriter, r *http.Request) {
-	t, ok := s.m.Task(r.PathValue("id"))
+	t, ok := s.taskOr404(w, r)
 	if !ok {
-		writeErr(w, 404, "task not found")
 		return
 	}
 	var req struct {
@@ -1078,9 +1077,8 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 // worker is always stopped before state mutation/cleanup, preventing tool output
 // that arrives after the user action from recreating deleted blackboard records.
 func (s *Server) controlIntent(w http.ResponseWriter, r *http.Request) {
-	t, ok := s.m.Task(r.PathValue("id"))
+	t, ok := s.taskOr404(w, r)
 	if !ok {
-		writeErr(w, 404, "task not found")
 		return
 	}
 	if !s.engine.beginTaskOperation(t.ID) {
@@ -1130,9 +1128,8 @@ func restoreRerunIntent(t *Task, before *db.Node) error {
 }
 
 func (s *Server) rerunIntent(w http.ResponseWriter, r *http.Request) {
-	t, ok := s.m.Task(r.PathValue("id"))
+	t, ok := s.taskOr404(w, r)
 	if !ok {
-		writeErr(w, 404, "task not found")
 		return
 	}
 	iid, err := strconv.ParseInt(r.PathValue("iid"), 10, 64)
@@ -1174,9 +1171,8 @@ func (s *Server) rerunIntent(w http.ResponseWriter, r *http.Request) {
 // rerunBlocked 批量重跑本任务全部 blocked 意图(适合一次网络/LLM 断连导致多条 blocked 后
 // 一键全部重试),置回 open 并复活任务;返回重开的条数。
 func (s *Server) rerunBlocked(w http.ResponseWriter, r *http.Request) {
-	t, ok := s.m.Task(r.PathValue("id"))
+	t, ok := s.taskOr404(w, r)
 	if !ok {
-		writeErr(w, 404, "task not found")
 		return
 	}
 	if !s.engine.beginTaskOperation(t.ID) {
@@ -1479,9 +1475,8 @@ func (s *Server) validateTaskProfileIDs(ids []int64) error {
 }
 
 func (s *Server) updateTaskLLMProfiles(w http.ResponseWriter, r *http.Request) {
-	t, ok := s.m.Task(r.PathValue("id"))
+	t, ok := s.taskOr404(w, r)
 	if !ok {
-		writeErr(w, 404, "task not found")
 		return
 	}
 	// 任何生命周期状态(含终态)都可以改链:任务结束后主 Agent 对话仍走这条链,
@@ -1656,9 +1651,8 @@ func (s *Server) seedFirstIntent(t *Task) {
 }
 
 func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
-	t, ok := s.m.Task(r.PathValue("id"))
+	t, ok := s.taskOr404(w, r)
 	if !ok {
-		writeErr(w, 404, "task not found")
 		return
 	}
 	dto := taskDTO(t, s.resolvedTaskStatus(t))
@@ -1669,9 +1663,8 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
 
 // taskCoverage returns a task's rough asset test coverage (denominator/tested/backlog).
 func (s *Server) taskCoverage(w http.ResponseWriter, r *http.Request) {
-	t, ok := s.m.Task(r.PathValue("id"))
+	t, ok := s.taskOr404(w, r)
 	if !ok {
-		writeErr(w, 404, "task not found")
 		return
 	}
 	as := s.m.Assets()
@@ -1697,9 +1690,8 @@ func (s *Server) taskCoverage(w http.ResponseWriter, r *http.Request) {
 // taskCoverageGraph returns the force-directed asset coverage graph for a task:
 // all in-scope assets (每种类型) + 连接用的根域名/公司节点, each carrying tested/in_scope.
 func (s *Server) taskCoverageGraph(w http.ResponseWriter, r *http.Request) {
-	t, ok := s.m.Task(r.PathValue("id"))
+	t, ok := s.taskOr404(w, r)
 	if !ok {
-		writeErr(w, 404, "task not found")
 		return
 	}
 	as := s.m.Assets()
@@ -1719,9 +1711,8 @@ func (s *Server) taskCoverageGraph(w http.ResponseWriter, r *http.Request) {
 // taskAssetRefs returns the intents / facts / findings in this task anchored to a
 // given asset id — powers the coverage-graph node drawer's「关联意图 / 关联事实」。
 func (s *Server) taskAssetRefs(w http.ResponseWriter, r *http.Request) {
-	t, ok := s.m.Task(r.PathValue("id"))
+	t, ok := s.taskOr404(w, r)
 	if !ok {
-		writeErr(w, 404, "task not found")
 		return
 	}
 	assetID, _ := strconv.ParseInt(r.URL.Query().Get("asset_id"), 10, 64)
@@ -1753,9 +1744,8 @@ func (s *Server) taskAssetRefs(w http.ResponseWriter, r *http.Request) {
 
 // taskScopeList returns a task's scope rows (coverage denominator sources).
 func (s *Server) taskScopeList(w http.ResponseWriter, r *http.Request) {
-	t, ok := s.m.Task(r.PathValue("id"))
+	t, ok := s.taskOr404(w, r)
 	if !ok {
-		writeErr(w, 404, "task not found")
 		return
 	}
 	as := s.m.Assets()
@@ -1773,9 +1763,8 @@ func (s *Server) taskScopeList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) taskScopeAdd(w http.ResponseWriter, r *http.Request) {
-	t, ok := s.m.Task(r.PathValue("id"))
+	t, ok := s.taskOr404(w, r)
 	if !ok {
-		writeErr(w, 404, "task not found")
 		return
 	}
 	as := s.m.Assets()
@@ -1802,9 +1791,8 @@ func (s *Server) taskScopeAdd(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) taskScopeDelete(w http.ResponseWriter, r *http.Request) {
-	t, ok := s.m.Task(r.PathValue("id"))
+	t, ok := s.taskOr404(w, r)
 	if !ok {
-		writeErr(w, 404, "task not found")
 		return
 	}
 	as := s.m.Assets()
@@ -1998,8 +1986,8 @@ func (s *Server) findingStats(w http.ResponseWriter, r *http.Request) {
 // getFinding returns one finding by its standalone-table id (DTO finding_id),
 // with anchored assets resolved for display.
 func (s *Server) getFinding(w http.ResponseWriter, r *http.Request) {
-	id := int64(atoiDefault(r.PathValue("id"), 0))
-	if id <= 0 {
+	id, ok := pathInt(r, "id")
+	if !ok || id <= 0 {
 		writeErr(w, 400, "bad finding id")
 		return
 	}
@@ -2159,8 +2147,8 @@ func findingProvenanceInTask(contextTask *Task, findingTaskID *int64) (sourceTas
 // the detail page can show "how this finding was reached". Empty {nodes,edges}
 // when the finding has no node/task (e.g. the originating task was deleted).
 func (s *Server) findingLineage(w http.ResponseWriter, r *http.Request) {
-	id := int64(atoiDefault(r.PathValue("id"), 0))
-	if id <= 0 {
+	id, ok := pathInt(r, "id")
+	if !ok || id <= 0 {
 		writeErr(w, 400, "bad finding id")
 		return
 	}
@@ -2196,8 +2184,8 @@ func (s *Server) findingLineage(w http.ResponseWriter, r *http.Request) {
 // mirrored onto the originating exploration node so the per-task view stays in
 // sync. Returns the updated finding DTO.
 func (s *Server) patchFinding(w http.ResponseWriter, r *http.Request) {
-	id := int64(atoiDefault(r.PathValue("id"), 0))
-	if id <= 0 {
+	id, ok := pathInt(r, "id")
+	if !ok || id <= 0 {
 		writeErr(w, 400, "bad finding id")
 		return
 	}
@@ -2266,8 +2254,8 @@ func (s *Server) patchFinding(w http.ResponseWriter, r *http.Request) {
 // deleteFinding removes a finding (findings row + originating exploration node).
 // id is the standalone findings-table id (DTO finding_id).
 func (s *Server) deleteFinding(w http.ResponseWriter, r *http.Request) {
-	id := int64(atoiDefault(r.PathValue("id"), 0))
-	if id <= 0 {
+	id, ok := pathInt(r, "id")
+	if !ok || id <= 0 {
 		writeErr(w, 400, "bad finding id")
 		return
 	}
@@ -2840,7 +2828,7 @@ func (s *Server) streamLogs(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "streaming unsupported")
 		return
 	}
-	since := int64(atoiDefault(r.URL.Query().Get("since"), 0))
+	since := logStreamCursor(r)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -2849,8 +2837,9 @@ func (s *Server) streamLogs(w http.ResponseWriter, r *http.Request) {
 	ch, unsub := logSink.subscribe()
 	defer unsub()
 	send := func(l LogLine) {
-		b, _ := json.Marshal(l)
-		fmt.Fprintf(w, "data: %s\n\n", b)
+		// The id: line is what makes EventSource's automatic reconnect resume from
+		// the last delivered line (Last-Event-ID) instead of replaying ?since=0.
+		writeLogFrame(w, l)
 		flusher.Flush()
 	}
 	lines, cursor := logSink.recent(since, 1000)
@@ -2883,6 +2872,28 @@ func (s *Server) streamLogs(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+// logStreamCursor picks the replay point: an explicit ?since= wins on a fresh
+// connection, but a browser auto-reconnect carries Last-Event-ID, which is newer
+// and must not be ignored (otherwise the ring replays from the start).
+func logStreamCursor(r *http.Request) int64 {
+	since := int64(atoiDefault(r.URL.Query().Get("since"), 0))
+	if last := strings.TrimSpace(r.Header.Get("Last-Event-ID")); last != "" {
+		if n, err := strconv.ParseInt(last, 10, 64); err == nil && n > since {
+			since = n
+		}
+	}
+	if since < 0 {
+		since = 0
+	}
+	return since
+}
+
+// writeLogFrame renders one SSE frame. Split out so the id/data shape is testable.
+func writeLogFrame(w io.Writer, l LogLine) {
+	b, _ := json.Marshal(l)
+	fmt.Fprintf(w, "id: %d\ndata: %s\n\n", l.Seq, b)
 }
 
 func (s *Server) streamActivity(w http.ResponseWriter, r *http.Request) {

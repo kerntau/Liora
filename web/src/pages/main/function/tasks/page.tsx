@@ -344,6 +344,8 @@ function TasksPageInner() {
   const [nowSec, setNowSec] = React.useState(() => Math.floor(Date.now() / 1000));
   // 首载标记:列表还没回来之前不能把空数组当成「暂无任务」,否则首帧会闪一次空态。
   const [tasksLoaded, setTasksLoaded] = React.useState(false);
+  // 列表加载失败:保留已拿到的任务,只在列表为空时用错误卡片替代「暂无任务」。
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   // 按运行时长排序用的快照:只在点表头时定序,tick 不再参与比较。
   const [durationSortAnchorSec, setDurationSortAnchorSec] = React.useState(() => Math.floor(Date.now() / 1000));
   const [batchControlling, setBatchControlling] = React.useState<"pause" | "resume" | null>(null);
@@ -516,17 +518,20 @@ function TasksPageInner() {
       .tasks()
       .then((r) => {
         if (seq !== loadSeqRef.current) return;
+        setLoadError(null);
         const next = r.tasks.map((t) => (t.id === r.active ? { ...t, active: true } : t));
         const sig = JSON.stringify(next);
         if (sig === lastRef.current) return;
         lastRef.current = sig;
         setTasks(next);
       })
-      .catch(() => {
-        // Polling is best-effort; the next interval retries automatically.
+      .catch((error: unknown) => {
+        // 轮询失败保留旧列表(不清空、不弹 toast),错误交给空列表的错误卡片与重试。
+        if (seq !== loadSeqRef.current) return;
+        setLoadError(error instanceof Error ? error.message : String(error));
       })
       .finally(() => {
-        // 首载结束(成功或失败)就收起骨架行,失败时仍按「暂无任务」提示。
+        // 首载结束(成功或失败)就收起骨架行。
         if (seq === loadSeqRef.current) setTasksLoaded(true);
       });
   }, []);
@@ -979,7 +984,18 @@ function TasksPageInner() {
               />
             </div>
 
-            {tasksLoaded && tasks.length === 0 ? (
+            {tasksLoaded && tasks.length === 0 && loadError ? (
+              <div
+                role="alert"
+                className="mx-4 flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-20 text-muted-foreground text-sm lg:mx-6"
+              >
+                <div className="text-foreground">任务列表加载失败</div>
+                <div className="max-w-md text-center text-xs [overflow-wrap:anywhere]">{loadError}</div>
+                <Button size="sm" variant="outline" onClick={load}>
+                  重试
+                </Button>
+              </div>
+            ) : tasksLoaded && tasks.length === 0 ? (
               <div className="text-muted-foreground mx-4 flex items-center justify-center rounded-lg border border-dashed py-20 text-sm lg:mx-6">
                 暂无任务，点击右上角「新建任务」开始。
               </div>
@@ -1745,6 +1761,8 @@ function TaskArchivesPanel({ onChanged }: { onChanged: () => void }) {
   const [total, setTotal] = React.useState(0);
   const [selected, setSelected] = React.useState<Set<number>>(() => new Set());
   const [loading, setLoading] = React.useState(true);
+  // 面板内错误条:轮询失败保留上一份归档列表,不再每 2 秒弹一次 toast。
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const pendingRestoreIDs = React.useRef(new Set<number>());
   // 2s 轮询下同一视图可能有多个请求在飞,只让最后一次请求写回,避免旧响应覆盖新响应。
   const requestRef = React.useRef(0);
@@ -1762,6 +1780,7 @@ function TaskArchivesPanel({ onChanged }: { onChanged: () => void }) {
         state: stateFilter === "all" ? undefined : stateFilter,
       });
       if (id !== requestRef.current) return;
+      setLoadError(null);
       setArchives(result.items);
       setTotal(result.total);
       const viewKey = `${page}|${pageSize}|${query.trim()}|${stateFilter}`;
@@ -1793,7 +1812,7 @@ function TaskArchivesPanel({ onChanged }: { onChanged: () => void }) {
       }
     } catch (error) {
       if (id !== requestRef.current) return;
-      toast.error(`读取归档列表失败：${(error as Error).message}`);
+      setLoadError(error instanceof Error ? error.message : String(error));
     } finally {
       if (id === requestRef.current) setLoading(false);
     }
@@ -1937,7 +1956,9 @@ function TaskArchivesPanel({ onChanged }: { onChanged: () => void }) {
               </SelectGroup>
             </SelectContent>
           </Select>
-          <span className="text-muted-foreground text-xs tabular-nums">{total} 个归档</span>
+          {(archives.length > 0 || !loadError) && (
+            <span className="text-muted-foreground text-xs tabular-nums">{total} 个归档</span>
+          )}
           {selectedArchives.length > 0 && (
             <>
               <span className="text-xs tabular-nums">已选 {selectedArchives.length} 个</span>
@@ -1962,17 +1983,30 @@ function TaskArchivesPanel({ onChanged }: { onChanged: () => void }) {
             </>
           )}
         </div>
+        {loadError && (
+          <div
+            role="alert"
+            className="mx-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed px-4 py-3 text-muted-foreground text-sm lg:mx-6"
+          >
+            <span className="min-w-0 [overflow-wrap:anywhere]">读取归档列表失败：{loadError}</span>
+            <Button size="sm" variant="outline" onClick={() => void load()}>
+              重试
+            </Button>
+          </div>
+        )}
         {loading ? (
           <div className="flex justify-center py-20">
             <Spinner />
           </div>
         ) : archives.length === 0 ? (
-          <Empty className="mx-4 border border-dashed lg:mx-6">
-            <EmptyHeader>
-              <EmptyTitle>暂无任务归档</EmptyTitle>
-              <EmptyDescription>暂停或终态任务可从当前任务列表归档。</EmptyDescription>
-            </EmptyHeader>
-          </Empty>
+          loadError ? null : (
+            <Empty className="mx-4 border border-dashed lg:mx-6">
+              <EmptyHeader>
+                <EmptyTitle>暂无任务归档</EmptyTitle>
+                <EmptyDescription>暂停或终态任务可从当前任务列表归档。</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          )
         ) : (
           <Table className="**:data-[slot='table-cell']:px-4 **:data-[slot='table-head']:px-4">
             <TableHeader className="[&_tr]:border-t">

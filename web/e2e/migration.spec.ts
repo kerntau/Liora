@@ -117,9 +117,10 @@ test("authentication, deep links, theme, fonts and live SSE work with the restor
   await page.screenshot({ path: testInfo.outputPath("tasks-mobile.png"), fullPage: true });
 
   // A rejected token must clear the shared auth state without a redirect loop.
+  // The 401 path now lands on /login?expired=1 so the form can explain why.
   await page.evaluate(() => localStorage.setItem("liora_token", "invalid-token"));
   await page.goto("/function/tasks");
-  await expect(page).toHaveURL(/\/login$/);
+  await expect(page).toHaveURL(/\/login(\?expired=1)?$/);
   await expect.poll(() => page.evaluate(() => localStorage.getItem("liora_token"))).toBeNull();
   await page.getByPlaceholder("请输入密码").fill(password);
   await page.getByRole("button", { name: "登录" }).click();

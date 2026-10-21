@@ -235,9 +235,8 @@ func (s *Server) sideParent(w http.ResponseWriter, r *http.Request, kind string)
 		p.ConversationID = id
 		return p, true
 	}
-	t, ok := s.m.Task(r.PathValue("id"))
+	t, ok := s.taskOr404(w, r)
 	if !ok {
-		writeErr(w, 404, "task not found")
 		return p, false
 	}
 	pt, err := s.m.pg.GetTask(id)
@@ -342,12 +341,11 @@ func (s *Server) handleSideQuestions(w http.ResponseWriter, r *http.Request, p s
 		writeJSON(w, 200, map[string]any{"items": items, "current": current, "next_cursor": next, "snapshot": meta})
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
 	var in struct {
 		Question string `json:"question"`
 		ClientID string `json:"client_request_id"`
 	}
-	if json.NewDecoder(r.Body).Decode(&in) != nil {
+	if decodeBody(w, r, 32<<10, &in) != nil {
 		writeErr(w, 400, "bad json")
 		return
 	}

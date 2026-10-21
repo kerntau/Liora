@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -90,16 +89,15 @@ func (s *Server) findingGroups(w http.ResponseWriter, r *http.Request) {
 // original task. The DB write validates and links the live finding node; task
 // admission then revives or queues the task through the shared concurrency path.
 func (s *Server) deepenFinding(w http.ResponseWriter, r *http.Request) {
-	id := int64(atoiDefault(r.PathValue("id"), 0))
-	if id <= 0 {
+	id, ok := pathInt(r, "id")
+	if !ok || id <= 0 {
 		writeErr(w, 400, "bad finding id")
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
 	var req struct {
 		Description string `json:"description"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeBody(w, r, 32<<10, &req); err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
 			writeErr(w, http.StatusRequestEntityTooLarge, "请求正文过大")

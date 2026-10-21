@@ -101,9 +101,8 @@ func (s *Server) resolveTaskRoleLLM(t *Task, agentKey string) (taskLLMResolution
 }
 
 func (s *Server) taskLLMResolutionHandler(w http.ResponseWriter, r *http.Request) {
-	t, ok := s.m.Task(r.PathValue("id"))
+	t, ok := s.taskOr404(w, r)
 	if !ok {
-		writeErr(w, 404, "task not found")
 		return
 	}
 	roles := map[string]taskLLMResolution{}

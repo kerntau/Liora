@@ -19,9 +19,8 @@ type taskCategoryRequest struct {
 }
 
 func decodeTaskCategoryRequest(w http.ResponseWriter, r *http.Request) (*taskCategoryRequest, bool) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxTaskCategoryRequestBytes)
 	var request taskCategoryRequest
-	if err := decode(r, &request); err != nil {
+	if err := decodeBody(w, r, maxTaskCategoryRequestBytes, &request); err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
 			writeErr(w, http.StatusRequestEntityTooLarge, "请求正文过大")

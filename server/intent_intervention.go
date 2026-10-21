@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -36,9 +35,8 @@ func validWorkerMessageRequestID(id string) bool {
 // restart re-runs the intent from its transcript without the message, which is
 // acceptable for this rare interrupt-then-continue action.
 func (s *Server) sendWorkerMessage(w http.ResponseWriter, r *http.Request) {
-	t, ok := s.m.Task(r.PathValue("id"))
+	t, ok := s.taskOr404(w, r)
 	if !ok {
-		writeErr(w, http.StatusNotFound, "task not found")
 		return
 	}
 	iid, err := strconv.ParseInt(r.PathValue("iid"), 10, 64)
@@ -46,12 +44,11 @@ func (s *Server) sendWorkerMessage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "bad intent id")
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxWorkerMessageBytes)
 	var req struct {
 		Message   string `json:"message"`
 		RequestID string `json:"request_id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeBody(w, r, maxWorkerMessageBytes, &req); err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
 			writeErr(w, http.StatusRequestEntityTooLarge, "请求体过大")

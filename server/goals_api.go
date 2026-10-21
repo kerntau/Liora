@@ -16,9 +16,8 @@ import (
 
 // listGoals 返回本任务的全部目标(text/vulnclass/state 拆好),供目标管理卡片渲染。
 func (s *Server) listGoals(w http.ResponseWriter, r *http.Request) {
-	t, ok := s.m.Task(r.PathValue("id"))
+	t, ok := s.taskOr404(w, r)
 	if !ok {
-		writeErr(w, 404, "task not found")
 		return
 	}
 	goals, err := t.Store.ListByKind(db.KindGoal, 10000)
@@ -32,9 +31,8 @@ func (s *Server) listGoals(w http.ResponseWriter, r *http.Request) {
 // addGoal 人工新增一个目标:落库(挂到任务根 spawns 下)→ 记一条「新增了目标」触发唤醒
 // planner → 复活任务,让规划者据新目标重判是否达成。
 func (s *Server) addGoal(w http.ResponseWriter, r *http.Request) {
-	t, ok := s.m.Task(r.PathValue("id"))
+	t, ok := s.taskOr404(w, r)
 	if !ok {
-		writeErr(w, 404, "task not found")
 		return
 	}
 	if !s.engine.beginTaskOperation(t.ID) {
@@ -81,9 +79,8 @@ func (s *Server) addGoal(w http.ResponseWriter, r *http.Request) {
 // editGoal 人工修改一个目标文本(及 vulnclass):改库 → 记「用户修改了目标由 old 变为 new」
 // 触发唤醒 planner → 复活任务,让规划者据新目标调整方向。
 func (s *Server) editGoal(w http.ResponseWriter, r *http.Request) {
-	t, ok := s.m.Task(r.PathValue("id"))
+	t, ok := s.taskOr404(w, r)
 	if !ok {
-		writeErr(w, 404, "task not found")
 		return
 	}
 	if !s.engine.beginTaskOperation(t.ID) {
@@ -137,9 +134,8 @@ func (s *Server) editGoal(w http.ResponseWriter, r *http.Request) {
 // deleteGoal 人工删除一个目标(硬删除,级联删边/锚点):删库 → 记「用户删除了该目标 X」
 // 触发唤醒 planner 据此重判剩余目标。按产品决策,删除【不】复活任务。
 func (s *Server) deleteGoal(w http.ResponseWriter, r *http.Request) {
-	t, ok := s.m.Task(r.PathValue("id"))
+	t, ok := s.taskOr404(w, r)
 	if !ok {
-		writeErr(w, 404, "task not found")
 		return
 	}
 	if !s.engine.beginTaskOperation(t.ID) {

@@ -22,8 +22,7 @@ const (
 )
 
 func decodeConversationRequest(w http.ResponseWriter, r *http.Request, value any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, maxConversationRequestBytes)
-	if err := decode(r, value); err != nil {
+	if err := decodeBody(w, r, maxConversationRequestBytes, value); err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
 			writeErr(w, http.StatusRequestEntityTooLarge, "请求正文过大")

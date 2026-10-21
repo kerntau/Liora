@@ -22,18 +22,16 @@ func writeTaskAssetError(w http.ResponseWriter, err error) {
 }
 
 func (s *Server) attachTaskAssets(w http.ResponseWriter, r *http.Request) {
-	task, ok := s.m.Task(r.PathValue("id"))
+	task, ok := s.taskOr404(w, r)
 	if !ok {
-		writeErr(w, http.StatusNotFound, "task not found")
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxTaskAssetRequestBytes)
 	var request struct {
 		AssetIDs      []int64            `json:"asset_ids"`
 		SourceSummary string             `json:"source_summary"`
 		Scope         companyScopeInputs `json:"scope"`
 	}
-	if err := decode(r, &request); err != nil {
+	if err := decodeBody(w, r, maxTaskAssetRequestBytes, &request); err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
 			writeErr(w, http.StatusRequestEntityTooLarge, "请求正文过大")
@@ -68,9 +66,8 @@ func (s *Server) attachTaskAssets(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) detachTaskAsset(w http.ResponseWriter, r *http.Request) {
-	task, ok := s.m.Task(r.PathValue("id"))
+	task, ok := s.taskOr404(w, r)
 	if !ok {
-		writeErr(w, http.StatusNotFound, "task not found")
 		return
 	}
 	assetID, ok := pathInt(r, "assetID")
@@ -93,9 +90,8 @@ func (s *Server) detachTaskAsset(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) taskIntentAssets(w http.ResponseWriter, r *http.Request) {
-	task, ok := s.m.Task(r.PathValue("id"))
+	task, ok := s.taskOr404(w, r)
 	if !ok {
-		writeErr(w, http.StatusNotFound, "task not found")
 		return
 	}
 	taskID, _ := parseTaskID(task.ID)
