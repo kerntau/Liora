@@ -542,7 +542,11 @@ func (s *Server) insertAssets(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if req.TaskID > 0 {
-			_ = as.SetTaskAssetSource(req.TaskID, id, "api", "通过资产 API 登记", nil)
+			if err := as.SetTaskAssetSource(req.TaskID, id, "api", "通过资产 API 登记", nil); err != nil {
+				// The asset row exists but its provenance link does not. Report it per
+				// item instead of returning a clean success the caller cannot audit.
+				errs = append(errs, errEntry{Index: i, Error: "资产已登记，但来源关联写入失败: " + err.Error()})
+			}
 		}
 		results = append(results, result{Index: i, ID: id, Type: a.Type})
 	}

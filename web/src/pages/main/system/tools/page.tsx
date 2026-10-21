@@ -417,7 +417,6 @@ export default function ToolsPage() {
   const toolsQ = useAsyncData(() => api.tools(), []);
   const tools = toolsQ.data ?? [];
   const reload = toolsQ.reload;
-  const listStatus = toolsQ.status === "error" ? "error" : toolsQ.initialLoading ? "loading" : "ready";
 
   React.useEffect(() => {
     api.agents().then(setAgents).catch(() => {});
@@ -480,9 +479,10 @@ export default function ToolsPage() {
             </CardHeader>
             <CardContent>
               <AsyncState
-                status={listStatus}
+                status={toolsQ.status}
                 error={toolsQ.error}
                 onRetry={reload}
+                refreshing={toolsQ.refreshing}
                 isEmpty={systemTools.length === 0}
                 skeleton={<ToolGridSkeleton />}
                 empty={
@@ -520,9 +520,10 @@ export default function ToolsPage() {
             </CardHeader>
             <CardContent>
               <AsyncState
-                status={listStatus}
+                status={toolsQ.status}
                 error={toolsQ.error}
                 onRetry={reload}
+                refreshing={toolsQ.refreshing}
                 isEmpty={customTools.length === 0}
                 skeleton={<ToolGridSkeleton />}
                 empty={

@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -879,11 +880,11 @@ func (s *Server) Handler() http.Handler {
 	// /api/* goes through CORS + JWT; everything else is served by the embedded
 	// frontend (public — auth is enforced client-side and on the API). With the
 	// no-embed build the webui handler just 404s (run `npm run dev` separately).
-	api := cors(s.requireAuth(mux))
+	api := cors(withObservability(recoverPanic(limitJSONBody(s.requireAuth(mux)))))
 	root := http.NewServeMux()
 	root.Handle("/api/", api)
 	root.Handle("/", s.webuiHandler())
-	return root
+	return securityHeaders(root)
 }
 
 // --- handlers ---
@@ -3689,11 +3690,63 @@ func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		// Authorization must be listed explicitly: a cross-origin deployment (the
+		// frontend served from another origin, e.g. a separate SSE base) sends a
+		// preflight for the Bearer header, and omitting it fails the whole request.
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Max-Age", "600")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(204)
 			return
 		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// recoverPanic turns a handler panic into a 500 JSON response instead of a
+// dropped connection. net/http already logs the panic, but the client then sees
+// a transport error indistinguishable from a network failure; this keeps the
+// failure explicit and lets the frontend surface the request path.
+func recoverPanic(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			rec := recover()
+			if rec == nil {
+				return
+			}
+			if rec == http.ErrAbortHandler {
+				panic(rec) // deliberate abort: let net/http handle it as before
+			}
+			log.Printf("[http] panic on %s %s id=%s: %v\n%s", r.Method, r.URL.Path, requestID(r.Context()), rec, debug.Stack())
+			writeErr(w, http.StatusInternalServerError, "服务器内部错误")
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+// maxJSONBodyBytes caps JSON request bodies. Upload endpoints take multipart
+// bodies and set their own MaxBytesReader, so they are exempt: an unbounded
+// JSON body on any other endpoint would be buffered into memory before the
+// handler can validate it.
+const maxJSONBodyBytes = 2 << 20 // 2 MiB
+
+func limitJSONBody(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil && strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "application/json") {
+			r.Body = http.MaxBytesReader(w, r.Body, maxJSONBodyBytes)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// securityHeaders are response-only and safe for both the JSON API and the
+// embedded SPA. No CSP is set: the build injects inline bootstrap data.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "same-origin")
+		h.Set("X-Frame-Options", "DENY")
 		next.ServeHTTP(w, r)
 	})
 }

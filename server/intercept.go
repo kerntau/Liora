@@ -254,7 +254,13 @@ func (s *Server) interceptListTaskItems(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if q.Get("page") == "" && q.Get("size") == "" && filter == (db.InterceptApprovalFilter{}) {
-		items, err := pg.ListTaskIntercepts(taskID)
+		// The badge/summary callers only need the newest rows, but this branch used to
+		// return EVERY intercept for the task (tool_input + audit JSON included). A
+		// long-running task with Bash/Write interception accumulates thousands of rows,
+		// so one unpaginated request could materialize the whole history in memory.
+		// Cap it like the history endpoint does; the paged branch below still serves
+		// full browsing.
+		items, total, err := pg.ListTaskInterceptsPage(taskID, 1, 100, filter)
 		if err != nil {
 			writeErr(w, 500, err.Error())
 			return
@@ -262,7 +268,7 @@ func (s *Server) interceptListTaskItems(w http.ResponseWriter, r *http.Request) 
 		if items == nil {
 			items = []db.InterceptApprovalRow{}
 		}
-		writeJSON(w, 200, map[string]any{"items": items, "total": len(items)})
+		writeJSON(w, 200, map[string]any{"items": items, "total": total, "truncated": total > len(items)})
 		return
 	}
 	page, size := interceptPageParams(q)

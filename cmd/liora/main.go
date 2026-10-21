@@ -114,6 +114,12 @@ func run() int {
 		Addr:              *addr,
 		Handler:           srv.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
+		// Idle keep-alive connections are otherwise never reclaimed: a browser tab left
+		// open (or a half-closed peer) keeps an fd + goroutine forever. WriteTimeout
+		// must stay 0 because /api/*/stream are long-lived SSE responses, and
+		// ReadTimeout is left to the upload handlers' own MaxBytesReader + body limits.
+		IdleTimeout:    120 * time.Second,
+		MaxHeaderBytes: 1 << 20,
 	}
 
 	go func() {

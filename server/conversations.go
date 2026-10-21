@@ -124,8 +124,16 @@ func (s *Server) pgConversationMessages(w http.ResponseWriter, r *http.Request) 
 	// Incremental tail: ?since=N returns steps after id N (ASC) — used by the live
 	// poll and the post-send fetch. A generous cap so a burst is never dropped.
 	if sv := q.Get("since"); sv != "" {
-		since, _ := strconv.ParseInt(sv, 10, 64)
-		items, cursor, err := pg.ConvActivityList(c.ID, since, max(limit, 1000))
+		since, parseErr := strconv.ParseInt(sv, 10, 64)
+		if parseErr != nil || since < 0 {
+			// Silently falling back to 0 used to return the OLDEST page instead of the
+			// tail, which desynchronises the transcript; reject the cursor instead.
+			writeErr(w, 400, "since 必须是非负整数")
+			return
+		}
+		// The incremental tail is bounded by a fixed burst cap (not ?limit): a burst
+		// must never be dropped, and ?limit is the history-page parameter.
+		items, cursor, err := pg.ConvActivityList(c.ID, since, 1000)
 		if err != nil {
 			writeErr(w, 500, err.Error())
 			return

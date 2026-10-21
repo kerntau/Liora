@@ -167,7 +167,13 @@ func (sc *Scheduler) fireIntervals(triggers []*db.AgentTrigger) {
 		if !due {
 			continue
 		}
-		_ = sc.pg.TouchTriggerFire(tr.ID)
+		// Advance the watermark BEFORE starting the run. If the write fails and we
+		// still fire, last_fire stays behind and the next 5s tick fires the same
+		// interval trigger again — duplicated conversations and duplicated token spend.
+		if err := sc.pg.TouchTriggerFire(tr.ID); err != nil {
+			log.Printf("[scheduler] 触发器 %d 推进 last_fire 失败，跳过本轮: %v", tr.ID, err)
+			continue
+		}
 		ctx := "\n\n【本次为定时触发】" + now.Format(" 2006-01-02 15:04:05 MST")
 		sc.s.StartTriggeredRun(tr.AgentKey, fmt.Sprintf("定时触发 · %s", now.Format("15:04")), tr.IntervalMessage+ctx, 0, false, "", "")
 	}

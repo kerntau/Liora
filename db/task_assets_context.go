@@ -122,8 +122,12 @@ ORDER BY CASE WHEN ts.task_id=$1 THEN 0 ELSE 1 END, ts.id`, taskID)
 // the denominator, while fact anchors count as tested. No row is copied.
 func (s *AssetStore) TaskCoverageWithSources(taskID int64) (*Coverage, error) {
 	cov := &Coverage{ByType: []CoverageByType{}}
-	_ = s.db.QueryRow(`WITH `+directTaskContextCTE+`
-SELECT count(*) FROM task_scope ts JOIN context_tasks ctx ON ctx.task_id=ts.task_id`, taskID).Scan(&cov.ScopeRows)
+	// ScopeRows==0 means "范围未锚定" to the coverage UI and to the agent prompt, so a
+	// failed count must not be rendered as that state: return the error instead.
+	if err := s.db.QueryRow(`WITH `+directTaskContextCTE+`
+SELECT count(*) FROM task_scope ts JOIN context_tasks ctx ON ctx.task_id=ts.task_id`, taskID).Scan(&cov.ScopeRows); err != nil {
+		return nil, err
+	}
 	rows, err := s.db.Query(`WITH `+contextCoverageCTE+`
 SELECT target.type, count(*) AS total,
        count(*) FILTER (WHERE target.id IN (SELECT asset_id FROM tested)) AS tested
