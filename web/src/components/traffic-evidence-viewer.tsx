@@ -2,10 +2,12 @@
 
 import * as React from "react";
 
+import { RefreshCwIcon } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 
 import { HttpCodeBlock } from "@/components/http-code-block";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { AsyncButton } from "@/components/ui/async-button";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -92,12 +94,18 @@ export function TrafficEvidenceViewer({
 }) {
   const [detail, setDetail] = React.useState<FindingTrafficDetail | null>(null);
   const [error, setError] = React.useState("");
-  const [busy, setBusy] = React.useState(false);
+  const [loadedKey, setLoadedKey] = React.useState<string | null>(null);
+  const [reloadKey, setReloadKey] = React.useState(0);
+  const [busySide, setBusySide] = React.useState<TrafficSide | null>(null);
+  const [downloading, setDownloading] = React.useState<TrafficSide | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reloadKey 只用于手动重试，不参与请求参数。
   React.useEffect(() => {
     if (!bindingId) return;
     let active = true;
     setDetail(null);
     setError("");
+    // 立刻记下新条目 ID：旧条目的正文与旧错误都不会被当成新条目的内容渲染一帧。
+    setLoadedKey(bindingId);
     api
       .findingTrafficDetail(findingId, bindingId, contextTask)
       .then((d) => {
@@ -109,22 +117,35 @@ export function TrafficEvidenceViewer({
     return () => {
       active = false;
     };
-  }, [findingId, bindingId, contextTask]);
+  }, [findingId, bindingId, contextTask, reloadKey]);
 
-  async function more(side: "request" | "response") {
-    if (!detail || !bindingId) return;
-    setBusy(true);
+  const current = loadedKey === bindingId ? detail : null;
+  const currentError = loadedKey === bindingId ? error : "";
+
+  async function more(side: TrafficSide) {
+    if (!current || !bindingId) return;
+    setBusySide(side);
     try {
-      const next = await api.findingTrafficBody(findingId, bindingId, side, detail[side].next_offset, contextTask);
-      setDetail((current) =>
-        current?.binding.id === bindingId
-          ? { ...current, [side]: { ...next, content: current[side].content + next.content } }
-          : current,
+      const next = await api.findingTrafficBody(findingId, bindingId, side, current[side].next_offset, contextTask);
+      setDetail((d) =>
+        d && d.binding.id === bindingId ? { ...d, [side]: { ...next, content: d[side].content + next.content } } : d,
       );
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
-      setBusy(false);
+      setBusySide(null);
+    }
+  }
+
+  async function download(side: TrafficSide) {
+    if (!current || downloading) return;
+    setDownloading(side);
+    try {
+      await api.downloadFindingTrafficBody(findingId, current.binding.id, side, contextTask);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setDownloading(null);
     }
   }
 
@@ -139,14 +160,19 @@ export function TrafficEvidenceViewer({
         <DialogHeader>
           <DialogTitle>流量证据 #{bindingId}</DialogTitle>
           <DialogDescription className="break-all">
-            {detail?.binding.snapshot.url ?? "查看绑定时保存的请求与响应"}
+            {current?.binding.snapshot.url ?? "查看绑定时保存的请求与响应"}
           </DialogDescription>
         </DialogHeader>
-        {error ? (
+        {currentError ? (
           <Alert variant="destructive">
-            <AlertDescription>{error}</AlertDescription>
+            <AlertDescription className="flex flex-col items-start gap-3">
+              <span>{currentError}</span>
+              <Button size="sm" variant="outline" onClick={() => setReloadKey((n) => n + 1)}>
+                <RefreshCwIcon /> 重试
+              </Button>
+            </AlertDescription>
           </Alert>
-        ) : detail ? (
+        ) : current ? (
           <Tabs defaultValue="request">
             <TabsList>
               <TabsTrigger value="request">请求 Request</TabsTrigger>
@@ -156,27 +182,27 @@ export function TrafficEvidenceViewer({
               <TabsContent key={side} value={side}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-xs text-muted-foreground">
-                    正文 {detail[side].total.toLocaleString()} 字节{detail[side].truncated ? " · 当前为预览" : ""}
+                    正文 {current[side].total.toLocaleString()} 字节{current[side].truncated ? " · 当前为预览" : ""}
                   </span>
-                  <Button
+                  <AsyncButton
                     variant="outline"
                     size="sm"
-                    onClick={() =>
-                      void api
-                        .downloadFindingTrafficBody(findingId, detail.binding.id, side, contextTask)
-                        .catch((e: Error) => toast.error(e.message))
-                    }
+                    loading={downloading === side}
+                    onClick={() => void download(side)}
                   >
                     下载完整{side === "request" ? "请求" : "响应"}正文
-                  </Button>
+                  </AsyncButton>
                 </div>
                 <HttpCodeBlock
-                  raw={`${(side === "request" ? detail.binding.snapshot.req_head : detail.binding.snapshot.resp_head)?.trimEnd() ?? ""}\n\n${detail[side].content}`}
+                  raw={`${(side === "request" ? current.binding.snapshot.req_head : current.binding.snapshot.resp_head)?.trimEnd() ?? ""}\n\n${current[side].content}`}
                 />
-                {detail[side].truncated && !detail[side].binary ? (
-                  <Button variant="outline" size="sm" disabled={busy} onClick={() => void more(side)}>
+                {current[side].truncated && !current[side].binary ? (
+                  <AsyncButton variant="outline" size="sm" loading={busySide === side} onClick={() => void more(side)}>
                     加载更多正文
-                  </Button>
+                  </AsyncButton>
+                ) : null}
+                {current[side].binary ? (
+                  <p className="text-muted-foreground text-xs">二进制正文不内联展示，请下载后查看。</p>
                 ) : null}
               </TabsContent>
             ))}
@@ -192,16 +218,21 @@ export function TrafficEvidenceViewer({
 export function CapturedTrafficViewer({ id, onClose }: { id: string | null; onClose: () => void }) {
   const [detail, setDetail] = React.useState<TrafficDetail | null>(null);
   const [error, setError] = React.useState("");
+  const [loadedId, setLoadedId] = React.useState<string | null>(null);
+  const [reloadKey, setReloadKey] = React.useState(0);
   // 两个 Tab 各存一份加载状态，互不影响。
   const [blobs, setBlobs] = React.useState<Record<TrafficSide, BlobLoad>>(emptyBlobLoads);
   // 记住当前展示的流量 ID，切换后丢弃上一轮迟到的 blob 结果。
   const currentId = React.useRef(id);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reloadKey 只用于手动重试，不参与请求参数。
   React.useEffect(() => {
     currentId.current = id;
     if (!id) return;
     let active = true;
     setDetail(null);
     setError("");
+    // 先记下新 ID，切换条目的那一帧不会再渲染上一条的正文或错误。
+    setLoadedId(id);
     setBlobs(emptyBlobLoads());
     api
       .trafficExchange(id)
@@ -214,7 +245,10 @@ export function CapturedTrafficViewer({ id, onClose }: { id: string | null; onCl
     return () => {
       active = false;
     };
-  }, [id]);
+  }, [id, reloadKey]);
+
+  const current = loadedId === id ? detail : null;
+  const currentError = loadedId === id ? error : "";
 
   async function loadBlob(side: TrafficSide, hash: string) {
     const forId = id;
@@ -231,10 +265,10 @@ export function CapturedTrafficViewer({ id, onClose }: { id: string | null; onCl
   }
 
   const views = React.useMemo(() => {
-    if (!detail) return null;
+    if (!current) return null;
     const out = {} as Record<TrafficSide, { text: string; marker: BlobMarker | null }>;
     for (const side of TRAFFIC_SIDES) {
-      const raw = side === "request" ? detail.req : detail.resp;
+      const raw = side === "request" ? current.req : current.resp;
       const marker = findBlobMarker(raw);
       const loaded = blobs[side].status === "loaded" ? blobs[side].text : undefined;
       out[side] = {
@@ -243,7 +277,7 @@ export function CapturedTrafficViewer({ id, onClose }: { id: string | null; onCl
       };
     }
     return out;
-  }, [detail, blobs]);
+  }, [current, blobs]);
 
   return (
     <Dialog
@@ -257,11 +291,16 @@ export function CapturedTrafficViewer({ id, onClose }: { id: string | null; onCl
           <DialogTitle>预览流量</DialogTitle>
           <DialogDescription>流量 ID：{id}。绑定时会保存完整正文。</DialogDescription>
         </DialogHeader>
-        {error ? (
+        {currentError ? (
           <Alert variant="destructive">
-            <AlertDescription>{error}</AlertDescription>
+            <AlertDescription className="flex flex-col items-start gap-3">
+              <span>{currentError}</span>
+              <Button size="sm" variant="outline" onClick={() => setReloadKey((n) => n + 1)}>
+                <RefreshCwIcon /> 重试
+              </Button>
+            </AlertDescription>
           </Alert>
-        ) : detail ? (
+        ) : current ? (
           <Tabs defaultValue="request">
             <TabsList>
               <TabsTrigger value="request">请求 Request</TabsTrigger>

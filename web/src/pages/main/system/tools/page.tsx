@@ -34,7 +34,11 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { AsyncState } from "@/components/async-state";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
+import { useAsyncData } from "@/hooks/use-async-data";
 import type { Agent, Tool } from "@/lib/types";
 
 // Traffic tools are host tools gated by the global 流量捕获 switch: bindable, but
@@ -147,12 +151,14 @@ function ToolEditor({
   captureOn,
   onSaved,
   onClose,
+  onBusyChange,
 }: {
   tool: Tool;
   agents: Agent[];
   captureOn: boolean;
   onSaved: () => void;
   onClose: () => void;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   // traffic tools can't be bound/enabled until the global 流量捕获 switch is on.
   const trafficGated = TRAFFIC_TOOL_KEYS.has(tool.key) && !captureOn;
@@ -161,6 +167,8 @@ function ToolEditor({
   const [enabled, setEnabled] = React.useState(tool.enabled);
   const [rows, setRows] = React.useState<ParamRow[]>(() => toRows(tool.schema));
   const [saving, setSaving] = React.useState(false);
+  const [resetting, setResetting] = React.useState(false);
+  const [confirmReset, setConfirmReset] = React.useState(false);
 
   const setRow = (i: number, patch: Partial<ParamRow>) =>
     setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
@@ -169,6 +177,7 @@ function ToolEditor({
 
   async function save() {
     setSaving(true);
+    onBusyChange?.(true);
     try {
       await api.saveTool(tool.key, {
         description,
@@ -183,9 +192,12 @@ function ToolEditor({
       toast.error("保存失败：" + (e as Error).message);
     } finally {
       setSaving(false);
+      onBusyChange?.(false);
     }
   }
   async function reset() {
+    setResetting(true);
+    onBusyChange?.(true);
     try {
       await api.resetTool(tool.key);
       toast.success(`已恢复「${tool.key}」为代码默认`);
@@ -193,6 +205,11 @@ function ToolEditor({
       onClose();
     } catch (e) {
       toast.error("恢复失败：" + (e as Error).message);
+      // 抛给 ConfirmDialog：失败时保持确认框打开，不假装成功。
+      throw e;
+    } finally {
+      setResetting(false);
+      onBusyChange?.(false);
     }
   }
 
@@ -303,13 +320,34 @@ function ToolEditor({
 
       <Separator className="mt-4" />
       <div className="flex flex-wrap gap-2 p-4">
-        <Button size="sm" onClick={save} disabled={saving}>
+        <Button size="sm" onClick={save} disabled={saving || resetting}>
           <SaveIcon /> 保存
         </Button>
-        <Button size="sm" variant="outline" onClick={reset}>
+        <Button size="sm" variant="outline" onClick={() => setConfirmReset(true)} disabled={saving || resetting}>
           <RotateCcwIcon /> 恢复默认
         </Button>
       </div>
+
+      <ConfirmDialog
+        open={confirmReset}
+        onOpenChange={setConfirmReset}
+        title={`恢复「${tool.key}」为代码默认？`}
+        description="将丢弃当前描述、参数默认值与 Agent 绑定，恢复为代码内置默认值。"
+        confirmLabel="恢复默认"
+        destructive
+        onConfirm={reset}
+      />
+    </div>
+  );
+}
+
+// ToolGridSkeleton keeps the grid footprint while the first page loads.
+function ToolGridSkeleton() {
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-hidden="true">
+      {[0, 1, 2].map((i) => (
+        <Skeleton key={i} className="h-[118px] rounded-lg" />
+      ))}
     </div>
   );
 }
@@ -369,20 +407,22 @@ function ToolGridCard({ tool, onClick }: { tool: Tool; onClick: () => void }) {
 }
 
 export default function ToolsPage() {
-  const [tools, setTools] = React.useState<Tool[]>([]);
   const [agents, setAgents] = React.useState<Agent[]>([]);
   const [captureOn, setCaptureOn] = React.useState(false);
   const [selectedKey, setSelectedKey] = React.useState<string | null>(null);
   const [customEdit, setCustomEdit] = React.useState<Tool | "new" | null>(null);
+  const [editorBusy, setEditorBusy] = React.useState(false);
 
-  const reload = React.useCallback(() => {
-    api.tools().then(setTools).catch(() => setTools([]));
-  }, []);
+  // 列表走统一四态：首载骨架、失败常驻可重试；刷新保留上一份，卡片不闪空。
+  const toolsQ = useAsyncData(() => api.tools(), []);
+  const tools = toolsQ.data ?? [];
+  const reload = toolsQ.reload;
+  const listStatus = toolsQ.status === "error" ? "error" : toolsQ.initialLoading ? "loading" : "ready";
+
   React.useEffect(() => {
-    reload();
     api.agents().then(setAgents).catch(() => {});
     api.settings().then((s) => setCaptureOn(!!s.traffic_capture)).catch(() => {});
-  }, [reload]);
+  }, []);
 
   const [query, setQuery] = React.useState("");
 
@@ -439,17 +479,24 @@ export default function ToolsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {systemTools.length === 0 ? (
-                <p className="text-muted-foreground py-6 text-center text-sm">
-                  {query.trim() ? "没有匹配的系统工具" : "（暂无系统工具，等待后端 seed）"}
-                </p>
-              ) : (
+              <AsyncState
+                status={listStatus}
+                error={toolsQ.error}
+                onRetry={reload}
+                isEmpty={systemTools.length === 0}
+                skeleton={<ToolGridSkeleton />}
+                empty={
+                  <p className="text-muted-foreground py-6 text-center text-sm">
+                    {query.trim() ? "没有匹配的系统工具" : "（暂无系统工具，等待后端 seed）"}
+                  </p>
+                }
+              >
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {systemTools.map((t) => (
                     <ToolGridCard key={t.key} tool={t} onClick={() => openTool(t)} />
                   ))}
                 </div>
-              )}
+              </AsyncState>
             </CardContent>
           </Card>
         </TabsContent>
@@ -472,17 +519,24 @@ export default function ToolsPage() {
               </div>
             </CardHeader>
             <CardContent>
-              {customTools.length === 0 ? (
-                <p className="text-muted-foreground py-6 text-center text-sm">
-                  {query.trim() ? "没有匹配的自定义工具" : "（暂无自定义工具，点击右上角「新建自定义工具」）"}
-                </p>
-              ) : (
+              <AsyncState
+                status={listStatus}
+                error={toolsQ.error}
+                onRetry={reload}
+                isEmpty={customTools.length === 0}
+                skeleton={<ToolGridSkeleton />}
+                empty={
+                  <p className="text-muted-foreground py-6 text-center text-sm">
+                    {query.trim() ? "没有匹配的自定义工具" : "（暂无自定义工具，点击右上角「新建自定义工具」）"}
+                  </p>
+                }
+              >
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {customTools.map((t) => (
                     <ToolGridCard key={t.key} tool={t} onClick={() => openTool(t)} />
                   ))}
                 </div>
-              )}
+              </AsyncState>
             </CardContent>
           </Card>
         </TabsContent>
@@ -491,6 +545,7 @@ export default function ToolsPage() {
       <Sheet open={!!selected} onOpenChange={(o) => !o && setSelectedKey(null)}>
         <SheetContent
           side="right"
+          busy={editorBusy}
           className="gap-0 p-0 data-[side=right]:w-full data-[side=right]:sm:w-[30vw] data-[side=right]:sm:min-w-96 data-[side=right]:sm:max-w-[30vw]"
         >
           {selected && (
@@ -506,6 +561,7 @@ export default function ToolsPage() {
                 captureOn={captureOn}
                 onSaved={reload}
                 onClose={() => setSelectedKey(null)}
+                onBusyChange={setEditorBusy}
               />
             </>
           )}
@@ -563,6 +619,7 @@ function CustomToolDialog({
   const [deferred, setDeferred] = React.useState(false);
   const [enabled, setEnabled] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
+  const [confirmDelete, setConfirmDelete] = React.useState(false);
   const [paramsText, setParamsText] = React.useState("");
   const [testing, setTesting] = React.useState(false);
   const [testResult, setTestResult] = React.useState<{ output: string; is_error: boolean } | null>(null);
@@ -653,6 +710,8 @@ function CustomToolDialog({
       onSaved();
     } catch (e) {
       toast.error("删除失败：" + (e as Error).message);
+      // 抛给 ConfirmDialog：失败时保持确认框打开，不假装已删除。
+      throw e;
     }
   }
   // runTest dry-runs the CURRENT form (unsaved) with the sample params, so a
@@ -681,6 +740,7 @@ function CustomToolDialog({
     <Sheet open={!!edit} onOpenChange={(o) => !o && onClose()}>
       <SheetContent
         side="right"
+        busy={saving}
         className="flex flex-col gap-0 p-0 data-[side=right]:w-full data-[side=right]:sm:w-[45vw] data-[side=right]:sm:min-w-[480px] data-[side=right]:sm:max-w-[45vw]"
       >
         <SheetHeader className="px-4">
@@ -838,11 +898,21 @@ function CustomToolDialog({
             <SaveIcon /> {isNew ? "创建" : "保存"}
           </Button>
           {!isNew && (
-            <Button size="sm" variant="outline" className="text-destructive" onClick={del}>
+            <Button size="sm" variant="outline" className="text-destructive" onClick={() => setConfirmDelete(true)}>
               <Trash2Icon /> 删除
             </Button>
           )}
         </div>
+
+        <ConfirmDialog
+          open={confirmDelete}
+          onOpenChange={setConfirmDelete}
+          title={`删除自定义工具「${tool?.key ?? ""}」？`}
+          description="该工具会从所有已绑定的 Agent 移除，删除后无法恢复。"
+          confirmLabel="删除"
+          destructive
+          onConfirm={del}
+        />
       </SheetContent>
     </Sheet>
   );

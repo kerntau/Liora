@@ -3,7 +3,7 @@
 import * as React from "react";
 
 import Link from "@/lib/router-compat";
-import { useRouter, useSearchParams } from "@/lib/router-compat";
+import { usePathname, useRouter, useSearchParams } from "@/lib/router-compat";
 
 import { ArchiveIcon, ArrowLeftIcon, BrainIcon, CheckIcon, CircleAlertIcon, PauseIcon, PlayIcon } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
@@ -60,6 +60,14 @@ const TABS = [
   { value: "intercept", label: "拦截审批" },
   { value: "report", label: "报告" },
 ];
+
+const DEFAULT_TAB = "sessions";
+const TAB_VALUES = new Set(TABS.map((tab) => tab.value));
+
+// 非法或缺失的 tab 参数回落到默认页签，手工改 URL 不会渲染出空白内容区。
+function normalizeTab(value: string | null) {
+  return value && TAB_VALUES.has(value) ? value : DEFAULT_TAB;
+}
 
 function taskProfileIDs(task: Task): string[] {
   if (task.llm_profile_ids && task.llm_profile_ids.length > 0) {
@@ -202,12 +210,14 @@ function TaskLLMControl({ task, profiles, onUpdated }: { task: Task; profiles: L
 
 function TaskDetailInner() {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const id = searchParams.get("id") ?? "";
+  // 页签记在 URL 上：刷新、从别处回到详情页都停在同一页签，也方便直接分享。
+  const tab = normalizeTab(searchParams.get("tab"));
   const [task, setTask] = React.useState<Task | null>(null);
   const [paused, setPaused] = React.useState(false);
   const [loaded, setLoaded] = React.useState(false);
-  const [tab, setTab] = React.useState("sessions");
   const [interceptPendingCount, setInterceptPendingCount] = React.useState(0);
   const [profiles, setProfiles] = React.useState<LLMProfile[]>([]);
   const [archiving, setArchiving] = React.useState(false);
@@ -272,6 +282,26 @@ function TaskDetailInner() {
     const timer = setInterval(load, 5000);
     return () => clearInterval(timer);
   }, [load]);
+
+  // 切页签用 replace：浏览历史里不该堆满 tab 切换记录，后退仍然回到上一页。
+  const selectTab = React.useCallback(
+    (next: string) => {
+      const params = new URLSearchParams(searchParams);
+      if (next === DEFAULT_TAB) params.delete("tab");
+      else params.set("tab", next);
+      const query = params.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname);
+    },
+    [pathname, router, searchParams],
+  );
+
+  // 优先回到用户来的那一页（任务列表、漏洞结果等），只有直接打开详情链接、没有应用内
+  // 历史时才退回任务列表。history.state.idx 由 react-router 维护。
+  const goBack = React.useCallback(() => {
+    const idx = (window.history.state as { idx?: number | null } | null)?.idx ?? 0;
+    if (idx > 0) router.back();
+    else router.push("/function/tasks");
+  }, [router]);
 
   async function togglePause() {
     if (task && ["done", "failed", "timeout"].includes(task.status)) return;
@@ -346,15 +376,13 @@ function TaskDetailInner() {
   );
 
   return (
-    <Tabs value={tab} onValueChange={setTab} className="flex flex-1 flex-col gap-0">
+    <Tabs value={tab} onValueChange={selectTab} className="flex flex-1 flex-col gap-0">
       {/* Top fixed area */}
       <header className="sticky top-0 z-10 flex flex-col gap-2 border-b bg-background/95 px-4 py-2.5 backdrop-blur lg:px-6">
         <div className="flex items-center gap-2">
           <SidebarTrigger className="-ml-1" />
-          <Button asChild variant="ghost" size="icon" className="size-7">
-            <Link href="/function/tasks">
-              <ArrowLeftIcon />
-            </Link>
+          <Button type="button" variant="ghost" size="icon" className="size-7" aria-label="返回上一页" onClick={goBack}>
+            <ArrowLeftIcon />
           </Button>
           <h1 className="min-w-0 flex-1 truncate text-sm font-semibold" title={task.name || task.description}>
             {task.name || task.description}

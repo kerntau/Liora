@@ -19,6 +19,7 @@ import {
 import { toast } from "@/components/ui/sonner";
 
 import { AssetDslSearch } from "@/components/asset-dsl-search";
+import { AsyncState } from "@/components/async-state";
 import { ScopeTextEditor } from "@/components/scope-text-editor";
 import {
   AlertDialog,
@@ -56,6 +57,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
@@ -237,6 +239,8 @@ export default function AssetsPage() {
     setRowsTab("");
     setTotal(0);
     setLoaded(false);
+    // 切到「企业」时下面的加载 effect 会提前 return，不在这里复位 loading 会永久卡住刷新按钮。
+    setLoading(false);
   }, [tab]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: these controls intentionally reset server pagination.
@@ -250,9 +254,10 @@ export default function AssetsPage() {
     if (tab === "company") return;
     const request = ++assetsRequestRef.current;
     const dsl = query.trim();
-    setLoading(true);
     const offset = page * size;
     const run = async () => {
+      // 防抖等待期间不算加载中，避免输入时刷新按钮一直转。
+      setLoading(true);
       try {
         const r = dsl ? await api.searchAssets(dsl, tab, size, offset) : await api.assets(tab, size, offset);
         if (assetsRequestRef.current !== request) return;
@@ -300,6 +305,8 @@ export default function AssetsPage() {
   // rows are already the current server-side page.
   const tabData = (type: string): Asset[] => (rowsTab === type ? rows : []);
   const currentRows = tabData(tab);
+  // 切 tab 后的这一帧 rowsTab 仍是旧值：按未加载渲染骨架，不闪「暂无数据」。
+  const tabLoaded = loaded && rowsTab === tab;
   const slice = <T,>(list: T[]) => list;
 
   const searchBox = (
@@ -311,6 +318,8 @@ export default function AssetsPage() {
       count={dslMode ? total : undefined}
     />
   );
+
+  const cardStateProps = { error: dslError, loading, onRetry: refresh };
 
   return (
     <div className="flex h-[calc(100vh-6rem)] min-h-0 flex-col gap-4">
@@ -420,8 +429,9 @@ export default function AssetsPage() {
         <TabsContent value="root_domain" className="mt-0 flex min-h-0 flex-1 flex-col gap-2">
           {searchBox}
           <AssetCard
+            {...cardStateProps}
             cols={["", "域名", "ICP 备案", "归属企业", ""]}
-            loaded={loaded}
+            loaded={tabLoaded}
             total={total}
             page={page}
             size={size}
@@ -461,8 +471,9 @@ export default function AssetsPage() {
         <TabsContent value="ip" className="mt-0 flex min-h-0 flex-1 flex-col gap-2">
           {searchBox}
           <AssetCard
+            {...cardStateProps}
             cols={["", "IP", "C段", "绑定域名", "开放端口", ""]}
-            loaded={loaded}
+            loaded={tabLoaded}
             total={total}
             page={page}
             size={size}
@@ -508,8 +519,9 @@ export default function AssetsPage() {
         <TabsContent value="subdomain" className="mt-0 flex min-h-0 flex-1 flex-col gap-2">
           {searchBox}
           <AssetCard
+            {...cardStateProps}
             cols={["", "域名", "根域名", "解析类型", "解析值", ""]}
-            loaded={loaded}
+            loaded={tabLoaded}
             total={total}
             page={page}
             size={size}
@@ -550,8 +562,9 @@ export default function AssetsPage() {
         <TabsContent value="app" className="mt-0 flex min-h-0 flex-1 flex-col gap-2">
           {searchBox}
           <AssetCard
+            {...cardStateProps}
             cols={["", "应用名", "Bundle ID", "分类", "ICP 备案", ""]}
-            loaded={loaded}
+            loaded={tabLoaded}
             total={total}
             page={page}
             size={size}
@@ -590,8 +603,9 @@ export default function AssetsPage() {
         <TabsContent value="service" className="mt-0 flex min-h-0 flex-1 flex-col gap-2">
           {searchBox}
           <AssetCard
+            {...cardStateProps}
             cols={["", "服务", "域名", "IP", "端口", "状态码", "标题", "指纹", "认证", ""]}
-            loaded={loaded}
+            loaded={tabLoaded}
             total={total}
             page={page}
             size={size}
@@ -686,8 +700,9 @@ export default function AssetsPage() {
         <TabsContent value="endpoint" className="mt-0 flex min-h-0 flex-1 flex-col gap-2">
           {searchBox}
           <AssetCard
+            {...cardStateProps}
             cols={["", "方法", "完整地址", "参数", ""]}
-            loaded={loaded}
+            loaded={tabLoaded}
             total={total}
             page={page}
             size={size}
@@ -813,6 +828,9 @@ export default function AssetsPage() {
 function AssetCard({
   cols,
   loaded,
+  loading,
+  error,
+  onRetry,
   total,
   page,
   size,
@@ -825,6 +843,9 @@ function AssetCard({
 }: {
   cols: string[];
   loaded: boolean;
+  loading: boolean;
+  error?: string;
+  onRetry?: () => void;
   total: number;
   page: number;
   size: number;
@@ -843,6 +864,42 @@ function AssetCard({
   const pageIds = dataRows?.map((r) => r.id) ?? [];
   const allSelected = pageIds.length > 0 && selected != null && pageIds.every((id) => selected.has(id));
   const someSelected = selected != null && pageIds.some((id) => selected.has(id));
+
+  // 失败必须内联常驻并给重试，不能落到「暂无数据」；切 tab / 翻页期间用骨架，不闪空态。
+  let tableRows: React.ReactNode;
+  if (error && !loading) {
+    tableRows = (
+      <TableRow>
+        <TableCell colSpan={cols.length} className="p-0">
+          <AsyncState status="error" error={new Error(error)} onRetry={onRetry} className="border-0 py-10">
+            {null}
+          </AsyncState>
+        </TableCell>
+      </TableRow>
+    );
+  } else if (!loaded || (loading && childRows.length === 0)) {
+    tableRows = (
+      <TableRow>
+        <TableCell colSpan={cols.length} className="p-0">
+          <div aria-hidden="true" className="space-y-2 p-3">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <Skeleton key={i} className="h-8 w-full" />
+            ))}
+          </div>
+        </TableCell>
+      </TableRow>
+    );
+  } else if (childRows.length > 0) {
+    tableRows = childRows;
+  } else {
+    tableRows = (
+      <TableRow>
+        <TableCell colSpan={cols.length} className="py-12 text-center text-sm text-muted-foreground">
+          暂无数据。
+        </TableCell>
+      </TableRow>
+    );
+  }
 
   return (
     <Card className="flex min-h-0 flex-1 flex-col overflow-hidden py-0">
@@ -864,17 +921,7 @@ function AssetCard({
               )}
             </TableRow>
           </TableHeader>
-          <TableBody>
-            {childRows.length > 0 ? (
-              childRows
-            ) : (
-              <TableRow>
-                <TableCell colSpan={cols.length} className="py-12 text-center text-sm text-muted-foreground">
-                  {loaded ? "暂无数据。" : "加载中…"}
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
+          <TableBody>{tableRows}</TableBody>
         </Table>
       </div>
       {total > 0 && (
@@ -904,6 +951,7 @@ function AssetCard({
                 className="size-7"
                 disabled={page <= 0}
                 onClick={() => onPage((p) => Math.max(0, p - 1))}
+                aria-label="上一页"
               >
                 <ChevronLeftIcon />
               </Button>
@@ -916,6 +964,7 @@ function AssetCard({
                 className="size-7"
                 disabled={page + 1 >= pageCount}
                 onClick={() => onPage((p) => Math.min(pageCount - 1, p + 1))}
+                aria-label="下一页"
               >
                 <ChevronRightIcon />
               </Button>

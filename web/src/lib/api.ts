@@ -97,9 +97,8 @@ export async function http<T>(path: string, init?: RequestInit): Promise<T> {
     },
   });
   if (r.status === 401) {
-    if (typeof window !== "undefined") {
-      auth.clearToken();
-    }
+    auth.clearToken();
+    auth.redirectToLogin("expired");
     throw new Error("未授权");
   }
   if (!r.ok) {
@@ -136,7 +135,8 @@ async function fetchBlobText(path: string): Promise<string> {
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
   });
   if (r.status === 401) {
-    if (typeof window !== "undefined") auth.clearToken();
+    auth.clearToken();
+    auth.redirectToLogin("expired");
     throw new Error("未授权");
   }
   if (!r.ok) throw new Error(`GET ${path}: ${r.status}`);

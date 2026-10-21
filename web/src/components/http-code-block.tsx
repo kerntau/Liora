@@ -111,14 +111,21 @@ function HighlightedBody({ body, format }: { body: string; format: BodyFormat })
   return body;
 }
 
+// 超长报文默认只渲染前这么多行，其余折叠；展开状态在内容追加（加载更多）后保留。
+const COLLAPSE_LINES = 40;
+
 export function HttpCodeBlock({ raw }: { raw: string }) {
   const [wrapLines, setWrapLines] = React.useState(true);
   const [copied, setCopied] = React.useState(false);
+  const [expanded, setExpanded] = React.useState(false);
   const value = raw || "（空）";
   const lines = value.replaceAll("\r\n", "\n").split("\n");
   const separator = lines.indexOf("");
   const body = separator >= 0 ? lines.slice(separator + 1).join("\n") : "";
   const bodyFormat = detectBodyFormat(body);
+  const hiddenLines = Math.max(0, lines.length - COLLAPSE_LINES);
+  const collapsed = !expanded && hiddenLines > 0;
+  const visibleLines = collapsed ? lines.slice(0, COLLAPSE_LINES) : lines;
 
   React.useEffect(() => {
     if (!copied) return;
@@ -127,7 +134,9 @@ export function HttpCodeBlock({ raw }: { raw: string }) {
   }, [copied]);
 
   const copyPacket = async () => {
-    const ok = await copyText(value);
+    // 空报文时按钮已禁用：不能把占位文案「（空）」当成报文复制出去。
+    if (!raw) return;
+    const ok = await copyText(raw);
     if (ok) {
       setCopied(true);
       return;
@@ -167,9 +176,13 @@ export function HttpCodeBlock({ raw }: { raw: string }) {
               variant="ghost"
               size="icon-xs"
               aria-label={copied ? "已复制报文" : "复制报文"}
+              disabled={!raw}
               onClick={() => void copyPacket()}
             >
               {copied ? <CheckIcon /> : <CopyIcon />}
+              <span className="sr-only" aria-live="polite">
+                {copied ? "已复制报文" : ""}
+              </span>
             </Button>
           </TooltipTrigger>
           <TooltipContent side="bottom">{copied ? "已复制" : "复制报文"}</TooltipContent>
@@ -194,7 +207,7 @@ export function HttpCodeBlock({ raw }: { raw: string }) {
           selection.addRange(range);
         }}
       >
-        {lines.map((line, index) => (
+        {visibleLines.map((line, index) => (
           <div
             key={`${index}-${line}`}
             data-line={index + 1}
@@ -211,6 +224,22 @@ export function HttpCodeBlock({ raw }: { raw: string }) {
           </div>
         ))}
       </div>
+      {hiddenLines > 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-muted/20 px-3 py-1.5 text-muted-foreground text-xs">
+          <span>
+            共 {lines.length.toLocaleString()} 行{collapsed ? `，已折叠 ${hiddenLines.toLocaleString()} 行` : ""}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((current) => !current)}
+          >
+            {expanded ? "收起" : "展开全部"}
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }

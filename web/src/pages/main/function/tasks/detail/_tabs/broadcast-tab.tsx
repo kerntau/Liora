@@ -21,6 +21,7 @@ import {
   TargetIcon,
 } from "lucide-react";
 
+import { AsyncState } from "@/components/async-state";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
@@ -450,6 +451,9 @@ export function BroadcastTab({ taskId }: { taskId: string }) {
   const [assets, setAssets] = React.useState<Record<string, FindingAsset[]>>({});
   const [total, setTotal] = React.useState(0);
   const [loaded, setLoaded] = React.useState(false);
+  // 请求失败不再静默：首载失败给错误面板 + 重试，轮询失败保留旧列表并提示。
+  const [error, setError] = React.useState<Error | null>(null);
+  const [reloadTick, setReloadTick] = React.useState(0);
   const [freshIDs, setFreshIDs] = React.useState<Set<string>>(new Set());
   const [pending, setPending] = React.useState(0);
   const [now, setNow] = React.useState(0);
@@ -476,6 +480,7 @@ export function BroadcastTab({ taskId }: { taskId: string }) {
     return () => clearTimeout(t);
   }, [queryInput]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reloadTick 仅用于失败后手动重试。
   React.useEffect(() => {
     let alive = true;
     let rendered = false; // 本次查询是否已经把内容渲染出来过
@@ -493,6 +498,7 @@ export function BroadcastTab({ taskId }: { taskId: string }) {
         .explorationNodes(taskId, { page, size, kinds, q: query, order })
         .then((r) => {
           if (!alive) return;
+          setError(null);
           // 直播位每轮都刷新;其它位置只渲染第一次,之后轮询仅更新未读计数。
           if (atLive || !rendered) {
             rendered = true;
@@ -514,8 +520,10 @@ export function BroadcastTab({ taskId }: { taskId: string }) {
           }
           setLoaded(true);
         })
-        .catch(() => {
-          // 轮询是尽力而为:保留上一次成功的播报内容,下一轮自动重试。
+        .catch((cause: unknown) => {
+          // 保留上一次成功的播报内容；失败要让用户看见，并给手动重试。
+          if (!alive) return;
+          setError(cause instanceof Error ? cause : new Error("播报加载失败"));
         });
     void load();
     if (!live) {
@@ -528,7 +536,7 @@ export function BroadcastTab({ taskId }: { taskId: string }) {
       alive = false;
       clearInterval(timer);
     };
-  }, [taskId, page, size, kinds, query, order, live, atLive]);
+  }, [taskId, page, size, kinds, query, order, live, atLive, reloadTick]);
 
   const toggleKind = (kind: ExploreKind) => {
     setKinds((cur) => (cur.includes(kind) ? cur.filter((k) => k !== kind) : [...cur, kind]));
@@ -656,13 +664,39 @@ export function BroadcastTab({ taskId }: { taskId: string }) {
         </button>
       )}
 
+      {error && items.length > 0 && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center gap-2 border-b bg-amber-500/5 px-4 py-1.5 text-xs text-muted-foreground"
+        >
+          <span className="text-amber-600 dark:text-amber-400">刷新失败，显示上次结果</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto h-6 px-2 text-xs"
+            onClick={() => setReloadTick((n) => n + 1)}
+          >
+            重试
+          </Button>
+        </div>
+      )}
+
       <CardContent className="px-4 py-0">
-        {!loaded ? (
-          <div className="flex flex-col gap-3 py-4">
-            {[0, 1, 2, 3].map((i) => (
-              <Skeleton key={i} className="h-12 w-full" />
-            ))}
-          </div>
+        {!loaded || (error && items.length === 0) ? (
+          <AsyncState
+            status={error ? "error" : "loading"}
+            error={error}
+            onRetry={() => setReloadTick((n) => n + 1)}
+            skeleton={
+              <div className="flex flex-col gap-3 py-4">
+                {[0, 1, 2, 3].map((i) => (
+                  <Skeleton key={i} className="h-12 w-full" />
+                ))}
+              </div>
+            }
+          >
+            {null}
+          </AsyncState>
         ) : items.length === 0 ? (
           <p className="py-10 text-center text-sm text-muted-foreground">
             {query || kinds.length > 0 ? "没有符合条件的播报。" : "这个任务还没有产生探索节点。"}

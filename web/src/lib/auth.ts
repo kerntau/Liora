@@ -10,6 +10,10 @@ export interface CurrentUser {
   role: string;
 }
 
+// redirecting guards against a burst of parallel 401s each pushing a new
+// history entry; the first expired response wins.
+let redirecting = false;
+
 export const auth = {
   subscribe(onChange: () => void): () => void {
     window.addEventListener("liora-auth-change", onChange);
@@ -35,6 +39,17 @@ export const auth = {
     localStorage.removeItem(TOKEN_KEY);
     window.dispatchEvent(new Event("liora-auth-change"));
     document.cookie = `${TOKEN_KEY}=; path=/; max-age=0`;
+  },
+
+  // A 401 means the 7-day token expired (or the signing key rotated). Clearing it
+  // without navigating leaves every panel stuck on "未授权" until a manual reload,
+  // so route to /login with a reason the page can explain.
+  redirectToLogin(reason: "expired" | "signed-out" = "expired"): void {
+    if (typeof window === "undefined" || redirecting) return;
+    if (window.location.pathname === "/login") return;
+    redirecting = true;
+    const query = reason === "expired" ? "?expired=1" : "";
+    window.location.replace(`/login${query}`);
   },
 
   // 从 JWT payload 的 sub 字段解析当前用户，仅用于展示，不做签名验证。

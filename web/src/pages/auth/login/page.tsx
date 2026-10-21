@@ -17,6 +17,11 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(true);
+  // Set by auth.redirectToLogin() when an API call got a 401: the visitor did not
+  // choose to log out, so say why the form is showing again.
+  const [expired] = useState(
+    () => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("expired") === "1",
+  );
 
   useEffect(() => {
     // 已登录直接进主界面（静态导出下无 middleware 代劳这层跳转）。
@@ -78,7 +83,9 @@ export default function LoginPage() {
         <div className="w-full max-w-md space-y-10 py-24 lg:py-32">
           <div className="space-y-4 text-center">
             <h2 className="text-2xl font-medium tracking-tight">登录{APP_CONFIG.name}</h2>
-            <p className="mx-auto max-w-xl text-muted-foreground">欢迎回来，请输入密码以继续使用{APP_CONFIG.name}</p>
+            <p className="mx-auto max-w-xl text-muted-foreground">
+              {expired ? "登录状态已过期，请重新登录以继续。" : `欢迎回来，请输入密码以继续使用${APP_CONFIG.name}`}
+            </p>
           </div>
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div className="space-y-1.5">

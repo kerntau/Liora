@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ApprovalDetail } from "@/components/approval-records";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import type { Activity, InterceptPending } from "@/lib/types";
 
 // ---- per-agent lane color (planner + work#1/#2/#3 …) ---------------------------
@@ -205,6 +206,7 @@ function InterceptCard({
   const [detail, setDetail] = React.useState<Record<string, unknown> | null>(null);
   const [decided, setDecided] = React.useState<"allowed" | "denied" | "timeout" | null>(null);
   const [deciding, setDeciding] = React.useState(false);
+  const [confirming, setConfirming] = React.useState(false);
   const [expanded, setExpanded] = React.useState(false);
   const [pending, setPending] = React.useState<InterceptPending | null>(null);
   const [statusError, setStatusError] = React.useState("");
@@ -294,18 +296,20 @@ function InterceptCard({
           </span>
         ) : (
           <div className="flex shrink-0 gap-1.5">
+            {/* 放行会立刻让工具直达目标执行，和审批面板一致先二次确认；拒绝是安全操作，不染危险色。 */}
             <Button
               size="sm"
+              variant="destructive"
               className="h-6 px-2 text-xs"
               disabled={deciding || !pendingId}
-              onClick={() => decide("allowed")}
+              onClick={() => setConfirming(true)}
             >
               <CheckIcon className="h-3 w-3" />
               允许
             </Button>
             <Button
               size="sm"
-              variant="destructive"
+              variant="outline"
               className="h-6 px-2 text-xs"
               disabled={deciding || !pendingId}
               onClick={() => decide("denied")}
@@ -344,6 +348,16 @@ function InterceptCard({
           </CollapsibleContent>
         </Collapsible>
       ) : null}
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title="允许这次工具调用？"
+        description={`放行后「${toolName}」将直达目标并立即执行，可能产生不可撤销的副作用。`}
+        confirmLabel="允许并放行"
+        destructive
+        pending={deciding}
+        onConfirm={() => decide("allowed")}
+      />
     </div>
   );
 }

@@ -108,6 +108,13 @@ interface FindingsTableProps {
   onDelete: (finding: Finding) => void;
   /** 全选框的无障碍标签,平铺视图与分组视图措辞不同。 */
   selectAllLabel?: string;
+  /** 当前页首载失败的原因;为空表示没有失败,用于和「空结果」区分。 */
+  error?: string | null;
+  /** 重新拉取当前页,失败态下给重试。 */
+  onRetry?: () => void;
+  /** 列表为空时是否处于筛选状态,决定空态是否给「清除筛选」。 */
+  hasFilters?: boolean;
+  onClearFilters?: () => void;
 }
 
 // FindingsTable 是发现列表的表格主体,平铺视图与按任务分组视图共用同一份行渲染
@@ -130,6 +137,10 @@ export function FindingsTable({
   onDeepen,
   onDelete,
   selectAllLabel = "选择当前页全部",
+  error = null,
+  onRetry,
+  hasFilters = false,
+  onClearFilters,
 }: FindingsTableProps) {
   const selectableIds = items.map((finding) => finding.finding_id).filter((id): id is string => Boolean(id));
   const selectedCount = selectableIds.filter((id) => selectedIds.has(id)).length;
@@ -138,6 +149,35 @@ export function FindingsTable({
     headerChecked = true;
   } else if (selectedCount > 0) {
     headerChecked = "indeterminate";
+  }
+
+  // 空表分三种:失败(给重试)、筛选没命中(给清除筛选)、本来就没有数据(给下一步说明)。
+  let emptyContent: React.ReactNode;
+  if (error) {
+    emptyContent = (
+      <div className="flex flex-col items-center gap-2">
+        <span className="text-foreground">加载失败</span>
+        <span className="max-w-md break-words text-xs">{error}</span>
+        {onRetry && (
+          <Button size="sm" variant="outline" onClick={onRetry}>
+            重试
+          </Button>
+        )}
+      </div>
+    );
+  } else if (hasFilters) {
+    emptyContent = (
+      <div className="flex flex-col items-center gap-2">
+        <span>没有匹配的发现。</span>
+        {onClearFilters && (
+          <Button size="sm" variant="outline" onClick={onClearFilters}>
+            清除筛选
+          </Button>
+        )}
+      </div>
+    );
+  } else {
+    emptyContent = <span>暂无发现。运行任务后，发现的漏洞会汇总到这里。</span>;
   }
 
   return (
@@ -409,7 +449,6 @@ export function FindingsTable({
                             {reports[rowKey]?.status === "done" && reports[rowKey]?.text.trim() && (
                               <CopyButton
                                 text={reports[rowKey]?.text}
-                                successMessage="已复制详细报告"
                                 variant="ghost"
                                 className="h-6 px-2 text-xs"
                               />
@@ -442,9 +481,9 @@ export function FindingsTable({
           );
         })}
         {items.length === 0 && (
-          <TableRow>
+          <TableRow className="hover:bg-transparent">
             <TableCell colSpan={COLUMN_COUNT} className="py-12 text-center text-sm text-muted-foreground">
-              没有匹配的发现。
+              {emptyContent}
             </TableCell>
           </TableRow>
         )}

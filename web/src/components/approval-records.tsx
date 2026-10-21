@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { TablePagination } from "@/components/table-pagination";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -265,18 +266,41 @@ function ModelReviewContext({ input }: { input: InterceptReviewInput }) {
 type Decide = (id: number, decision: "allowed" | "denied") => Promise<void>;
 
 function DecisionActions({ row, busy, decide }: { row: InterceptApprovalRow; busy: boolean; decide: Decide }) {
+  const [confirming, setConfirming] = React.useState(false);
+  const [deciding, setDeciding] = React.useState(false);
   if (row.status !== "pending") return null;
   return (
-    <div className="flex flex-wrap gap-2">
-      <Button size="sm" disabled={busy} onClick={() => void decide(row.id, "allowed")}>
-        <CheckIcon data-icon="inline-start" />
-        允许
-      </Button>
-      <Button size="sm" variant="destructive" disabled={busy} onClick={() => void decide(row.id, "denied")}>
-        <XIcon data-icon="inline-start" />
-        拒绝
-      </Button>
-    </div>
+    <>
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" variant="destructive" disabled={busy} onClick={() => setConfirming(true)}>
+          <CheckIcon data-icon="inline-start" />
+          允许
+        </Button>
+        <Button size="sm" variant="outline" disabled={busy} onClick={() => void decide(row.id, "denied")}>
+          <XIcon data-icon="inline-start" />
+          拒绝
+        </Button>
+      </div>
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={(next) => {
+          if (!deciding) setConfirming(next);
+        }}
+        title="允许这次工具调用？"
+        description="放行后该请求将直达目标并立即执行，可能产生不可撤销的副作用。"
+        confirmLabel="允许并放行"
+        destructive
+        pending={deciding}
+        onConfirm={async () => {
+          setDeciding(true);
+          try {
+            await decide(row.id, "allowed");
+          } finally {
+            setDeciding(false);
+          }
+        }}
+      />
+    </>
   );
 }
 
@@ -759,6 +783,9 @@ export function ApprovalRecords({ taskId }: { taskId?: string }) {
     } catch (e) {
       toast.error((e as Error).message);
       await latestLoad.current(true);
+      // 「允许」由确认框发起：把失败抛回去，ConfirmDialog 就不会关闭，用户可以重试；
+      // 「拒绝」仍是单击操作，失败只提示，不改变原有交互。
+      if (decision === "allowed") throw e;
     } finally {
       decisionLock.current = false;
       setDeciding(false);

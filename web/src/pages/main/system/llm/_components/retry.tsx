@@ -12,11 +12,12 @@
 import * as React from "react";
 
 import { Loader2Icon, SaveIcon } from "lucide-react";
-import { toast } from "@/components/ui/sonner";
 
+import { AsyncState } from "@/components/async-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { toast } from "@/components/ui/sonner";
 import { api } from "@/lib/api";
 import type { LLMRetryOverride, LLMRetryPolicy, LLMRetryRule } from "@/lib/types";
 
@@ -265,15 +266,19 @@ export function ProfileRetryFields({
 export function RetryPolicyPanel() {
   const [policy, setPolicy] = React.useState<LLMRetryPolicy>(ZERO_POLICY);
   const [loading, setLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState<Error | null>(null);
   const [saving, setSaving] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const p = await api.llmRetryPolicy();
       setPolicy({ ...ZERO_POLICY, ...p });
     } catch (e) {
-      toast.error(`读取重试策略失败：${(e as Error).message}`);
+      // 读失败不能退回 ZERO_POLICY 继续渲染：那看起来就是「五层全都留空」，
+      // 用户再点保存就会把真实配置覆盖成 0。这里改成常驻报错 + 重试。
+      setLoadError(e instanceof Error ? e : new Error(String(e)));
     } finally {
       setLoading(false);
     }
@@ -300,11 +305,20 @@ export function RetryPolicyPanel() {
 
   const set = (k: LayerKey) => (r: LLMRetryRule) => setPolicy((p) => ({ ...p, [k]: r }));
 
-  if (loading) {
+  if (loading || loadError) {
     return (
-      <div className="flex items-center gap-2 rounded-lg border border-dashed p-10 text-muted-foreground text-sm">
-        <Loader2Icon className="size-4 animate-spin" /> 读取重试策略…
-      </div>
+      <AsyncState
+        status={loadError ? "error" : "loading"}
+        error={loadError}
+        onRetry={() => void load()}
+        skeleton={
+          <div className="flex items-center gap-2 rounded-lg border border-dashed p-10 text-muted-foreground text-sm">
+            <Loader2Icon className="size-4 animate-spin" /> 读取重试策略…
+          </div>
+        }
+      >
+        {null}
+      </AsyncState>
     );
   }
 
@@ -319,11 +333,12 @@ export function RetryPolicyPanel() {
         全部留空即当前默认值，与没有这页时的行为完全一致。前三层可以在每个模型配置里单独覆盖。
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      {/* 保存中锁住输入：回包会用服务端夹取后的值整体回写，期间的编辑会被静默覆盖。 */}
+      <fieldset disabled={saving} className="grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-3">
         {(Object.keys(RETRY_LAYERS) as LayerKey[]).map((k) => (
           <RetryRuleFields key={k} layer={k} idPrefix="gl" value={policy[k]} onChange={set(k)} />
         ))}
-      </div>
+      </fieldset>
 
       <div className="flex gap-2">
         <Button onClick={save} disabled={saving}>

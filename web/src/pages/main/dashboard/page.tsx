@@ -6,6 +6,7 @@ import Link from "@/lib/router-compat";
 
 import {
   ActivityIcon,
+  AlertTriangleIcon,
   ArrowUpRightIcon,
   BugIcon,
   ClockIcon,
@@ -23,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, } from "@/components/ui/card";
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import type {
   Activity,
@@ -129,6 +131,12 @@ function SectionTitle({
   );
 }
 
+// 首载未就绪时用骨架占位，避免把 0 当成真实数据。
+function StatValue({ ready, children }: { ready: boolean; children: React.ReactNode }) {
+  if (!ready) return <Skeleton aria-hidden="true" className="h-7 w-12" />;
+  return <>{children}</>;
+}
+
 // ── page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
@@ -151,6 +159,35 @@ export default function DashboardPage() {
   const [llmProfiles, setLLMProfiles] = React.useState<LLMProfile[]>([]);
   const [refreshRevision, refresh] = React.useReducer((value: number) => value + 1, 0);
 
+  // 三个数据源各自的首载/失败状态：首载前给骨架（不把 0 当真实数据），
+  // 失败保留旧值并在顶部显式提示，避免「请求失败 = 页面全空」。
+  const [sources, setSources] = React.useState<Record<"tasks" | "fast" | "slow", "pending" | "ok" | "error">>({
+    tasks: "pending",
+    fast: "pending",
+    slow: "pending",
+  });
+  const setSource = React.useCallback((key: "tasks" | "fast" | "slow", next: "pending" | "ok" | "error") => {
+    setSources((prev) => (prev[key] === next ? prev : { ...prev, [key]: next }));
+  }, []);
+  const tasksReady = sources.tasks === "ok";
+  const fastReady = sources.fast === "ok";
+  const slowReady = sources.slow === "ok";
+  const anyFailed = sources.tasks === "error" || sources.fast === "error" || sources.slow === "error";
+
+  // 手动刷新：三个 effect 都跑完才收起转圈，按钮点下去有反馈。
+  const [refreshing, setRefreshing] = React.useState(false);
+  const refreshPending = React.useRef(0);
+  const startRefresh = () => {
+    refreshPending.current = 3;
+    setRefreshing(true);
+    refresh();
+  };
+  const finishRefresh = React.useCallback(() => {
+    if (refreshPending.current <= 0) return;
+    refreshPending.current -= 1;
+    if (refreshPending.current === 0) setRefreshing(false);
+  }, []);
+
   // The task list is the most expensive dashboard source. Poll it independently
   // so a large history cannot hold back every other dashboard panel.
   React.useEffect(() => {
@@ -168,10 +205,13 @@ export default function DashboardPage() {
           signature = nextSignature;
           setTasks(tr.tasks);
         }
+        setSource("tasks", "ok");
       } catch {
-        /* transient errors — next poll retries */
+        // 保留旧值，下一轮自动重试；失败态在顶部显式提示。
+        if (alive) setSource("tasks", "error");
       } finally {
         loading = false;
+        finishRefresh();
       }
     };
     void load();
@@ -180,7 +220,7 @@ export default function DashboardPage() {
       alive = false;
       clearInterval(t);
     };
-  }, [refreshRevision]);
+  }, [refreshRevision, setSource, finishRefresh]);
 
   // The remaining fast sources stay batched so one poll causes a single render.
   React.useEffect(() => {
@@ -207,10 +247,13 @@ export default function DashboardPage() {
         setActivity(activity.items);
         setTokens(tokens.total ?? null);
         setConvTokens(conversationTokens);
+        setSource("fast", "ok");
       } catch {
-        // Preserve stale data and retry on the next interval.
+        // 保留旧值，下一轮自动重试；失败态在顶部显式提示。
+        if (alive) setSource("fast", "error");
       } finally {
         loading = false;
+        finishRefresh();
       }
     };
     void load();
@@ -219,7 +262,7 @@ export default function DashboardPage() {
       alive = false;
       clearInterval(timer);
     };
-  }, [refreshRevision]);
+  }, [refreshRevision, setSource, finishRefresh]);
 
   // slow poll: traffic, assets, system-static (every 15s)
   React.useEffect(() => {
@@ -245,8 +288,11 @@ export default function DashboardPage() {
         setTools(toolList);
         setLLMProfiles(profileList);
         setUsageStats(usage);
+        setSource("slow", "ok");
       } catch {
-        /* transient errors */
+        if (alive) setSource("slow", "error");
+      } finally {
+        finishRefresh();
       }
     };
     void load();
@@ -255,7 +301,7 @@ export default function DashboardPage() {
       alive = false;
       clearInterval(t);
     };
-  }, [refreshRevision]);
+  }, [refreshRevision, setSource, finishRefresh]);
 
   // ── derived ───────────────────────────────────────────────────────────────
 
@@ -502,10 +548,36 @@ export default function DashboardPage() {
           <h1 className="text-lg font-semibold tracking-tight">总览</h1>
           <p className="text-xs text-muted-foreground">系统全局状态 · 实时刷新</p>
         </div>
-        <Button variant="ghost" size="icon-sm" aria-label="刷新仪表盘数据" onClick={refresh}>
-          <RefreshCwIcon className="size-4" />
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="刷新仪表盘数据"
+          aria-busy={refreshing || undefined}
+          disabled={refreshing}
+          onClick={startRefresh}
+        >
+          <RefreshCwIcon className={cn("size-4", refreshing && "animate-spin")} />
         </Button>
       </div>
+
+      {anyFailed && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-muted-foreground"
+        >
+          <AlertTriangleIcon className="size-3.5 text-amber-500" />
+          部分数据刷新失败，页面保留上次结果并自动重试
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto h-6 px-2 text-xs"
+            disabled={refreshing}
+            onClick={startRefresh}
+          >
+            立即重试
+          </Button>
+        </div>
+      )}
 
       {/* ── Row 1: 5 stat cards ── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -516,15 +588,17 @@ export default function DashboardPage() {
               <TargetIcon className="size-3" /> 活跃任务
             </div>
             <div className="flex items-baseline gap-1.5">
-              <span className="text-2xl font-semibold tabular-nums">{tasksByStatus.running ?? 0}</span>
-              <span className="text-xs text-muted-foreground">/ {tasks.length}</span>
+              <StatValue ready={tasksReady}>
+                <span className="text-2xl font-semibold tabular-nums">{tasksByStatus.running ?? 0}</span>
+                <span className="text-xs text-muted-foreground">/ {tasks.length}</span>
+              </StatValue>
             </div>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-x-2.5 gap-y-0.5 text-[10px]">
             {(tasksByStatus.running ?? 0) > 0 && <span className="text-blue-400">探索 {tasksByStatus.running}</span>}
             {(tasksByStatus.paused ?? 0) > 0 && <span className="text-amber-400">暂停 {tasksByStatus.paused}</span>}
             {(tasksByStatus.done ?? 0) > 0 && <span className="text-emerald-400">完成 {tasksByStatus.done}</span>}
-            {tasks.length === 0 && <span className="text-muted-foreground">暂无任务</span>}
+            {tasksReady && tasks.length === 0 && <span className="text-muted-foreground">暂无任务</span>}
           </CardContent>
         </Card>
 
@@ -534,7 +608,9 @@ export default function DashboardPage() {
             <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
               <BugIcon className="size-3" /> 确认发现
             </div>
-            <div className="text-2xl font-semibold tabular-nums">{findings.length}</div>
+            <StatValue ready={fastReady}>
+              <div className="text-2xl font-semibold tabular-nums">{findings.length}</div>
+            </StatValue>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2.5 text-[10px]">
             <span className="text-rose-500">严重 {findingsBySev.critical}</span>
@@ -550,7 +626,9 @@ export default function DashboardPage() {
             <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
               <NetworkIcon className="size-3" /> 资产节点
             </div>
-            <div className="text-2xl font-semibold tabular-nums">{totalAssets}</div>
+            <StatValue ready={slowReady}>
+              <div className="text-2xl font-semibold tabular-nums">{totalAssets}</div>
+            </StatValue>
           </CardHeader>
           <CardContent className="text-[10px] text-muted-foreground">跨任务共享</CardContent>
         </Card>
@@ -561,7 +639,9 @@ export default function DashboardPage() {
             <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
               <ActivityIcon className="size-3" /> 流量交互
             </div>
-            <div className="text-2xl font-semibold tabular-nums">{traffic.length}</div>
+            <StatValue ready={slowReady}>
+              <div className="text-2xl font-semibold tabular-nums">{traffic.length}</div>
+            </StatValue>
           </CardHeader>
           <CardContent className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
             {settings?.traffic_capture ? (
@@ -581,9 +661,11 @@ export default function DashboardPage() {
             <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
               <ZapIcon className="size-3" /> Token 用量
             </div>
-            <div className="text-2xl font-semibold tabular-nums">
-              {fmtTokens(displayedTokens.input + displayedTokens.output) || "—"}
-            </div>
+            <StatValue ready={fastReady}>
+              <div className="text-2xl font-semibold tabular-nums">
+                {fmtTokens(displayedTokens.input + displayedTokens.output) || "—"}
+              </div>
+            </StatValue>
           </CardHeader>
           <CardContent className="text-[10px] text-muted-foreground">
             入 {fmtTokens(displayedTokens.input)}（含缓存 {fmtTokens(displayedTokens.cacheRead)}）· 出{" "}
@@ -893,7 +975,9 @@ export default function DashboardPage() {
 
           <div className="divide-y">
             {recentActivity.length === 0 ? (
-              <div className="py-4 text-center text-xs text-muted-foreground">暂无活动记录</div>
+              <div className="py-4 text-center text-xs text-muted-foreground">
+                {fastReady ? "暂无活动记录" : <Skeleton className="mx-auto h-4 w-32" />}
+              </div>
             ) : (
               recentActivity.map((a) => (
                 <div key={a.seq} className="flex gap-2.5 py-2">
@@ -938,7 +1022,9 @@ export default function DashboardPage() {
 
           <div className="divide-y">
             {recentFindings.length === 0 ? (
-              <div className="py-4 text-center text-xs text-muted-foreground">暂无发现</div>
+              <div className="py-4 text-center text-xs text-muted-foreground">
+                {fastReady ? "暂无发现" : <Skeleton className="mx-auto h-4 w-32" />}
+              </div>
             ) : (
               recentFindings.map((f) => (
                 <div key={f.id} className="flex items-start gap-2 py-2">
@@ -1001,7 +1087,7 @@ export default function DashboardPage() {
             {sortedTasks.length === 0 ? (
               <tr>
                 <td colSpan={6} className="px-4 py-6 text-center text-xs text-muted-foreground">
-                  暂无任务
+                  {tasksReady ? "暂无任务" : <Skeleton className="mx-auto h-4 w-40" />}
                 </td>
               </tr>
             ) : (

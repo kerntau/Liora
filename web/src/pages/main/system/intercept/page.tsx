@@ -11,6 +11,7 @@ import {
   Trash2Icon,
 } from "lucide-react";
 
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -142,6 +143,49 @@ function Field({ label, htmlFor, children }: { label: string; htmlFor: string; c
       </Label>
       {children}
     </div>
+  );
+}
+
+// 数值输入：允许清空后再输入。空值/低于下限时暂不提交，失焦回到已提交值。
+function NumberInput({
+  id,
+  value,
+  min = 1,
+  onValue,
+  className,
+  label,
+}: {
+  id?: string;
+  value: number;
+  min?: number;
+  onValue: (n: number) => void;
+  className?: string;
+  label?: string;
+}) {
+  const [draft, setDraft] = React.useState(String(value));
+  const [focused, setFocused] = React.useState(false);
+  React.useEffect(() => {
+    if (!focused) setDraft(String(value));
+  }, [value, focused]);
+  return (
+    <Input
+      id={id}
+      aria-label={label}
+      type="number"
+      inputMode="numeric"
+      min={min}
+      className={className}
+      value={draft}
+      onFocus={() => setFocused(true)}
+      onChange={(e) => {
+        const raw = e.target.value;
+        setDraft(raw);
+        if (!raw.trim()) return; // 允许清空，等待继续输入
+        const n = Number(raw);
+        if (Number.isFinite(n) && n >= min) onValue(n);
+      }}
+      onBlur={() => setFocused(false)}
+    />
   );
 }
 
@@ -282,15 +326,11 @@ function JudgeCard() {
                   </Select>
                 </Field>
                 <Field label="模型判定超时（秒）" htmlFor="judge-timeout">
-                  <Input
+                  <NumberInput
                     id="judge-timeout"
-                    type="number"
                     min={1}
                     value={cfg.timeout_seconds}
-                    onChange={(e) => {
-                      const n = parseInt(e.target.value, 10);
-                      if (n > 0) patch({ timeout_seconds: n });
-                    }}
+                    onValue={(n) => patch({ timeout_seconds: n })}
                   />
                 </Field>
                 <Field label="模型失败时（出错 / 超时 / 无法解析）" htmlFor="judge-fail-action">
@@ -310,15 +350,11 @@ function JudgeCard() {
               <div className="space-y-4">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">人工审批（模型判为「转人工」时）</p>
                 <Field label="审批等待超时（秒）" htmlFor="judge-ask-timeout">
-                  <Input
+                  <NumberInput
                     id="judge-ask-timeout"
-                    type="number"
                     min={5}
                     value={cfg.ask_timeout_seconds}
-                    onChange={(e) => {
-                      const n = parseInt(e.target.value, 10);
-                      if (n > 0) patch({ ask_timeout_seconds: n });
-                    }}
+                    onValue={(n) => patch({ ask_timeout_seconds: n })}
                   />
                 </Field>
                 <Field label="超时后默认动作" htmlFor="judge-ask-timeout-action">
@@ -356,6 +392,10 @@ export default function InterceptPage() {
   const [saving, setSaving]   = React.useState(false);
   const [regexErr, setRegexErr] = React.useState("");
   const [regexWarn, setRegexWarn] = React.useState(false); // true = JS 无法解析但可能是合法 Go 语法
+  const [nameErr, setNameErr] = React.useState("");
+  const [patternErr, setPatternErr] = React.useState("");
+  const [deleteTarget, setDeleteTarget] = React.useState<InterceptRule | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
 
   // ---- tool scope dialog ----
   const [scopeOpen, setScopeOpen]       = React.useState(false);
@@ -422,6 +462,8 @@ export default function InterceptPage() {
     setEditing(null);
     setForm(defaultForm());
     setRegexErr("");
+    setNameErr("");
+    setPatternErr("");
     setOpen(true);
   }
 
@@ -435,13 +477,17 @@ export default function InterceptPage() {
       timeout_action: rule.timeout_action,
     });
     setRegexErr("");
+    setNameErr("");
+    setPatternErr("");
     setOpen(true);
   }
 
   async function handleSave() {
-    if (!form.name.trim())    { toast.error("名称不能为空"); return; }
-    if (!form.pattern.trim()) { toast.error("模式不能为空"); return; }
-    if (regexErr)             { toast.error("正则表达式语法无效"); return; }
+    const nextNameErr = form.name.trim() ? "" : "名称不能为空";
+    const nextPatternErr = form.pattern.trim() ? "" : "模式不能为空";
+    setNameErr(nextNameErr);
+    setPatternErr(nextPatternErr);
+    if (nextNameErr || nextPatternErr || regexErr) return;
     setSaving(true);
     try {
       if (editing) {
@@ -460,13 +506,18 @@ export default function InterceptPage() {
     }
   }
 
-  async function handleDelete(id: number) {
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
     try {
-      await api.deleteInterceptRule(id);
+      await api.deleteInterceptRule(deleteTarget.id);
       toast.success("规则已删除");
+      setDeleteTarget(null);
       load();
     } catch (e) {
       toast.error((e as Error).message);
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -517,6 +568,7 @@ export default function InterceptPage() {
     }
   }
 
+  const patternError = patternErr || regexErr;
   const toolGroups = React.useMemo(() => groupTools(allTools), [allTools]);
 
   // ---- render ----
@@ -659,7 +711,8 @@ export default function InterceptPage() {
                         <Button
                           size="icon" variant="ghost"
                           className="h-7 w-7 text-destructive hover:text-destructive"
-                          onClick={() => handleDelete(rule.id)}
+                          onClick={() => setDeleteTarget(rule)}
+                          aria-label={`删除规则 ${rule.name}`}
                         >
                           <Trash2Icon className="h-3.5 w-3.5" />
                         </Button>
@@ -694,10 +747,19 @@ export default function InterceptPage() {
             <Field label="名称" htmlFor="rule-name">
               <Input
                 id="rule-name"
+                aria-invalid={!!nameErr}
+                aria-describedby={nameErr ? "rule-name-error" : undefined}
                 placeholder="给规则起个名字"
                 value={form.name}
-                onChange={(e) => set({ name: e.target.value })}
+                onChange={(e) => {
+                  setNameErr("");
+                  set({ name: e.target.value });
+                }}
+                className={nameErr ? "border-destructive focus-visible:ring-destructive" : ""}
               />
+              {nameErr && (
+                <p id="rule-name-error" role="alert" className="text-xs text-destructive mt-1">{nameErr}</p>
+              )}
             </Field>
 
             <Field label="优先级（数字越大越先匹配）" htmlFor="rule-priority">
@@ -740,15 +802,18 @@ export default function InterceptPage() {
             <Field label="模式" htmlFor="rule-pattern">
               <Input
                 id="rule-pattern"
-                aria-invalid={!!regexErr}
-                aria-describedby={regexErr ? "rule-pattern-error" : undefined}
+                aria-invalid={!!patternError}
+                aria-describedby={patternError ? "rule-pattern-error" : undefined}
                 placeholder={form.match_type === "regex" ? "^Bash$" : "rm -rf"}
                 value={form.pattern}
-                onChange={(e) => set({ pattern: e.target.value })}
-                className={regexErr ? "border-destructive focus-visible:ring-destructive" : ""}
+                onChange={(e) => {
+                  setPatternErr("");
+                  set({ pattern: e.target.value });
+                }}
+                className={patternError ? "border-destructive focus-visible:ring-destructive" : ""}
               />
-              {regexErr && (
-                <p id="rule-pattern-error" role="alert" className="text-xs text-destructive mt-1">{regexErr}</p>
+              {patternError && (
+                <p id="rule-pattern-error" role="alert" className="text-xs text-destructive mt-1">{patternError}</p>
               )}
               {regexWarn && (
                 <p className="text-xs text-amber-600 mt-1">包含 Go RE2 扩展语法（如 <code className="font-mono">(?i)</code>），浏览器无法预览，提交后由服务端验证</p>
@@ -801,16 +866,12 @@ export default function InterceptPage() {
                 {form.timeout_enabled && (
                   <div className="flex items-end gap-3">
                     <Field label="超时时间（秒）" htmlFor="rule-timeout">
-                      <Input
+                      <NumberInput
                         id="rule-timeout"
-                        type="number"
                         min={5}
                         className="w-28"
                         value={form.timeout_seconds}
-                        onChange={(e) => {
-                          const n = parseInt(e.target.value, 10);
-                          if (n > 0) set({ timeout_seconds: n });
-                        }}
+                        onValue={(n) => set({ timeout_seconds: n })}
                       />
                     </Field>
                     <Field label="超时动作" htmlFor="rule-timeout-action">
@@ -850,6 +911,24 @@ export default function InterceptPage() {
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      {/* ---- delete confirm ---- */}
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(next) => {
+          if (!next && !deleting) setDeleteTarget(null);
+        }}
+        title="删除拦截规则？"
+        description={
+          deleteTarget
+            ? `删除「${deleteTarget.name}」后该规则不再生效，之后匹配该模式的工具调用不会再被它拦截或放行。`
+            : undefined
+        }
+        confirmLabel="删除"
+        destructive
+        pending={deleting}
+        onConfirm={handleDelete}
+      />
 
       {/* ---- scope dialog ---- */}
       <Dialog open={scopeOpen} onOpenChange={setScopeOpen}>

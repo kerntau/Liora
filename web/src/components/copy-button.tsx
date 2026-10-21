@@ -11,7 +11,7 @@ import { cn, copyText } from "@/lib/utils";
 type CopyButtonProps = {
   // 要复制的文本;为空则按钮禁用。
   text: string | null | undefined;
-  // 复制成功后的 toast 文案,默认「已复制」。
+  // 复制成功后按钮上临时显示的文案,默认「已复制」;1.5s 后恢复为 label。
   successMessage?: string;
   label?: React.ReactNode;
   size?: React.ComponentProps<typeof Button>["size"];
@@ -19,8 +19,8 @@ type CopyButtonProps = {
   className?: string;
 };
 
-// CopyButton 统一的「复制到剪贴板」按钮:内置成功/失败反馈,并在 HTTP 非安全上下文
-// 下自动降级(见 copyText)。
+// CopyButton 统一的「复制到剪贴板」按钮:成功只用按钮内文案+图标反馈(不叠 toast,避免双重提示),
+// 失败走 toast;并在 HTTP 非安全上下文下自动降级(见 copyText)。
 export function CopyButton({
   text,
   successMessage = "已复制",
@@ -43,7 +43,6 @@ export function CopyButton({
     const ok = await copyText(text);
     if (ok) {
       setCopied(true);
-      toast.success(successMessage);
       if (timer.current) clearTimeout(timer.current);
       timer.current = setTimeout(() => setCopied(false), 1500);
     } else {
@@ -61,7 +60,8 @@ export function CopyButton({
       onClick={handleCopy}
     >
       {copied ? <CheckIcon /> : <CopyIcon />}
-      {label}
+      {/* 文案随状态切换,而不是只换图标;aria-live 让读屏也能收到「已复制」。 */}
+      <span aria-live="polite">{copied ? successMessage : label}</span>
     </Button>
   );
 }

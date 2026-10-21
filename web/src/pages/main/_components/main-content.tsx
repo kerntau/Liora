@@ -15,8 +15,7 @@ import { LayoutControls } from "./sidebar/layout-controls";
 import { SearchDialog } from "./sidebar/search-dialog";
 import { ThemeSwitcher } from "./sidebar/theme-switcher";
 
-// 任务详情页保持原样：它自带头部/Tabs 与内边距，这里不再叠加全局头部和 padding。
-function isFullBleed(pathname: string) {
+function normalizePath(pathname: string) {
   const p = (() => {
     try {
       return decodeURIComponent(pathname);
@@ -26,9 +25,36 @@ function isFullBleed(pathname: string) {
   })();
   // 静态导出开了 trailingSlash，列表页自身的 pathname 是 "/function/tasks/"，
   // 先去掉尾斜杠再判前缀，否则列表页会被误判成详情页而丢掉全局头部。
-  const normalized = p.replace(/\/+$/, "");
-  return normalized.startsWith("/function/tasks/");
+  return p.replace(/\/+$/, "") || "/";
 }
+
+// 任务详情页保持原样：它自带头部/Tabs 与内边距，这里不再叠加全局头部和 padding。
+function isFullBleed(pathname: string) {
+  return normalizePath(pathname).startsWith("/function/tasks/");
+}
+
+// 静态导出没有框架级的 metadata，按路由统一维护 document.title。
+// 标题统一以「页面 · 品牌」收尾，保证任何页面都能从标题栏认出站点。
+const BRAND = "Liora · 灵探";
+const ROUTE_TITLES: Record<string, string> = {
+  "/dashboard": "总览",
+  "/function/tasks": "测试任务",
+  "/function/tasks/detail": "任务详情",
+  "/function/assets": "测试资产",
+  "/function/findings": "漏洞结果",
+  "/function/findings/detail": "漏洞详情",
+  "/function/conversations/detail": "对话详情",
+  "/system/llm": "AI 配置",
+  "/system/settings": "系统设置",
+  "/system/intercept": "拦截规则",
+  "/system/intercept/approvals": "审批记录",
+  "/system/logs": "日志",
+  "/system/agents": "Agent",
+  "/system/agents/detail": "Agent",
+  "/system/mcp": "MCP",
+  "/system/skills": "Skills",
+  "/system/tools": "工具",
+};
 
 export function MainContent({ children }: { children: ReactNode }) {
   const currentUser = useCurrentUser();
@@ -41,6 +67,12 @@ export function MainContent({ children }: { children: ReactNode }) {
       .then((h) => setVersion((h.version ?? "").replace(/^v(?=\d)/, "")))
       .catch(() => setVersion(""));
   }, []);
+
+  // 放在早退之前：任务详情页是全幅渲染，也照样需要标题。
+  useEffect(() => {
+    const page = ROUTE_TITLES[normalizePath(pathname)];
+    document.title = page ? `${page} · ${BRAND}` : BRAND;
+  }, [pathname]);
 
   if (isFullBleed(pathname)) {
     return <>{children}</>;

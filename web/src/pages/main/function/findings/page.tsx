@@ -101,6 +101,10 @@ interface GroupFindingsState {
   pageSize: number;
   loaded: boolean;
   loading: boolean;
+  /** 非轮询触发的刷新(翻页/改筛选)进行中,用于表头细进度条。 */
+  pending: boolean;
+  /** 拉取失败原因;有旧数据时保留旧数据,不把失败当空表。 */
+  error: string | null;
 }
 
 // 平铺视图的页码单独放 state(而非塞进快照),筛选一变就能连带重置并触发重新加载。
@@ -109,9 +113,20 @@ interface FlatFindingsState {
   total: number;
   loaded: boolean;
   loading: boolean;
+  /** 非轮询触发的刷新(切筛选/翻页/改行)进行中,用于表头细进度条。 */
+  pending: boolean;
+  /** 首载失败原因;有旧数据时保留旧数据,不把失败当空表。 */
+  error: string | null;
 }
 
-const EMPTY_FLAT_STATE: FlatFindingsState = { items: [], total: 0, loaded: false, loading: false };
+const EMPTY_FLAT_STATE: FlatFindingsState = {
+  items: [],
+  total: 0,
+  loaded: false,
+  loading: false,
+  pending: false,
+  error: null,
+};
 
 function findingGroupKey(group: FindingGroup) {
   return group.task_id === null ? UNASSIGNED_TASK : String(group.task_id);
@@ -145,6 +160,9 @@ export default function FindingsPage() {
   const [assetScope, setAssetScope] = React.useState<string | null>(null);
   const [groups, setGroups] = React.useState<FindingGroup[]>([]);
   const [groupTotal, setGroupTotal] = React.useState(0);
+  const [groupsLoaded, setGroupsLoaded] = React.useState(false);
+  const [groupsPending, setGroupsPending] = React.useState(false);
+  const [groupsError, setGroupsError] = React.useState<string | null>(null);
   const [expandedGroups, setExpandedGroups] = React.useState<Set<string>>(() => new Set());
   const [groupFindings, setGroupFindings] = React.useState<Record<string, GroupFindingsState>>({});
   const [total, setTotal] = React.useState(0);
@@ -303,6 +321,8 @@ export default function FindingsPage() {
   const groupRequests = React.useRef<Record<string, number>>({});
   const groupsRequest = React.useRef(0);
   const flatStateRef = React.useRef(flat);
+  // 当前列表数据对应的筛选指纹;筛选切换失败时用来判断是不是「旧筛选的行」。
+  const flatFilterRef = React.useRef<string | null>(null);
   const expandedGroupsRef = React.useRef(expandedGroups);
   const groupFindingsRef = React.useRef(groupFindings);
   const visibleGroupKeysRef = React.useRef<Set<string>>(new Set());
@@ -315,31 +335,61 @@ export default function FindingsPage() {
   const activeAssetScope = view === "asset" ? assetScope : null;
 
   // loadFlat 拉取平铺视图的当前页;task 筛选交给后端,与分组视图共用同一批筛选条件。
-  const loadFlat = React.useCallback(async () => {
-    const requestFilter = filterFingerprint;
-    if (activeFilterFingerprint.current !== requestFilter) return;
-    const request = ++flatRequest.current;
-    setFlat((current) => ({ ...current, loading: true }));
-    try {
-      const result = await api.findingsPage({
-        page: flatPage,
-        pageSize: flatPageSize,
-        severity,
-        status,
-        vulnclass,
-        task,
-        query,
-        sort,
-        assetScope: activeAssetScope ?? undefined,
-      });
-      if (request !== flatRequest.current || activeFilterFingerprint.current !== requestFilter) return;
-      setFlat({ items: result.items, total: result.total, loaded: true, loading: false });
-    } catch {
-      if (request !== flatRequest.current || activeFilterFingerprint.current !== requestFilter) return;
-      // Polling keeps the last successful snapshot visible.
-      setFlat((current) => ({ ...current, loading: false }));
-    }
-  }, [activeAssetScope, filterFingerprint, flatPage, flatPageSize, severity, status, vulnclass, task, query, sort]);
+  // background = 轮询触发:不点亮 pending,也不清掉上一次的错误,避免每 5 秒闪一下。
+  const loadFlat = React.useCallback(
+    async (background = false) => {
+      const requestFilter = filterFingerprint;
+      if (activeFilterFingerprint.current !== requestFilter) return;
+      const request = ++flatRequest.current;
+      setFlat((current) => ({
+        ...current,
+        loading: true,
+        pending: !background,
+        // 手动重试先收起错误交给首载骨架;后台轮询保留错误,由用户决定何时重试。
+        error: background ? current.error : null,
+      }));
+      try {
+        const result = await api.findingsPage({
+          page: flatPage,
+          pageSize: flatPageSize,
+          severity,
+          status,
+          vulnclass,
+          task,
+          query,
+          sort,
+          assetScope: activeAssetScope ?? undefined,
+        });
+        if (request !== flatRequest.current || activeFilterFingerprint.current !== requestFilter) return;
+        flatFilterRef.current = requestFilter;
+        setFlat({
+          items: result.items,
+          total: result.total,
+          loaded: true,
+          loading: false,
+          pending: false,
+          error: null,
+        });
+      } catch (e) {
+        if (request !== flatRequest.current || activeFilterFingerprint.current !== requestFilter) return;
+        // 首载失败留成错误态(可重试);同一筛选下的轮询失败保留上一次成功的快照。
+        // 换筛选后失败则不能继续展示旧筛选的行,清空并报错,否则失败会被误读成「没有结果」。
+        setFlat((current) => {
+          const stale = flatFilterRef.current !== requestFilter;
+          return {
+            ...current,
+            items: stale ? [] : current.items,
+            total: stale ? 0 : current.total,
+            loaded: stale ? false : current.loaded,
+            loading: false,
+            pending: false,
+            error: stale || !current.loaded ? (e as Error).message : current.error,
+          };
+        });
+      }
+    },
+    [activeAssetScope, filterFingerprint, flatPage, flatPageSize, severity, status, vulnclass, task, query, sort],
+  );
 
   // loadAssetTree 取整棵资产树。树不随选中节点变化(否则选一下就塌成一条链),
   // 所以这里不带 assetScope。
@@ -366,32 +416,46 @@ export default function FindingsPage() {
     }
   }, [filterFingerprint, severity, status, vulnclass, task, query, sort]);
 
-  const refreshGroups = React.useCallback(async () => {
-    const requestFilter = filterFingerprint;
-    if (activeFilterFingerprint.current !== requestFilter) return;
-    const request = ++groupsRequest.current;
-    try {
-      const result = await api.findingGroups({
-        page,
-        pageSize,
-        severity,
-        status,
-        vulnclass,
-        task,
-        query,
-        sort,
-      });
-      if (request !== groupsRequest.current || activeFilterFingerprint.current !== requestFilter) return;
-      setGroups(result.items);
-      setGroupTotal(result.total);
-      setTotal(result.finding_total);
-    } catch {
-      // Polling keeps the last successful snapshot visible.
-    }
-  }, [filterFingerprint, page, pageSize, severity, status, vulnclass, task, query, sort]);
+  // background = 轮询触发:不点亮 pending,失败也不清空上一次成功的分组。
+  const refreshGroups = React.useCallback(
+    async (background = false) => {
+      const requestFilter = filterFingerprint;
+      if (activeFilterFingerprint.current !== requestFilter) return;
+      const request = ++groupsRequest.current;
+      if (!background) {
+        setGroupsPending(true);
+        setGroupsError(null);
+      }
+      try {
+        const result = await api.findingGroups({
+          page,
+          pageSize,
+          severity,
+          status,
+          vulnclass,
+          task,
+          query,
+          sort,
+        });
+        if (request !== groupsRequest.current || activeFilterFingerprint.current !== requestFilter) return;
+        setGroups(result.items);
+        setGroupTotal(result.total);
+        setTotal(result.finding_total);
+        setGroupsLoaded(true);
+        setGroupsError(null);
+      } catch (e) {
+        if (request !== groupsRequest.current || activeFilterFingerprint.current !== requestFilter) return;
+        // 失败要能看出来(而不是变成「没有匹配的发现」);旧分组仍在时只忽略错误。
+        setGroupsError((e as Error).message);
+      } finally {
+        if (request === groupsRequest.current) setGroupsPending(false);
+      }
+    },
+    [filterFingerprint, page, pageSize, severity, status, vulnclass, task, query, sort],
+  );
 
   const loadGroup = React.useCallback(
-    async (key: string, groupPage: number, groupPageSize: number) => {
+    async (key: string, groupPage: number, groupPageSize: number, background = false) => {
       const request = (groupRequests.current[key] ?? 0) + 1;
       const requestFilter = filterFingerprint;
       if (activeFilterFingerprint.current !== requestFilter) return;
@@ -405,6 +469,8 @@ export default function FindingsPage() {
           pageSize: groupPageSize,
           loaded: current[key]?.loaded ?? false,
           loading: true,
+          pending: !background,
+          error: background ? (current[key]?.error ?? null) : null,
         },
       }));
       try {
@@ -428,9 +494,11 @@ export default function FindingsPage() {
             pageSize: result.page_size,
             loaded: true,
             loading: false,
+            pending: false,
+            error: null,
           },
         }));
-      } catch {
+      } catch (e) {
         if (groupRequests.current[key] !== request || activeFilterFingerprint.current !== requestFilter) return;
         setGroupFindings((current) => ({
           ...current,
@@ -443,6 +511,9 @@ export default function FindingsPage() {
               loaded: false,
             }),
             loading: false,
+            pending: false,
+            // 失败留成错误态(可重试),不伪装成「没有匹配的发现」。
+            error: (e as Error).message,
           },
         }));
       }
@@ -507,7 +578,7 @@ export default function FindingsPage() {
     setExpandedGroups(new Set());
     setGroupFindings({});
     setFlatPage(1);
-    setFlat(EMPTY_FLAT_STATE);
+    // 保留上一批行直到新筛选返回,由表头细进度条提示刷新中,不再整表退回首载 Spinner。
     // 筛选变了树也会变,原先选中的节点可能已经不在树里,退回「全部资产」。
     setAssetScope(null);
     setAssetTree(EMPTY_ASSET_TREE);
@@ -533,21 +604,24 @@ export default function FindingsPage() {
   React.useEffect(() => {
     if (!preferencesHydrated) return;
     void activeRetestFingerprint; // 包括不定时轮询的资产视图，也在复测结束后刷新处置状态。
-    const refresh = () => {
+    // background = 定时轮询:不点亮 pending 进度条,避免每 5 秒闪一次。
+    const refresh = (background = false) => {
       if (view === "flat" || view === "asset") {
-        if (!flatStateRef.current.loading) void loadFlat();
+        // 前台刷新(切筛选/翻页)不能被在途的轮询挡住,否则新筛选要等下一个轮询周期。
+        if (background && flatStateRef.current.loading) return;
+        void loadFlat(background);
         return;
       }
-      void refreshGroups();
+      void refreshGroups(background);
       for (const key of expandedGroupsRef.current) {
         if (!visibleGroupKeysRef.current.has(key)) continue;
         const state = groupFindingsRef.current[key];
-        if (state?.loaded && !state.loading) void loadGroup(key, state.page, state.pageSize);
+        if (state?.loaded && !state.loading) void loadGroup(key, state.page, state.pageSize, background);
       }
     };
     refresh();
     if (view === "asset") return;
-    const timer = setInterval(refresh, 5000);
+    const timer = setInterval(() => refresh(true), 5000);
     return () => clearInterval(timer);
   }, [activeRetestFingerprint, loadFlat, loadGroup, preferencesHydrated, refreshGroups, view]);
 
@@ -607,7 +681,7 @@ export default function FindingsPage() {
       setFindings((cur) => cur.map((x) => (isSameFinding(x, f) ? { ...x, status: next } : x)));
       try {
         await api.setFindingStatus(f.finding_id, next);
-        toast.success(`已标记为「${statusMeta("finding", next).label}」`);
+        // 行内状态已乐观更新,不再弹成功提示,避免同一结果双重反馈。
         // refresh stat cards (pending count) and drop the row if it no longer matches the status filter
         api
           .findingStats()
@@ -763,6 +837,16 @@ export default function FindingsPage() {
   // 导出弹窗里「当前筛选」的条数:两个视图的筛选一致,只是统计口径来源不同。
   // 平铺与资产视图共用 flat 列表状态,分组视图的口径来自组接口的 finding_total。
   const filteredTotal = view === "grouped" ? total : flat.total;
+  // 空表要区分「本来没有发现」和「筛选没命中」,后者给一键清除筛选。
+  const hasFilters = severity !== "all" || status !== "all" || vulnclass !== "all" || task !== "all" || query !== "";
+  const clearFilters = React.useCallback(() => {
+    setSeverity("all");
+    setStatus("all");
+    setVulnclass("all");
+    setTask("all");
+    setSearch("");
+    setQuery("");
+  }, []);
   const assetPath = React.useMemo(
     () => (view === "asset" ? assetPathOf(assetTree.nodes, assetScope) : []),
     [assetScope, assetTree.nodes, view],
@@ -789,30 +873,86 @@ export default function FindingsPage() {
   // 平铺视图与资产视图右侧是同一张表 + 同一份分页,只是筛选条件不同。
   const flatListCard = (
     <Card className="gap-0 py-0">
-      <CardContent className="px-0">
-        {flat.loading && !flat.loaded ? (
+      <CardContent className="relative px-0">
+        {/* 非首载刷新(切筛选/翻页/改行)只在表头压一条细进度条,不遮挡已加载的行。 */}
+        {flat.pending && flat.loaded && (
+          <div
+            role="status"
+            aria-label="正在更新列表"
+            className="pointer-events-none absolute inset-x-0 top-0 z-10 h-0.5 animate-pulse bg-primary/60"
+          />
+        )}
+        {!flat.loaded && !flat.error ? (
           <div className="flex min-h-36 items-center justify-center">
             <Spinner />
           </div>
         ) : (
           <>
-            <FindingsTable items={flat.items} selectAllLabel="选择当前页全部" {...rowProps} />
-            <TablePagination
-              page={flatPage}
-              pageSize={flatPageSize}
-              total={flat.total}
-              onPageChange={setFlatPage}
-              onPageSizeChange={(nextSize) => {
-                setFlatPageSize(nextSize);
-                setFlatPage(1);
-              }}
-              pageSizeOptions={[10, 20, 50, 100]}
+            <FindingsTable
+              items={flat.items}
+              selectAllLabel="选择当前页全部"
+              error={flat.error}
+              onRetry={() => void loadFlat()}
+              hasFilters={hasFilters}
+              onClearFilters={clearFilters}
+              {...rowProps}
             />
+            {/* 加载失败时不给「共 0 条」的分页,避免和错误态互相矛盾。 */}
+            {!(flat.error && flat.items.length === 0) && (
+              <TablePagination
+                page={flatPage}
+                pageSize={flatPageSize}
+                total={flat.total}
+                onPageChange={setFlatPage}
+                onPageSizeChange={(nextSize) => {
+                  setFlatPageSize(nextSize);
+                  setFlatPage(1);
+                }}
+                pageSizeOptions={[10, 20, 50, 100]}
+              />
+            )}
           </>
         )}
       </CardContent>
     </Card>
   );
+
+  // 分组列表的空态同样区分「加载中 / 失败 / 筛选无结果 / 没有数据」。
+  let groupsEmptyState: React.ReactNode = null;
+  if (!groupsLoaded && !groupsError) {
+    groupsEmptyState = (
+      <Card>
+        <CardContent className="flex min-h-36 items-center justify-center">
+          <Spinner />
+        </CardContent>
+      </Card>
+    );
+  } else if (groupsError && groups.length === 0) {
+    groupsEmptyState = (
+      <Card>
+        <CardContent className="flex flex-col items-center gap-2 py-12 text-center text-sm text-muted-foreground">
+          <span className="text-foreground">加载失败</span>
+          <span className="max-w-md break-words text-xs">{groupsError}</span>
+          <Button size="sm" variant="outline" onClick={() => void refreshGroups()}>
+            重试
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  } else if (groups.length === 0) {
+    groupsEmptyState = (
+      <Card>
+        <CardContent className="flex flex-col items-center gap-2 py-12 text-center text-sm text-muted-foreground">
+          <span>{hasFilters ? "没有匹配的发现。" : "暂无发现。运行任务后，发现的漏洞会按任务汇总到这里。"}</span>
+          {hasFilters && (
+            <Button size="sm" variant="outline" onClick={clearFilters}>
+              清除筛选
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <div className="flex flex-1 flex-col gap-4 md:gap-6">
@@ -1016,7 +1156,15 @@ export default function FindingsPage() {
         )}
 
         {view === "grouped" && (
-          <div className="flex flex-col gap-3">
+          <div className="relative flex flex-col gap-3">
+            {/* 分组列表刷新(切筛选/翻页)时压一条细进度条,不遮挡已有分组。 */}
+            {groupsPending && groupsLoaded && (
+              <div
+                role="status"
+                aria-label="正在更新分组列表"
+                className="pointer-events-none absolute inset-x-0 top-0 z-10 h-0.5 animate-pulse rounded-full bg-primary/60"
+              />
+            )}
             {groups.map((group) => {
               const key = findingGroupKey(group);
               const groupOpen = expandedGroups.has(key);
@@ -1027,6 +1175,8 @@ export default function FindingsPage() {
                 pageSize: 10,
                 loaded: false,
                 loading: false,
+                pending: false,
+                error: null,
               };
               return (
                 <Card key={key} className="gap-0 py-0">
@@ -1086,21 +1236,39 @@ export default function FindingsPage() {
                     </div>
                   </CardHeader>
                   {groupOpen && (
-                    <CardContent className="px-0">
-                      {state.loading && !state.loaded ? (
+                    <CardContent className="relative px-0">
+                      {/* 组内翻页时同样只压一条细进度条,不遮挡已加载的行。 */}
+                      {state.pending && state.loaded && (
+                        <div
+                          role="status"
+                          aria-label="正在更新列表"
+                          className="pointer-events-none absolute inset-x-0 top-0 z-10 h-0.5 animate-pulse bg-primary/60"
+                        />
+                      )}
+                      {state.loading && !state.loaded && !state.error ? (
                         <div className="flex min-h-36 items-center justify-center">
                           <Spinner />
                         </div>
                       ) : (
                         <>
-                          <FindingsTable items={state.items} selectAllLabel="选择本组当前页全部" {...rowProps} />
-                          <TablePagination
-                            page={state.page}
-                            pageSize={state.pageSize}
-                            total={state.total}
-                            onPageChange={(nextPage) => void loadGroup(key, nextPage, state.pageSize)}
-                            onPageSizeChange={(nextSize) => void loadGroup(key, 1, nextSize)}
+                          <FindingsTable
+                            items={state.items}
+                            selectAllLabel="选择本组当前页全部"
+                            error={state.error}
+                            onRetry={() => void loadGroup(key, state.page, state.pageSize)}
+                            hasFilters={hasFilters}
+                            onClearFilters={clearFilters}
+                            {...rowProps}
                           />
+                          {!(state.error && state.items.length === 0) && (
+                            <TablePagination
+                              page={state.page}
+                              pageSize={state.pageSize}
+                              total={state.total}
+                              onPageChange={(nextPage) => void loadGroup(key, nextPage, state.pageSize)}
+                              onPageSizeChange={(nextSize) => void loadGroup(key, 1, nextSize)}
+                            />
+                          )}
                         </>
                       )}
                     </CardContent>
@@ -1108,11 +1276,7 @@ export default function FindingsPage() {
                 </Card>
               );
             })}
-            {groups.length === 0 && (
-              <Card>
-                <CardContent className="py-12 text-center text-sm text-muted-foreground">没有匹配的发现。</CardContent>
-              </Card>
-            )}
+            {groupsEmptyState}
             <TablePagination
               page={page}
               pageSize={pageSize}

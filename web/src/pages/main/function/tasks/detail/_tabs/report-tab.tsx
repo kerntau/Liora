@@ -2,41 +2,40 @@
 
 import * as React from "react";
 
-import { CheckIcon, CopyIcon, DownloadIcon, FileTextIcon, RefreshCwIcon } from "lucide-react";
+import { DownloadIcon, FileTextIcon, RefreshCwIcon } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 
+import { CopyButton } from "@/components/copy-button";
 import { Markdown } from "@/components/markdown";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/lib/api";
-import { copyText } from "@/lib/utils";
 
 export function ReportTab({ taskId }: { taskId: string }) {
   const [report, setReport] = React.useState<string>("");
   const [loading, setLoading] = React.useState(true);
   const [refreshing, setRefreshing] = React.useState(false);
-  const [copied, setCopied] = React.useState(false);
   const [error, setError] = React.useState("");
   const requestSeq = React.useRef(0);
 
   // 统一加载入口：首次加载展示整块 loading；手动刷新只切按钮态，失败时保留旧内容。
   const load = React.useCallback(
-    async (silent = false): Promise<boolean> => {
+    async (silent = false): Promise<string | null> => {
       const seq = ++requestSeq.current;
       if (silent) setRefreshing(true);
       else setLoading(true);
       try {
         const text = await api.report(taskId);
-        if (seq !== requestSeq.current) return false;
+        if (seq !== requestSeq.current) return null;
         setReport(text);
         setError("");
-        return true;
+        return text;
       } catch (e) {
-        if (seq !== requestSeq.current) return false;
+        if (seq !== requestSeq.current) return null;
         if (!silent) setReport("");
         setError((e as Error).message || "报告加载失败");
-        return false;
+        return null;
       } finally {
         if (silent) setRefreshing(false);
         else setLoading(false);
@@ -52,18 +51,6 @@ export function ReportTab({ taskId }: { taskId: string }) {
     };
   }, [load]);
 
-  async function copy() {
-    if (!report) return;
-    const ok = await copyText(report);
-    if (ok) {
-      setCopied(true);
-      toast.success("已复制 Markdown");
-      setTimeout(() => setCopied(false), 1500);
-    } else {
-      toast.error("复制失败，请手动选择文本复制");
-    }
-  }
-
   function download() {
     if (!report) return;
     const blob = new Blob([report], { type: "text/markdown;charset=utf-8" });
@@ -78,16 +65,22 @@ export function ReportTab({ taskId }: { taskId: string }) {
   }
 
   async function refresh() {
-    if (refreshing) return;
-    const ok = await load(true);
-    if (ok) toast.success("报告已刷新");
-    else toast.error("刷新失败，请稍后重试");
+    if (refreshing || loading) return;
+    const text = await load(true);
+    // 失败原因已经内联常驻在卡片里，这里不再叠一条 toast。
+    if (text === null) return;
+    toast.success(text ? "报告已刷新" : "报告尚未生成");
   }
 
   let content: React.ReactNode;
   if (loading) {
     content = (
-      <div className="flex flex-col items-center justify-center gap-2 rounded-md border border-dashed py-16 text-muted-foreground text-sm">
+      <div
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+        className="flex flex-col items-center justify-center gap-2 rounded-md border border-dashed py-16 text-muted-foreground text-sm"
+      >
         <FileTextIcon className="size-8 opacity-40" />
         加载中…
       </div>
@@ -113,10 +106,18 @@ export function ReportTab({ taskId }: { taskId: string }) {
       </Alert>
     );
   } else {
+    // 空态给出下一步：报告由 Agent 生成，用户需要知道去哪拿、怎么刷新。
     content = (
-      <div className="flex flex-col items-center justify-center gap-2 rounded-md border border-dashed py-16 text-muted-foreground text-sm">
+      <div className="flex flex-col items-center justify-center gap-3 rounded-md border border-dashed px-4 py-16 text-center text-muted-foreground text-sm">
         <FileTextIcon className="size-8 opacity-40" />
-        暂无报告
+        <div className="space-y-1">
+          <div className="text-foreground">暂无报告</div>
+          <div className="text-xs">报告由 Agent 在任务中生成，生成后点「刷新」查看</div>
+        </div>
+        <Button size="sm" variant="outline" disabled={refreshing} onClick={() => void refresh()}>
+          <RefreshCwIcon className={refreshing ? "animate-spin" : undefined} />
+          {refreshing ? "刷新中…" : "刷新"}
+        </Button>
       </div>
     );
   }
@@ -128,15 +129,11 @@ export function ReportTab({ taskId }: { taskId: string }) {
           <FileTextIcon className="size-4" /> 渗透测试报告（Markdown）
         </CardTitle>
         <div className="flex gap-2">
-          {report && (
-            <Button size="sm" variant="outline" onClick={copy}>
-              {copied ? <CheckIcon /> : <CopyIcon />} 复制
-            </Button>
-          )}
+          {report && <CopyButton text={report} />}
           <Button size="sm" variant="outline" disabled={!report} onClick={download}>
             <DownloadIcon /> 下载 Markdown
           </Button>
-          <Button size="sm" variant="outline" disabled={refreshing} onClick={() => void refresh()}>
+          <Button size="sm" variant="outline" disabled={refreshing || loading} onClick={() => void refresh()}>
             <RefreshCwIcon className={refreshing ? "animate-spin" : undefined} />
             {refreshing ? "刷新中…" : "刷新"}
           </Button>

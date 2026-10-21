@@ -298,6 +298,9 @@ function ChatView({
   const loadingMoreRef = React.useRef(false); // guard: one scroll-up load at a time
   const [historyLoaded, setHistoryLoaded] = React.useState(false);
   const [hasMore, setHasMore] = React.useState(false); // drives the "load earlier" hint
+  const [historyError, setHistoryError] = React.useState(""); // latest-page load failure (not an empty thread)
+  const [historyAttempt, setHistoryAttempt] = React.useState(0); // bump to retry the latest page
+  const [earlierState, setEarlierState] = React.useState<"idle" | "loading" | "error">("idle");
   const agent = agents.find((a) => a.key === conv.agent_key);
   const currentProfileId = conv.llm_profile_id ?? null;
   const side = useSideQuestions(`/api/conversations/${conv.id}`);
@@ -335,6 +338,8 @@ function ChatView({
     setHasMore(false);
     setMessages([]);
     setHistoryLoaded(false);
+    setHistoryError("");
+    setEarlierState("idle");
     setRunning(false);
     let live = true;
     api
@@ -349,15 +354,17 @@ function ChatView({
         setRunning((current) => current || r.running);
         setHistoryLoaded(true);
       })
-      .catch(() => {
-        // A source link can retry history through its locator; ordinary chats
-        // retain the existing usable empty state on a transient failure.
-        if (live) setHistoryLoaded(true);
+      .catch((e) => {
+        // A source link can retry history through its locator; ordinary chats now
+        // surface the failure with a retry instead of an empty-looking thread.
+        if (!live) return;
+        setHistoryError((e as Error).message || "加载失败");
+        setHistoryLoaded(true);
       });
     return () => {
       live = false;
     };
-  }, [conv.id]);
+  }, [conv.id, historyAttempt]);
 
   // A trigger or another tab may start a turn while this conversation is open.
   // A false list snapshot must not stop the tail before its final messages load.
@@ -419,6 +426,7 @@ function ChatView({
     const vp = viewport();
     if (!vp) return;
     loadingMoreRef.current = true;
+    setEarlierState("loading");
     const prevH = vp.scrollHeight;
     const prevTop = vp.scrollTop;
     try {
@@ -429,12 +437,13 @@ function ChatView({
       }
       hasMoreRef.current = r.hasMore;
       setHasMore(r.hasMore);
+      setEarlierState("idle");
       requestAnimationFrame(() => {
         const v = viewport();
         if (v) v.scrollTop = prevTop + (v.scrollHeight - prevH);
       });
     } catch {
-      /* transient — a later scroll retries */
+      setEarlierState("error"); // the hint above becomes a click-to-retry
     } finally {
       loadingMoreRef.current = false;
     }
@@ -548,6 +557,26 @@ function ChatView({
     }
   }
 
+  // Empty-thread states: the first paint must not claim "no messages yet" while the
+  // latest page is still in flight, and a failed load must not look like an empty chat.
+  const emptySlot = !historyLoaded ? (
+    <div className="text-muted-foreground flex items-center justify-center gap-2 py-10 text-sm">
+      <Loader2Icon className="size-4 animate-spin" />
+      正在加载消息…
+    </div>
+  ) : historyError ? (
+    <div className="flex flex-col items-center gap-2 py-10 text-center text-sm" role="alert">
+      <p className="text-muted-foreground">历史消息加载失败：{historyError}</p>
+      <Button size="sm" variant="outline" onClick={() => setHistoryAttempt((n) => n + 1)}>
+        重试
+      </Button>
+    </div>
+  ) : (
+    <div className="text-muted-foreground py-10 text-center text-sm">
+      开始和「{agent?.name ?? conv.agent_key}」对话
+    </div>
+  );
+
   return (
     <SideQuestionWorkspace side={side} label={agent?.name ?? conv.agent_key} composerLayout="inline">
       {/* header: which agent + live + token meta */}
@@ -585,14 +614,22 @@ function ChatView({
       <ScrollArea type="auto" className="min-h-0 min-w-0 flex-1 [&_[data-slot=scroll-area-viewport]>div]:block!">
         <div className="min-w-0 max-w-full px-4 py-3" ref={contentRef}>
           {messages.length === 0 && !running ? (
-            <div className="text-muted-foreground py-10 text-center text-sm">
-              开始和「{agent?.name ?? conv.agent_key}」对话
-            </div>
+            emptySlot
           ) : (
             <>
-              {hasMore && (
+              {earlierState === "loading" ? (
+                <div className="text-muted-foreground/70 pb-2 text-center text-[11px]">正在加载更早的消息…</div>
+              ) : earlierState === "error" ? (
+                <button
+                  type="button"
+                  onClick={() => void loadEarlier()}
+                  className="w-full pb-2 text-center text-[11px] text-red-500 hover:underline"
+                >
+                  加载更早的消息失败，点击重试
+                </button>
+              ) : hasMore ? (
                 <div className="text-muted-foreground/70 pb-2 text-center text-[11px]">向上滚动加载更早的消息…</div>
-              )}
+              ) : null}
               <Transcript activity={messages} live={running} chat fetchDetail={fetchDetail} focusedSeq={focusHistory.ready ? approvalFocus.state?.source?.seq : undefined} />
             </>
           )}

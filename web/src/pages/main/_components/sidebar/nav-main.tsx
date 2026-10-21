@@ -86,28 +86,48 @@ function hasSubItems(item: NavMainItem): item is NavMainParentItem {
 export function NavMain({ items }: NavMainProps) {
   const rawPath = usePathname();
   // 路由段含中文，pathname 可能是百分号编码，解码后再与导航 url 比较，保证高亮命中。
+  // 静态导出开了 trailingSlash，列表页的 pathname 是 "/function/tasks/"，先去掉尾斜杠，
+  // 与 main-content.tsx 的规范化保持一致。
   const path = (() => {
     try {
-      return decodeURIComponent(rawPath);
+      return decodeURIComponent(rawPath).replace(/\/+$/, "") || "/";
     } catch {
-      return rawPath;
+      return rawPath.replace(/\/+$/, "") || "/";
     }
   })();
 
+  // 详情页（如 /function/tasks/detail）不在导航表里，用前缀匹配点亮所属条目。但
+  // /system/intercept 与 /system/intercept/approvals 是两条并列导航，取最长命中，
+  // 避免在审批记录页把「拦截规则」也点亮。
+  const activeUrl = React.useMemo(() => {
+    let matched = "";
+    for (const group of items) {
+      for (const item of group.items) {
+        const urls = hasSubItems(item) ? item.subItems.map((sub) => sub.url) : [item.url];
+        for (const url of urls) {
+          if ((path === url || path.startsWith(`${url}/`)) && url.length > matched.length) {
+            matched = url;
+          }
+        }
+      }
+    }
+    return matched;
+  }, [items, path]);
+
   const isItemActive = (item: NavMainItem) => {
     if (hasSubItems(item)) {
-      return item.subItems.some((sub) => path.startsWith(sub.url));
+      return item.subItems.some((sub) => sub.url === activeUrl);
     }
 
-    return path === item.url;
+    return item.url === activeUrl;
   };
 
   const isSubItemActive = (url: string) => {
-    return path === url;
+    return url === activeUrl;
   };
 
   const isSubmenuOpen = (item: NavMainParentItem) => {
-    return item.subItems.some((sub) => path.startsWith(sub.url));
+    return item.subItems.some((sub) => sub.url === activeUrl);
   };
 
   return (

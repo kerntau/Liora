@@ -13,8 +13,9 @@ import {
   Trash2Icon,
   ZapIcon,
 } from "lucide-react";
-import { toast } from "@/components/ui/sonner";
 
+import { AsyncState } from "@/components/async-state";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -24,8 +25,11 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "@/components/ui/sonner";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { type AsyncStatus, useAsyncData } from "@/hooks/use-async-data";
 import { api } from "@/lib/api";
 import type { LLMPoolMember, LLMPoolStatus, LLMProfile, LLMRetryOverride } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -331,6 +335,13 @@ function ProfileSheet({
   const [retry, setRetry] = React.useState<LLMRetryOverride>(ZERO_OVERRIDE); // 本配置的重试覆盖;全 0=跟随全局
   const [testing, setTesting] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
+  // 测试结果留在面板里：失败原因往往很长（状态码 / 模型不支持某字段），
+  // toast 几秒就没了，既看不完也没法复制。这里一直留到下次测试或换配置。
+  const [testResult, setTestResult] = React.useState<{ ok: boolean; title: string; detail?: string } | null>(null);
+  // 只有点过提交才标红必填项，避免一打开就满屏报错。
+  const [triedSubmit, setTriedSubmit] = React.useState(false);
+  const nameInvalid = triedSubmit && !name.trim();
+  const modelInvalid = triedSubmit && !model.trim();
   const [models, setModels] = React.useState<string[]>([]);
   const [loadingModels, setLoadingModels] = React.useState(false);
   const [modelsOpen, setModelsOpen] = React.useState(false);
@@ -360,6 +371,8 @@ function ProfileSheet({
     setKeyHint(profile?.api_key_hint ?? "");
     setModels([]);
     setModelsOpen(false);
+    setTestResult(null);
+    setTriedSubmit(false);
   }, [open, profile]);
 
   const profileId = profile ? Number(profile.id) : undefined;
@@ -387,6 +400,7 @@ function ProfileSheet({
   async function testConnection() {
     if (testing) return;
     setTesting(true);
+    setTestResult(null);
     try {
       // 用配置实际会跑的思考参数来测，这样不支持该字段的模型在这里就失败，
       // 而不是等到跑任务时才炸。传 profile id：Key 输入框留空时用已存的 Key。
@@ -404,22 +418,23 @@ function ProfileSheet({
       );
       // 回复内容一并展示：看得见模型确实说了话，才算和会话里跑通是一回事。
       if (r.ok)
-        toast.success(`连接成功 · ${r.latency_ms ?? "?"}ms · ${r.model ?? model}`, {
-          description: r.reply ? `回复：${r.reply}` : undefined,
+        setTestResult({
+          ok: true,
+          title: `连接成功 · ${r.latency_ms ?? "?"}ms · ${r.model ?? model}`,
+          detail: r.reply ? `回复：${r.reply}` : undefined,
         });
-      else toast.error(`连接失败：${r.error ?? "未知"}`);
+      else setTestResult({ ok: false, title: "连接失败", detail: r.error ?? "未知错误" });
     } catch (e) {
-      toast.error(`测试出错：${(e as Error).message}`);
+      setTestResult({ ok: false, title: "测试出错", detail: (e as Error).message });
     } finally {
       setTesting(false);
     }
   }
 
   async function save() {
-    if (!name.trim() || !model.trim()) {
-      toast.error("请填写名称与模型");
-      return;
-    }
+    setTriedSubmit(true);
+    // 必填项就地标红（输入框下方常驻提示），不再用 toast 报一句就消失。
+    if (!name.trim() || !model.trim()) return;
     if (saving) return;
     setSaving(true);
     try {
@@ -461,6 +476,8 @@ function ProfileSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
+        // 保存中拦住 Esc / 遮罩 / 右上角关闭：请求已经在跑，此时关掉只会让人以为没存上。
+        busy={saving}
         className="flex flex-col gap-0 p-0 data-[side=right]:w-full data-[side=right]:sm:min-w-[420px] data-[side=right]:sm:max-w-xl"
       >
         <SheetHeader className="px-4">
@@ -487,8 +504,10 @@ function ProfileSheet({
                 id="p-name"
                 placeholder="例如：OpenAI 生产"
                 value={name}
+                aria-invalid={nameInvalid || undefined}
                 onChange={(e) => setName(e.target.value)}
               />
+              {nameInvalid && <p className="text-destructive text-xs">请填写名称</p>}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="p-format">格式</Label>
@@ -513,6 +532,7 @@ function ProfileSheet({
                 className="font-mono"
                 placeholder="填写模型标识"
                 value={model}
+                aria-invalid={modelInvalid || undefined}
                 onChange={(e) => setModel(e.target.value)}
               />
               {/* modal: 这个 Popover 的内容被 portal 到 <body>，在 Sheet 的滚动锁之外，
@@ -550,6 +570,7 @@ function ProfileSheet({
                 )}
               </Popover>
             </div>
+            {modelInvalid && <p className="text-destructive text-xs">请填写模型标识</p>}
           </div>
 
           <div className="grid gap-2">
@@ -772,8 +793,27 @@ function ProfileSheet({
           </details>
         </div>
 
+        {testResult && (
+          <div
+            role={testResult.ok ? "status" : "alert"}
+            className={cn(
+              "mx-4 mb-3 rounded-lg border p-2.5 text-xs",
+              testResult.ok
+                ? "border-emerald-500/40 text-emerald-700 dark:text-emerald-400"
+                : "border-destructive/40 text-destructive",
+            )}
+          >
+            <div className="font-medium">{testResult.title}</div>
+            {testResult.detail && (
+              <p className="mt-0.5 max-h-24 overflow-y-auto whitespace-pre-wrap break-words font-mono">
+                {testResult.detail}
+              </p>
+            )}
+          </div>
+        )}
+
         <div className="flex gap-2 border-t px-4 py-3">
-          <Button variant="outline" onClick={testConnection} disabled={testing}>
+          <Button variant="outline" onClick={testConnection} disabled={testing || saving}>
             {testing ? <Loader2Icon className="animate-spin" /> : <PlugZapIcon />}
             {testing ? "测试中…" : "测试连接"}
           </Button>
@@ -791,9 +831,19 @@ function ProfileSheet({
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function LLMPage() {
-  const [profiles, setProfiles] = React.useState<LLMProfile[]>([]);
+  // 列表四态交给 useAsyncData：首载先出骨架（不再先闪一句「还没有模型配置」），
+  // 请求失败时内联报错并给重试，而不是被 catch 掉、把失败画成空列表。
+  const profilesQ = useAsyncData<LLMProfile[]>(() => api.llmProfiles(), []);
+  const reloadProfiles = profilesQ.reload;
+  const profiles = profilesQ.data ?? [];
+  // 首载（含 idle 第一帧）出骨架；之后的刷新保留现有卡片，避免列表闪空；失败内联报错。
+  let listStatus: AsyncStatus = "ready";
+  if (profilesQ.error) listStatus = "error";
+  if (profilesQ.initialLoading || profilesQ.status === "idle") listStatus = "loading";
   const [pool, setPool] = React.useState<LLMPoolStatus | null>(null);
   const [poolOpen, setPoolOpen] = React.useState(false);
+  const [confirmDelete, setConfirmDelete] = React.useState<LLMProfile | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
   // 抽屉的开关和内容分开存：关闭时 editing 保持不变，否则关闭动画期间标题会从
   // 「编辑 X」闪成「新建」。editing = null 表示新建。
   const [editOpen, setEditOpen] = React.useState(false);
@@ -812,17 +862,14 @@ export default function LLMPage() {
   }, []);
 
   const load = React.useCallback(async () => {
-    try {
-      setProfiles(await api.llmProfiles());
-    } catch {
-      /* ignore */
-    }
+    reloadProfiles();
     await loadPool();
-  }, [loadPool]);
+  }, [loadPool, reloadProfiles]);
 
+  // profiles 由 useAsyncData 自己在挂载时取；这里只补轮询状态。
   React.useEffect(() => {
-    void load();
-  }, [load]);
+    void loadPool();
+  }, [loadPool]);
 
   // 卡片上的健康徽章按 profile id 取轮询状态。
   const health = React.useMemo(() => {
@@ -846,12 +893,17 @@ export default function LLMPage() {
       toast.error("无法删除当前激活的配置");
       return;
     }
+    setDeleting(true);
     try {
       await api.deleteLLMProfile(p.id);
       toast.success(`已删除：${p.name}`);
+      setConfirmDelete(null);
       await load();
     } catch (e) {
+      // 失败时卡片与列表原样保留，错误原因留在 toast 里，用户可以再试一次。
       toast.error(`删除失败：${(e as Error).message}`);
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -886,99 +938,114 @@ export default function LLMPage() {
         </TabsList>
 
         <TabsContent value="profiles" className="mt-4">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {profiles.map((p) => {
-              const h = healthOf(p, health.get(p.id));
-              return (
-                // biome-ignore lint/a11y/useSemanticElements: 卡片内含自己的操作按钮，用原生 <button> 会造成按钮嵌套（非法 HTML）
-                <Card
-                  key={p.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => openEditor(p)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      openEditor(p);
-                    }
-                  }}
-                  className={cn(
-                    "cursor-pointer gap-0 py-4 outline-none transition-colors hover:border-foreground/30",
-                    p.is_default && "border-amber-400/50 bg-amber-400/5",
-                  )}
-                >
-                  <CardContent className="grid gap-2 px-4">
-                    <div className="flex items-start gap-2">
-                      <StarIcon
-                        className={cn(
-                          "mt-0.5 size-4 shrink-0",
-                          p.is_default ? "fill-amber-400 text-amber-400" : "text-muted-foreground",
-                        )}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="truncate font-medium text-sm">{p.name}</span>
-                          <Badge variant="outline" className="uppercase">
-                            {p.format}
-                          </Badge>
-                          <Badge variant="outline" className={cn("ml-auto", h.cls)} title={h.hint}>
-                            {h.label}
-                          </Badge>
-                        </div>
-                        <code className="mt-1 block truncate font-mono text-muted-foreground text-xs">{p.model}</code>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 pl-6 text-muted-foreground text-xs">
-                      {p.api_key_hint && <span>{p.api_key_hint}</span>}
-                      <span>
-                        {p.rate_per_second}/s · {p.rate_per_minute}/min
-                      </span>
-                      {p.proxy && <span className="truncate">代理 {p.proxy}</span>}
-                      {p.reasoning_effort && (
-                        <span>思考 {p.reasoning_effort === "off" ? "关" : p.reasoning_effort}</span>
-                      )}
-                      {/* 轮询相关的两个字段只在轮询开着时才有意义，关着时不占版面 */}
-                      {poolOn &&
-                        !p.is_default &&
-                        (p.pool_exclude ? <span>不参与轮询</span> : <span>优先级 {p.priority ?? 0}</span>)}
-                    </div>
-
-                    <div className="mt-1 flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="flex-1"
-                        disabled={p.is_default}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void activate(p.id, p.name);
-                        }}
-                      >
-                        {p.is_default ? "已激活" : "设为激活"}
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="outline"
-                        aria-label="删除配置"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void remove(p);
-                        }}
-                      >
-                        <Trash2Icon className="text-destructive" />
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-            {profiles.length === 0 && (
-              <div className="col-span-full rounded-lg border border-dashed p-10 text-center text-muted-foreground text-sm">
+          <AsyncState
+            status={listStatus}
+            error={profilesQ.error}
+            onRetry={reloadProfiles}
+            isEmpty={profiles.length === 0}
+            empty={
+              <div className="rounded-lg border border-dashed p-10 text-center text-muted-foreground text-sm">
                 还没有模型配置，点击右上角「新建」创建第一个。
               </div>
-            )}
-          </div>
+            }
+            skeleton={
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {[0, 1, 2].map((i) => (
+                  <Skeleton key={i} className="h-36 w-full rounded-xl" />
+                ))}
+              </div>
+            }
+          >
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {profiles.map((p) => {
+                const h = healthOf(p, health.get(p.id));
+                return (
+                  // biome-ignore lint/a11y/useSemanticElements: 卡片内含自己的操作按钮，用原生 <button> 会造成按钮嵌套（非法 HTML）
+                  <Card
+                    key={p.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openEditor(p)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        openEditor(p);
+                      }
+                    }}
+                    className={cn(
+                      // 卡片本身是 role="button" 的焦点目标，键盘 Tab 必须能看到焦点环
+                      "cursor-pointer gap-0 py-4 outline-none transition-colors hover:border-foreground/30 focus-visible:ring-2 focus-visible:ring-ring",
+                      p.is_default && "border-amber-400/50 bg-amber-400/5",
+                    )}
+                  >
+                    <CardContent className="grid gap-2 px-4">
+                      <div className="flex items-start gap-2">
+                        <StarIcon
+                          className={cn(
+                            "mt-0.5 size-4 shrink-0",
+                            p.is_default ? "fill-amber-400 text-amber-400" : "text-muted-foreground",
+                          )}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="truncate font-medium text-sm">{p.name}</span>
+                            <Badge variant="outline" className="uppercase">
+                              {p.format}
+                            </Badge>
+                            <Badge variant="outline" className={cn("ml-auto", h.cls)} title={h.hint}>
+                              {h.label}
+                            </Badge>
+                          </div>
+                          <code className="mt-1 block truncate font-mono text-muted-foreground text-xs">{p.model}</code>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 pl-6 text-muted-foreground text-xs">
+                        {p.api_key_hint && <span>{p.api_key_hint}</span>}
+                        <span>
+                          {p.rate_per_second}/s · {p.rate_per_minute}/min
+                        </span>
+                        {p.proxy && <span className="truncate">代理 {p.proxy}</span>}
+                        {p.reasoning_effort && (
+                          <span>思考 {p.reasoning_effort === "off" ? "关" : p.reasoning_effort}</span>
+                        )}
+                        {/* 轮询相关的两个字段只在轮询开着时才有意义，关着时不占版面 */}
+                        {poolOn &&
+                          !p.is_default &&
+                          (p.pool_exclude ? <span>不参与轮询</span> : <span>优先级 {p.priority ?? 0}</span>)}
+                      </div>
+
+                      <div className="mt-1 flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="flex-1"
+                          disabled={p.is_default}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void activate(p.id, p.name);
+                          }}
+                        >
+                          {p.is_default ? "已激活" : "设为激活"}
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          aria-label={`删除配置：${p.name}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setConfirmDelete(p);
+                          }}
+                        >
+                          <Trash2Icon className="text-destructive" />
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </AsyncState>
         </TabsContent>
 
         <TabsContent value="retry" className="mt-4">
@@ -988,6 +1055,24 @@ export default function LLMPage() {
 
       <ProfileSheet profile={editing} open={editOpen} onOpenChange={setEditOpen} onSaved={() => void load()} />
       <PoolSheet open={poolOpen} onOpenChange={setPoolOpen} pool={pool} onReload={loadPool} />
+
+      {/* 删除会连同 Key / 限速 / 重试设置一起丢，先确认再发请求。 */}
+      <ConfirmDialog
+        open={!!confirmDelete}
+        onOpenChange={(next) => {
+          if (!next && !deleting) setConfirmDelete(null);
+        }}
+        title="删除模型配置？"
+        description={
+          confirmDelete
+            ? `「${confirmDelete.name}」的 API Key、限速与重试设置会一并删除且无法恢复，引用它的 Agent 需要重新选择模型。`
+            : undefined
+        }
+        confirmLabel="删除"
+        destructive
+        pending={deleting}
+        onConfirm={() => (confirmDelete ? remove(confirmDelete) : undefined)}
+      />
     </div>
   );
 }

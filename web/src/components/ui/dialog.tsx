@@ -51,12 +51,20 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  busy = false,
+  initialFocusRef,
   onInteractOutside,
+  onEscapeKeyDown,
+  onOpenAutoFocus,
   onCloseAutoFocus,
   ref,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
+  // busy 为 true 时(如提交中)拦截 Esc、遮罩点击与右上角关闭按钮;不传时行为不变。
+  busy?: boolean
+  // initialFocusRef 指定打开时优先聚焦的元素;不传则按 Radix 默认聚焦首个可聚焦元素。
+  initialFocusRef?: React.RefObject<HTMLElement | null>
 }) {
   const opener = React.useRef<HTMLElement | null>(null)
   const captureOpener = React.useCallback((element: HTMLDivElement | null) => {
@@ -72,6 +80,19 @@ function DialogContent({
       <DialogPrimitive.Content
         ref={captureOpener}
         data-slot="dialog-content"
+        data-busy={busy || undefined}
+        onOpenAutoFocus={(event) => {
+          onOpenAutoFocus?.(event)
+          if (event.defaultPrevented) return
+          if (initialFocusRef?.current) {
+            event.preventDefault()
+            initialFocusRef.current.focus()
+          }
+        }}
+        onEscapeKeyDown={(event) => {
+          if (busy) event.preventDefault()
+          onEscapeKeyDown?.(event)
+        }}
         onCloseAutoFocus={(event) => {
           onCloseAutoFocus?.(event)
           if (!event.defaultPrevented && opener.current?.isConnected) {
@@ -88,7 +109,8 @@ function DialogContent({
         onInteractOutside={(e) => {
           const target = e.detail.originalEvent.target as Element | null
           const onOverlay = !!target?.closest?.("[data-slot='dialog-overlay']")
-          if (!onOverlay || radixOverlayWasOpenAtPointerDown()) e.preventDefault()
+          if (busy || !onOverlay || radixOverlayWasOpenAtPointerDown())
+            e.preventDefault()
           onInteractOutside?.(e)
         }}
         className={cn(
@@ -105,6 +127,7 @@ function DialogContent({
               className="absolute top-2 right-2"
               size="icon-sm"
               aria-label="关闭弹窗"
+              disabled={busy}
             >
               <XIcon
               />

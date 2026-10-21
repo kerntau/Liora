@@ -25,6 +25,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { AsyncState } from "@/components/async-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -32,6 +33,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import {
   Sheet,
@@ -42,6 +44,7 @@ import {
 } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { useAsyncData } from "@/hooks/use-async-data";
 import { api } from "@/lib/api";
 import type { Agent, SkillItem, MCPServer, SkillCall, MissingSkill } from "@/lib/types";
 
@@ -294,7 +297,10 @@ function SkillsOverview({
 
 // ── Page ──────────────────────────────────────────────────────────────────
 export default function SkillsPage() {
-  const [skills, setSkills] = React.useState<SkillItem[]>([]);
+  // 技能列表走统一四态：首载骨架、失败常驻可重试；刷新保留上一份，树不闪空。
+  const skillsQ = useAsyncData(() => api.skills(), []);
+  const skills = skillsQ.data ?? [];
+  const listStatus = skillsQ.status === "error" ? "error" : skillsQ.initialLoading ? "loading" : "ready";
   const [agents, setAgents] = React.useState<Agent[]>([]);
   const [selected, setSelected] = React.useState<Selected | null>(null);
   const [visibility, setVisibility] = React.useState<Record<string, string[]>>({});
@@ -303,6 +309,9 @@ export default function SkillsPage() {
   // file editor
   const [fileContent, setFileContent] = React.useState("");
   const [fileLoading, setFileLoading] = React.useState(false);
+  const [fileError, setFileError] = React.useState<string | null>(null);
+  const [fileReload, setFileReload] = React.useState(0);
+  const fileSeq = React.useRef(0);
   const [dirty, setDirty] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
 
@@ -342,21 +351,27 @@ export default function SkillsPage() {
   const [missing, setMissing] = React.useState<MissingSkill[]>([]);
 
   // ── Data ──────────────────────────────────────────────────────────────────
-  const load = React.useCallback(() => {
+  const loadSide = React.useCallback(() => {
     api.agents().then(setAgents).catch(() => {});
     api.mcpServers().then(setMcpOptions).catch(() => {});
     api.missingSkills().then(setMissing).catch(() => {});
-    api.skills().then((ss) => {
-      setSkills(ss);
-      ss.forEach((s) =>
-        api.skillVisibility(s.name)
-          .then((ids) => setVisibility((v) => ({ ...v, [s.name]: ids })))
-          .catch(() => {}),
-      );
-    }).catch(() => {});
   }, []);
+  // 变更后统一刷新：旁路数据 + 技能列表。
+  const load = React.useCallback(() => {
+    loadSide();
+    skillsQ.reload();
+  }, [loadSide, skillsQ.reload]);
 
-  React.useEffect(() => { load(); }, [load]);
+  React.useEffect(() => { loadSide(); }, [loadSide]);
+
+  // 可见性按 skill 单独补拉，不拖慢列表首屏。
+  React.useEffect(() => {
+    for (const s of skillsQ.data ?? []) {
+      api.skillVisibility(s.name)
+        .then((ids) => setVisibility((v) => ({ ...v, [s.name]: ids })))
+        .catch(() => {});
+    }
+  }, [skillsQ.data]);
 
   // ── Upload a .zip skill ───────────────────────────────────────────────────
   async function uploadZip(file: File, overwrite = false) {
@@ -409,13 +424,22 @@ export default function SkillsPage() {
   }, [selected]);
 
   React.useEffect(() => {
-    if (!selected || selected.path === null) { setFileContent(""); setDirty(false); return; }
+    if (!selected || selected.path === null) {
+      setFileContent(""); setDirty(false); setFileError(null);
+      return;
+    }
+    // 先清空上一份内容：读失败时不能把旧文件内容留在编辑框里、被保存到新路径。
+    // seq 防止快速切换文件时旧请求覆盖新内容。
+    const seq = ++fileSeq.current;
+    setFileContent("");
+    setDirty(false);
+    setFileError(null);
     setFileLoading(true);
     api.readSkillFile(selected.skill, selected.path)
-      .then((c) => { setFileContent(c); setDirty(false); })
-      .catch(() => toast.error("读取文件失败"))
-      .finally(() => setFileLoading(false));
-  }, [selected]);
+      .then((c) => { if (fileSeq.current === seq) setFileContent(c); })
+      .catch((e) => { if (fileSeq.current === seq) setFileError((e as Error).message); })
+      .finally(() => { if (fileSeq.current === seq) setFileLoading(false); });
+  }, [selected, fileReload]);
 
   // ── Expand helpers ────────────────────────────────────────────────────────
   function toggleExpanded(key: string) {
@@ -649,7 +673,7 @@ export default function SkillsPage() {
               }
               <span className="min-w-0 flex-1 truncate" title={node.path}>{node.name}</span>
               {/* Absolute so a long name can never push the actions out of view */}
-              <span className="absolute inset-y-0 right-1 hidden items-center gap-0.5 rounded bg-muted pl-1 group-hover:flex">
+              <span className="pointer-events-none absolute inset-y-0 right-1 flex items-center gap-0.5 rounded bg-muted pl-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
                 <Button size="icon" variant="ghost" className="size-5" title="新建文件"
                   onClick={(e) => { e.stopPropagation(); startCreate(skill, node.path, "file"); }}>
                   <FilePlusIcon className="size-3 text-muted-foreground" />
@@ -699,7 +723,7 @@ export default function SkillsPage() {
           <FileTextIcon className="size-3.5 shrink-0 text-muted-foreground" />
           <span className="min-w-0 flex-1 truncate font-mono text-xs" title={node.path}>{node.name}</span>
           <span className={cn(
-            "absolute inset-y-0 right-1 hidden items-center rounded pl-1 group-hover:flex",
+            "pointer-events-none absolute inset-y-0 right-1 flex items-center rounded pl-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100",
             isSelected ? "bg-accent" : "bg-muted",
           )}>
             <Button size="icon" variant="ghost" className="size-5"
@@ -780,7 +804,22 @@ export default function SkillsPage() {
               content — force it to block so long names truncate instead of
               widening the rows past the sidebar. */}
           <ScrollArea className="flex-1 [&>[data-slot=scroll-area-viewport]>div]:!block">
-            <div role="tree" aria-label="Skill 文件" className="p-1">
+            <div className="p-1">
+              <AsyncState
+                status={listStatus}
+                error={skillsQ.error}
+                onRetry={skillsQ.reload}
+                isEmpty={skills.length === 0}
+                skeleton={
+                  <div className="space-y-1" aria-hidden="true">
+                    {[0, 1, 2, 3].map((i) => (
+                      <Skeleton key={i} className="h-7 w-full" />
+                    ))}
+                  </div>
+                }
+                empty={<p className="p-3 text-xs text-muted-foreground">暂无 Skill，点击「新建」开始</p>}
+              >
+              <div role="tree" aria-label="Skill 文件">
               {skills.map((s) => {
                 const isOpen = expanded.has(s.name);
                 const tree = buildTree(s.files);
@@ -827,7 +866,7 @@ export default function SkillsPage() {
                         </span>
                       )}
                       <span className={cn(
-                        "absolute inset-y-0 right-1 hidden items-center gap-0.5 rounded pl-1 group-hover:flex",
+                        "pointer-events-none absolute inset-y-0 right-1 flex items-center gap-0.5 rounded pl-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100",
                         isSkillSelected ? "bg-accent" : "bg-muted",
                       )}>
                         <Button size="icon" variant="ghost" className="size-5" title="新建文件"
@@ -856,10 +895,8 @@ export default function SkillsPage() {
                   </div>
                 );
               })}
-
-              {skills.length === 0 && (
-                <p className="p-3 text-xs text-muted-foreground">暂无 Skill，点击「新建」开始</p>
-              )}
+              </div>
+              </AsyncState>
             </div>
           </ScrollArea>
         </div>
@@ -867,11 +904,23 @@ export default function SkillsPage() {
         {/* ── 右侧面板 ── */}
         <div className="flex min-w-0 flex-1 flex-col overflow-auto p-4">
           {!selected && (
-            <SkillsOverview
-              skills={skills}
-              missing={missing}
-              onSelect={(name) => setSelected({ skill: name, path: null })}
-            />
+            skillsQ.data ? (
+              <SkillsOverview
+                skills={skills}
+                missing={missing}
+                onSelect={(name) => setSelected({ skill: name, path: null })}
+              />
+            ) : listStatus === "loading" ? (
+              <div className="mx-auto w-full max-w-3xl space-y-3" aria-hidden="true">
+                <Skeleton className="h-5 w-40" />
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {[0, 1, 2, 3].map((i) => (
+                    <Skeleton key={i} className="h-20" />
+                  ))}
+                </div>
+                <Skeleton className="h-40 w-full" />
+              </div>
+            ) : null
           )}
 
           {selected && selected.path === null && selectedSkill && (
@@ -1002,6 +1051,14 @@ export default function SkillsPage() {
               </div>
               {fileLoading ? (
                 <p className="text-xs text-muted-foreground">加载中…</p>
+              ) : fileError ? (
+                <div role="alert" className="text-muted-foreground flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-12 text-sm">
+                  <div className="text-foreground">读取失败</div>
+                  <div className="max-w-md text-center text-xs">{fileError}</div>
+                  <Button size="sm" variant="outline" onClick={() => setFileReload((n) => n + 1)}>
+                    重试
+                  </Button>
+                </div>
               ) : (
                 <Textarea
                   aria-label="文件内容"
@@ -1062,7 +1119,7 @@ export default function SkillsPage() {
 
       {/* ── 新建 Skill 对话框 ── */}
       <Sheet open={newOpen} onOpenChange={setNewOpen}>
-        <SheetContent side="right" className="flex w-full flex-col gap-0 data-[side=right]:sm:max-w-xl">
+        <SheetContent side="right" busy={creatingSkill} className="flex w-full flex-col gap-0 data-[side=right]:sm:max-w-xl">
           <SheetHeader className="px-4 pt-4">
             <SheetTitle>新建 Skill</SheetTitle>
           </SheetHeader>

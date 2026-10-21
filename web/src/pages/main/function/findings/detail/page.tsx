@@ -198,7 +198,7 @@ function FindingDetailInner() {
               <Card>
                 <CardHeader className="flex-row items-center justify-between">
                   <CardTitle className="text-sm">详细报告</CardTitle>
-                  {finding.report && <CopyButton text={finding.report} successMessage="已复制详细报告" />}
+                  {finding.report && <CopyButton text={finding.report} />}
                 </CardHeader>
                 <CardContent>
                   {finding.report_stale ? (

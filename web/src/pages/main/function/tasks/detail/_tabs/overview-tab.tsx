@@ -141,6 +141,9 @@ export function OverviewTab({ taskId }: { taskId: string }) {
   const [editingConId, setEditingConId] = React.useState<string | null>(null);
   const [editConText, setEditConText] = React.useState("");
   const [editConKind, setEditConKind] = React.useState<TaskConstraint["kind"]>("deny");
+  // 轮询/首载失败要看得见：保留旧值 + 顶部提示 + 手动重试。
+  const [loadFailed, setLoadFailed] = React.useState(false);
+  const [reloadTick, setReloadTick] = React.useState(0);
 
   const loadTokens = React.useCallback(async () => {
     try {
@@ -218,7 +221,8 @@ export function OverviewTab({ taskId }: { taskId: string }) {
     setGoals((prev) => prev.filter((x) => x.id !== g.id));
     try {
       await api.deleteGoal(taskId, g.id);
-    } catch {
+    } catch (e) {
+      setGoalErr(e instanceof Error ? e.message : "删除失败，已还原");
       await loadGoals(); // 删除失败：重新拉取还原
     }
   };
@@ -280,7 +284,8 @@ export function OverviewTab({ taskId }: { taskId: string }) {
     setConstraints((prev) => prev.filter((x) => x.id !== c.id));
     try {
       await api.deleteConstraint(taskId, c.id);
-    } catch {
+    } catch (e) {
+      setConErr(e instanceof Error ? e.message : "删除失败，已还原");
       await loadConstraints(); // 删除失败：重新拉取还原
     }
   };
@@ -305,7 +310,8 @@ export function OverviewTab({ taskId }: { taskId: string }) {
     setScope((prev) => prev.filter((s) => s.id !== row.id));
     try {
       await api.deleteTaskScope(taskId, row.id);
-    } catch {
+    } catch (e) {
+      setScopeErr(e instanceof Error ? e.message : "删除失败，已还原");
       await loadScope(); // 删除失败：重新拉取还原
     }
   };
@@ -344,6 +350,7 @@ export function OverviewTab({ taskId }: { taskId: string }) {
     }
   };
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reloadTick 仅用于「立即重试」触发重新拉取。
   React.useEffect(() => {
     let cancelled = false;
     let loading = false;
@@ -375,6 +382,7 @@ export function OverviewTab({ taskId }: { taskId: string }) {
         setStats(statsResp);
         setIntents(intentsResp);
         setFindings(findingsResp);
+        setLoadFailed(false);
         // coverage is independent + may 503 when no asset store — fetch separately so
         // its failure never blocks the others.
         api
@@ -386,7 +394,8 @@ export function OverviewTab({ taskId }: { taskId: string }) {
             // A transient coverage failure is retried by the next poll.
           });
       } catch {
-        // transient errors are ignored; the next poll will retry
+        // 保留旧值，下一轮自动重试；失败在顶部显式提示，不静默。
+        if (!cancelled) setLoadFailed(true);
       } finally {
         loading = false;
       }
@@ -407,7 +416,7 @@ export function OverviewTab({ taskId }: { taskId: string }) {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [taskId, loadScope, loadTokens, loadGoals, loadConstraints]);
+  }, [taskId, loadScope, loadTokens, loadGoals, loadConstraints, reloadTick]);
 
   const running = intents.filter((i) => i.state === "running");
   const open = intents.filter((i) => i.state === "open");
@@ -429,6 +438,23 @@ export function OverviewTab({ taskId }: { taskId: string }) {
 
   return (
     <div className="flex flex-col gap-4">
+      {loadFailed && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-muted-foreground"
+        >
+          <AlertTriangleIcon className="size-3.5 text-amber-500" />
+          任务数据刷新失败，当前显示上次成功的结果，正在自动重试
+          <Button
+            size="sm"
+            variant="ghost"
+            className="ml-auto h-6 px-2 text-xs"
+            onClick={() => setReloadTick((n) => n + 1)}
+          >
+            立即重试
+          </Button>
+        </div>
+      )}
       {/* 原始任务描述与目标(创建时填写的),置顶便于随时回看。 */}
       <Card role="region" aria-label="任务描述与目标">
         <CardHeader>
@@ -979,11 +1005,11 @@ export function OverviewTab({ taskId }: { taskId: string }) {
           </CardHeader>
           <CardContent className="grid grid-cols-2 gap-3 text-sm">
             <div>
-              <div className="text-2xl font-semibold tabular-nums text-red-600">{taskFindings.length}</div>
+              <div className="text-2xl font-semibold tabular-nums text-red-600 dark:text-red-400">{taskFindings.length}</div>
               <div className="text-xs text-muted-foreground">确认漏洞</div>
             </div>
             <div>
-              <div className="text-2xl font-semibold tabular-nums text-blue-600">{running.length}</div>
+              <div className="text-2xl font-semibold tabular-nums text-blue-600 dark:text-blue-400">{running.length}</div>
               <div className="text-xs text-muted-foreground">执行中</div>
             </div>
             <div>
@@ -991,7 +1017,7 @@ export function OverviewTab({ taskId }: { taskId: string }) {
               <div className="text-xs text-muted-foreground">frontier 待领</div>
             </div>
             <div>
-              <div className="text-2xl font-semibold tabular-nums text-red-600">{blocked.length}</div>
+              <div className="text-2xl font-semibold tabular-nums text-red-600 dark:text-red-400">{blocked.length}</div>
               <div className="text-xs text-muted-foreground">被拦意图</div>
             </div>
           </CardContent>
@@ -1061,6 +1087,7 @@ export function OverviewTab({ taskId }: { taskId: string }) {
         <StatCard label="确认发现" value={taskFindings.length} icon={BugIcon} sub="本任务" />
         <StatCard label="意图总数" value={intents.length} icon={AlertTriangleIcon} sub="本任务全部意图" />
       </div>
+
     </div>
   );
 }

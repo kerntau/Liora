@@ -157,8 +157,10 @@ function SourceCell({ asset }: { asset: Asset }) {
 function AssetCard({
   children,
   cols,
+  error = "",
   loaded,
   onPage,
+  onRetry,
   onSize,
   page,
   size,
@@ -166,8 +168,10 @@ function AssetCard({
 }: {
   children: React.ReactNode;
   cols: string[];
+  error?: string;
   loaded: boolean;
   onPage: (page: number) => void;
+  onRetry?: () => void;
   onSize: (size: number) => void;
   page: number;
   size: number;
@@ -188,6 +192,22 @@ function AssetCard({
     );
   } else if (rows.length > 0) {
     tableRows = rows;
+  } else if (error) {
+    // 没有旧行可留时，也要把「失败」和「暂无资产」区分开，并给一次重试。
+    tableRows = (
+      <TableRow>
+        <TableCell colSpan={cols.length} className="py-10 text-center text-destructive text-sm">
+          <div className="flex flex-col items-center gap-2">
+            <span className="[overflow-wrap:anywhere]">搜索失败：{error}</span>
+            {onRetry ? (
+              <Button size="sm" variant="outline" onClick={onRetry}>
+                重试
+              </Button>
+            ) : null}
+          </div>
+        </TableCell>
+      </TableRow>
+    );
   } else {
     tableRows = (
       <TableRow>
@@ -349,6 +369,8 @@ export function AssetsTab({ taskId }: { taskId: string }) {
   const [size, setSize] = React.useState(50);
   const [query, setQuery] = React.useState("");
   const [loading, setLoading] = React.useState(false);
+  // 手动刷新只给顶部细指示，不清 loaded，避免整张表塌成一行 spinner。
+  const [refreshing, setRefreshing] = React.useState(false);
   const [dslError, setDslError] = React.useState("");
   const [refreshKey, setRefreshKey] = React.useState(0);
   const [addOpen, setAddOpen] = React.useState(false);
@@ -400,9 +422,9 @@ export function AssetsTab({ taskId }: { taskId: string }) {
         if (!active || assetsRequestRef.current !== request) return;
         const message = String((reason as Error)?.message ?? reason);
         if (dsl) {
+          // 搜索失败时保留上一次的结果：清空会让表格落进「暂无数据」，把失败伪装成空结果。
+          // 错误由搜索框的内联状态行展示；本来就没有旧行时由表格内的错误行提示并给重试。
           setDslError(message);
-          setRows([]);
-          setTotal(0);
         } else {
           toast.error(`加载任务资产失败：${message}`);
         }
@@ -410,6 +432,7 @@ export function AssetsTab({ taskId }: { taskId: string }) {
         if (active && assetsRequestRef.current === request) {
           setLoading(false);
           setLoaded(true);
+          setRefreshing(false);
         }
       }
     };
@@ -429,7 +452,7 @@ export function AssetsTab({ taskId }: { taskId: string }) {
   }, [page, size, total]);
 
   const refresh = React.useCallback(() => {
-    setLoaded(false);
+    setRefreshing(true);
     setRefreshKey((current) => current + 1);
   }, []);
 
@@ -460,7 +483,16 @@ export function AssetsTab({ taskId }: { taskId: string }) {
     </Button>
   );
 
-  const commonCardProps = { loaded, onPage: setPage, onSize: setSize, page, size, total };
+  const commonCardProps = {
+    error: dslError,
+    loaded,
+    onPage: setPage,
+    onRetry: refresh,
+    onSize: setSize,
+    page,
+    size,
+    total,
+  };
   const totalAll = TABS.reduce((sum, item) => sum + (counts[item.key] ?? 0), 0);
 
   const searchBox = (
@@ -480,10 +512,18 @@ export function AssetsTab({ taskId }: { taskId: string }) {
           <h2 className="font-medium text-sm">测试资产</h2>
           <p className="text-muted-foreground text-xs">当前任务共关联 {totalAll} 项资产</p>
         </div>
-        <Button size="sm" onClick={() => setAddOpen(true)}>
-          <PlusIcon data-icon="inline-start" />
-          新增测试资产
-        </Button>
+        <div className="flex items-center gap-2">
+          {refreshing ? (
+            <span role="status" className="flex items-center gap-1.5 text-muted-foreground text-xs">
+              <Spinner className="size-3.5" />
+              刷新中
+            </span>
+          ) : null}
+          <Button size="sm" onClick={() => setAddOpen(true)}>
+            <PlusIcon data-icon="inline-start" />
+            新增测试资产
+          </Button>
+        </div>
       </div>
 
       <Tabs

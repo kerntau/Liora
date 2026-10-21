@@ -2,7 +2,7 @@
 
 import * as React from "react";
 
-import Link from "@/lib/router-compat";
+import Link, { usePathname, useRouter, useSearchParams } from "@/lib/router-compat";
 
 import {
   DndContext,
@@ -256,6 +256,9 @@ const TASK_FILTER_PREFERENCE_KEY = "artex_task_list_filters";
 
 const TASK_STATUS_RANK = new Map(STATUS_OPTIONS.map((option, index) => [option.value, index]));
 
+// 首载骨架行的固定 key(不用数组下标当 key),数量与常见每页条数对齐。
+const TASK_SKELETON_KEYS = ["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10"];
+
 function taskIsPinned(task: Task): boolean {
   return task.pinned ?? Boolean(task.pinned_at);
 }
@@ -296,14 +299,35 @@ function compareTasks(left: Task, right: Task, field: TaskSortField, direction: 
   return -compareTaskIDs(left.id, right.id);
 }
 
+// useSearchParams 需要 Suspense 边界,静态导出时也不会阻塞首帧。
 export default function TasksPage() {
+  return (
+    <React.Suspense fallback={null}>
+      <TasksPageInner />
+    </React.Suspense>
+  );
+}
+
+function TasksPageInner() {
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const router = useRouter();
+  // 首帧就读 URL,刷新/分享链接能还原筛选与页码;没有 URL 参数时再退回本地偏好。
+  const [initialParams] = React.useState(() => new URLSearchParams(searchParams));
   const [activeTab, setActiveTab] = React.useState("current");
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [categories, setCategories] = React.useState<TaskCategory[]>([]);
   const [categoriesLoaded, setCategoriesLoaded] = React.useState(false);
-  const [query, setQuery] = React.useState("");
-  const [statusFilter, setStatusFilter] = React.useState<TaskStatus | "all">("all");
-  const [categoryFilter, setCategoryFilter] = React.useState("all");
+  const [query, setQuery] = React.useState(() => initialParams.get("q") ?? "");
+  const [statusFilter, setStatusFilter] = React.useState<TaskStatus | "all">(() => {
+    const value = initialParams.get("status");
+    return value && STATUS_OPTIONS.some((option) => option.value === value) ? (value as TaskStatus) : "all";
+  });
+  const [categoryFilter, setCategoryFilter] = React.useState(() => {
+    const value = initialParams.get("category");
+    if (!value) return "all";
+    return value === UNCATEGORIZED_VALUE || /^\d+$/.test(value) ? value : "all";
+  });
   const [filtersHydrated, setFiltersHydrated] = React.useState(false);
   const [sortPreference, setSortPreference] = useStoredSortPreference(
     TASK_SORT_PREFERENCE_KEY,
@@ -312,14 +336,23 @@ export default function TasksPage() {
     "desc",
   );
   const { field: sortField, direction: sortDirection } = sortPreference;
-  const [page, setPage] = React.useState(1);
+  const [page, setPage] = React.useState(() => {
+    const value = Number(initialParams.get("page"));
+    return Number.isSafeInteger(value) && value > 1 ? value : 1;
+  });
   const [pageSize, setPageSize] = React.useState(20);
   const [nowSec, setNowSec] = React.useState(() => Math.floor(Date.now() / 1000));
+  // 首载标记:列表还没回来之前不能把空数组当成「暂无任务」,否则首帧会闪一次空态。
+  const [tasksLoaded, setTasksLoaded] = React.useState(false);
+  // 按运行时长排序用的快照:只在点表头时定序,tick 不再参与比较。
+  const [durationSortAnchorSec, setDurationSortAnchorSec] = React.useState(() => Math.floor(Date.now() / 1000));
   const [batchControlling, setBatchControlling] = React.useState<"pause" | "resume" | null>(null);
   const [movingCategory, setMovingCategory] = React.useState(false);
 
   React.useEffect(() => {
-    const raw = getLocalStorageValue(TASK_FILTER_PREFERENCE_KEY);
+    // URL 里已经带了筛选条件就以 URL 为准,本地偏好只做兜底。
+    const urlHasFilters = initialParams.has("status") || initialParams.has("category");
+    const raw = urlHasFilters ? null : getLocalStorageValue(TASK_FILTER_PREFERENCE_KEY);
     if (raw) {
       try {
         const parsed = JSON.parse(raw) as { status?: unknown; category?: unknown };
@@ -337,7 +370,7 @@ export default function TasksPage() {
       }
     }
     setFiltersHydrated(true);
-  }, []);
+  }, [initialParams]);
 
   React.useEffect(() => {
     if (!filtersHydrated) return;
@@ -369,13 +402,17 @@ export default function TasksPage() {
     });
   }, [tasks, query, statusFilter, categoryFilter]);
 
-  const sortNowSec = sortField === "duration" ? nowSec : 0;
+  // 排序取点击时的时长快照:若直接用每秒变化的 nowSec,running 任务的时长每秒都变,
+  // 整张表会跟着每秒重排,行的位置在用户眼皮底下漂移。
+  const sortNowSec = sortField === "duration" ? durationSortAnchorSec : 0;
   const ordered = React.useMemo(() => {
     return [...filtered].sort((left, right) => compareTasks(left, right, sortField, sortDirection, sortNowSec));
   }, [filtered, sortDirection, sortField, sortNowSec]);
 
   const sortTasksBy = React.useCallback(
     (field: TaskSortField) => {
+      // 点「运行时长」时打一次快照,本次排序期间不再随 tick 变化。
+      if (field === "duration") setDurationSortAnchorSec(Math.floor(Date.now() / 1000));
       setSortPreference((current) => {
         if (current.field !== field) return { field, direction: "desc" };
         return { field, direction: current.direction === "asc" ? "desc" : "asc" };
@@ -385,10 +422,33 @@ export default function TasksPage() {
   );
 
   // reset to page 1 whenever filters or ordering change
+  // 首轮(含从 URL 还原)不重置,否则 ?page=3 会被立刻打回第 1 页。
+  const skipPageResetRef = React.useRef(true);
   // biome-ignore lint/correctness/useExhaustiveDependencies: both filters intentionally reset pagination.
   React.useEffect(() => {
+    if (!filtersHydrated) return;
+    if (skipPageResetRef.current) {
+      skipPageResetRef.current = false;
+      return;
+    }
     setPage(1);
-  }, [query, statusFilter, categoryFilter, sortField, sortDirection]);
+  }, [query, statusFilter, categoryFilter, sortField, sortDirection, filtersHydrated]);
+
+  // 视图状态回写 URL(replace,不产生历史记录);防抖避免每敲一个字就导航一次。
+  React.useEffect(() => {
+    if (!filtersHydrated) return;
+    const params = new URLSearchParams();
+    if (query.trim()) params.set("q", query.trim());
+    if (statusFilter !== "all") params.set("status", statusFilter);
+    if (categoryFilter !== "all") params.set("category", categoryFilter);
+    if (page > 1) params.set("page", String(page));
+    const next = params.toString();
+    if (next === searchParams.toString()) return;
+    const timer = window.setTimeout(() => {
+      router.replace(next ? `${pathname}?${next}` : pathname);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [categoryFilter, filtersHydrated, page, pathname, query, router, searchParams, statusFilter]);
 
   const paginated = React.useMemo(
     () => ordered.slice((page - 1) * pageSize, page * pageSize),
@@ -446,11 +506,16 @@ export default function TasksPage() {
   // POLL_MS but usually comes back unchanged, and setTasks on an identical payload would
   // re-render the whole page for nothing. Bail out when it matches.
   const lastRef = React.useRef<string>("");
+  // 请求序号:轮询与 mutation 后的 load 会并发,只认最后一次发出的响应,旧响应直接丢弃,
+  // 避免慢请求晚到把新状态覆盖回去。
+  const loadSeqRef = React.useRef(0);
 
   const load = React.useCallback(() => {
+    const seq = ++loadSeqRef.current;
     api
       .tasks()
       .then((r) => {
+        if (seq !== loadSeqRef.current) return;
         const next = r.tasks.map((t) => (t.id === r.active ? { ...t, active: true } : t));
         const sig = JSON.stringify(next);
         if (sig === lastRef.current) return;
@@ -459,6 +524,10 @@ export default function TasksPage() {
       })
       .catch(() => {
         // Polling is best-effort; the next interval retries automatically.
+      })
+      .finally(() => {
+        // 首载结束(成功或失败)就收起骨架行,失败时仍按「暂无任务」提示。
+        if (seq === loadSeqRef.current) setTasksLoaded(true);
       });
   }, []);
 
@@ -910,11 +979,11 @@ export default function TasksPage() {
               />
             </div>
 
-            {tasks.length === 0 ? (
+            {tasksLoaded && tasks.length === 0 ? (
               <div className="text-muted-foreground mx-4 flex items-center justify-center rounded-lg border border-dashed py-20 text-sm lg:mx-6">
                 暂无任务，点击右上角「新建任务」开始。
               </div>
-            ) : filtered.length === 0 ? (
+            ) : tasksLoaded && filtered.length === 0 ? (
               <div className="text-muted-foreground mx-4 flex items-center justify-center rounded-lg border border-dashed py-20 text-sm lg:mx-6">
                 没有匹配的任务。
               </div>
@@ -972,22 +1041,26 @@ export default function TasksPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {paginated.map((task) => (
-                    <TaskRow
-                      key={task.id}
-                      task={task}
-                      // running 任务才吃 nowSec;其余行传 0 —— props 不变,memo 就能拦下每秒 tick
-                      // 带来的整表重渲染,只让在跑的那几行走时长。
-                      nowSec={task.status === "running" ? nowSec : 0}
-                      onDelete={deleteTask}
-                      onControl={controlTask}
-                      onRename={renameTask}
-                      onTogglePinned={toggleTaskPinned}
-                      onArchive={queueTaskArchive}
-                      selected={selectedIds.has(task.id)}
-                      onSelectedChange={toggleSelected}
-                    />
-                  ))}
+                  {tasksLoaded
+                    ? paginated.map((task) => (
+                        <TaskRow
+                          key={task.id}
+                          task={task}
+                          // running 任务才吃 nowSec;其余行传 0 —— props 不变,memo 就能拦下每秒 tick
+                          // 带来的整表重渲染,只让在跑的那几行走时长。
+                          nowSec={task.status === "running" ? nowSec : 0}
+                          onDelete={deleteTask}
+                          onControl={controlTask}
+                          onRename={renameTask}
+                          onTogglePinned={toggleTaskPinned}
+                          onArchive={queueTaskArchive}
+                          selected={selectedIds.has(task.id)}
+                          onSelectedChange={toggleSelected}
+                        />
+                      ))
+                    : TASK_SKELETON_KEYS.slice(0, Math.min(pageSize, TASK_SKELETON_KEYS.length)).map((key) => (
+                        <TaskRowSkeleton key={key} />
+                      ))}
                 </TableBody>
               </Table>
             )}
@@ -1144,6 +1217,51 @@ function ConcurrencySettingsDialog() {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// TaskRowSkeleton 是首载占位行:列数与行高跟 TaskRow 对齐,整表骨架而不是居中 Spinner,
+// 数据回来时表格不会从空态跳成满屏行。
+function TaskRowSkeleton() {
+  return (
+    <TableRow aria-hidden className="border-border/60">
+      <TableCell>
+        <div className="bg-muted h-4 w-4 animate-pulse rounded" />
+      </TableCell>
+      <TableCell>
+        <div className="bg-muted h-4 w-16 animate-pulse rounded" />
+      </TableCell>
+      <TableCell>
+        <div className="bg-muted h-4 w-28 animate-pulse rounded" />
+      </TableCell>
+      <TableCell>
+        <div className="bg-muted h-4 w-40 animate-pulse rounded" />
+      </TableCell>
+      <TableCell>
+        <div className="bg-muted h-4 w-32 animate-pulse rounded" />
+      </TableCell>
+      <TableCell>
+        <div className="bg-muted h-4 w-16 animate-pulse rounded" />
+      </TableCell>
+      <TableCell>
+        <div className="bg-muted mx-auto h-4 w-20 animate-pulse rounded" />
+      </TableCell>
+      <TableCell>
+        <div className="bg-muted mx-auto h-4 w-10 animate-pulse rounded" />
+      </TableCell>
+      <TableCell>
+        <div className="bg-muted ml-auto h-4 w-24 animate-pulse rounded" />
+      </TableCell>
+      <TableCell>
+        <div className="bg-muted ml-auto h-4 w-16 animate-pulse rounded" />
+      </TableCell>
+      <TableCell>
+        <div className="bg-muted ml-auto h-4 w-12 animate-pulse rounded" />
+      </TableCell>
+      <TableCell>
+        <div className="bg-muted ml-auto h-4 w-16 animate-pulse rounded" />
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -1628,8 +1746,14 @@ function TaskArchivesPanel({ onChanged }: { onChanged: () => void }) {
   const [selected, setSelected] = React.useState<Set<number>>(() => new Set());
   const [loading, setLoading] = React.useState(true);
   const pendingRestoreIDs = React.useRef(new Set<number>());
+  // 2s 轮询下同一视图可能有多个请求在飞,只让最后一次请求写回,避免旧响应覆盖新响应。
+  const requestRef = React.useRef(0);
+  // 上一轮同一视图(page/筛选未变)可见的 id:轮询只据此移除「刚消失」的归档,
+  // 不再把选中集裁成当前页,跨页勾选不会被静默清掉。
+  const visibleRef = React.useRef<{ key: string; ids: Set<number> }>({ key: "", ids: new Set() });
 
   const load = React.useCallback(async () => {
+    const id = ++requestRef.current;
     try {
       const result = await api.taskArchives({
         page,
@@ -1637,15 +1761,27 @@ function TaskArchivesPanel({ onChanged }: { onChanged: () => void }) {
         q: query.trim(),
         state: stateFilter === "all" ? undefined : stateFilter,
       });
+      if (id !== requestRef.current) return;
       setArchives(result.items);
       setTotal(result.total);
+      const viewKey = `${page}|${pageSize}|${query.trim()}|${stateFilter}`;
+      const visible = new Set(result.items.map((archive) => archive.id));
+      const previous = visibleRef.current;
+      visibleRef.current = { key: viewKey, ids: visible };
       setSelected((current) => {
-        const visible = new Set(result.items.map((archive) => archive.id));
-        return new Set([...current].filter((id) => visible.has(id)));
+        if (current.size === 0) return current;
+        // 换页/换筛选后上一轮的可见集合已不适用,这一轮不动选中集。
+        if (previous.key !== viewKey) return current;
+        const gone = [...current].filter((id) => previous.ids.has(id) && !visible.has(id));
+        if (gone.length === 0) return current;
+        const next = new Set(current);
+        for (const id of gone) next.delete(id);
+        return next;
       });
       const pending = [...pendingRestoreIDs.current];
       if (pending.length > 0) {
         const states = await Promise.allSettled(pending.map((id: any) => api.taskArchive(id)));
+        if (id !== requestRef.current) return;
         let restored = false;
         states.forEach((state, index) => {
           if (state.status !== "rejected" || !(state.reason instanceof Error)) return;
@@ -1656,9 +1792,10 @@ function TaskArchivesPanel({ onChanged }: { onChanged: () => void }) {
         if (restored) onChanged();
       }
     } catch (error) {
+      if (id !== requestRef.current) return;
       toast.error(`读取归档列表失败：${(error as Error).message}`);
     } finally {
-      setLoading(false);
+      if (id === requestRef.current) setLoading(false);
     }
   }, [onChanged, page, pageSize, query, stateFilter]);
 

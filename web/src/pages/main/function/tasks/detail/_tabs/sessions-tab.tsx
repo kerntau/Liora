@@ -528,6 +528,7 @@ export function SessionsTab({ taskId }: { taskId: string }) {
   const [olderIntentsHasMore, setOlderIntentsHasMore] = React.useState(false);
   const [hasLoadedOlderIntentsPage, setHasLoadedOlderIntentsPage] = React.useState(false);
   const [loadingOlderIntents, setLoadingOlderIntents] = React.useState(false);
+  const [olderIntentsError, setOlderIntentsError] = React.useState("");
   const [input, setInput] = React.useState("");
   const [sending, setSending] = React.useState(false);
   const [stopping, setStopping] = React.useState(false);
@@ -1037,6 +1038,7 @@ export function SessionsTab({ taskId }: { taskId: string }) {
     setOlderIntents([]);
     setFirstIntentsHasMore(false);
     setOlderIntentsHasMore(false);
+    setOlderIntentsError("");
     const load = () =>
       api
         .intentsPage(taskId, 0, 300)
@@ -1075,6 +1077,7 @@ export function SessionsTab({ taskId }: { taskId: string }) {
     const minId = all.reduce((m, n) => Math.min(m, Number(n.id)), Infinity);
     if (!Number.isFinite(minId)) return;
     setLoadingOlderIntents(true);
+    setOlderIntentsError("");
     api
       .intentsPage(taskId, minId, 300)
       .then((r) => {
@@ -1085,8 +1088,9 @@ export function SessionsTab({ taskId }: { taskId: string }) {
         setOlderIntentsHasMore(r.hasMore);
         setHasLoadedOlderIntentsPage(true);
       })
-      .catch(() => {
-        // A later manual retry can fetch this page again.
+      .catch((e) => {
+        // The button looked like it did nothing; say why and let it be clicked again.
+        setOlderIntentsError((e as Error).message || "加载失败");
       })
       .finally(() => setLoadingOlderIntents(false));
   }, [taskId, intents, olderIntents, loadingOlderIntents]);
@@ -1451,7 +1455,12 @@ export function SessionsTab({ taskId }: { taskId: string }) {
   function stop() {
     if (stopping) return;
     setStopping(true);
-    void api.stopChat(taskId).finally(() => setStopping(false));
+    // A rejected stop used to disappear into an unhandled rejection: the button
+    // re-enabled and the run kept going with no explanation.
+    api
+      .stopChat(taskId)
+      .catch((e) => toast.error(`停止失败：${(e as Error).message || "请稍后重试"}`))
+      .finally(() => setStopping(false));
   }
 
   function send() {
@@ -1669,19 +1678,26 @@ export function SessionsTab({ taskId }: { taskId: string }) {
                       );
                     })}
                     {role === "worker" && intentsHasMore && (
-                      <button
-                        type="button"
-                        onClick={loadOlderIntents}
-                        disabled={loadingOlderIntents}
-                        className="mt-0.5 flex items-center justify-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent/50"
-                      >
-                        {loadingOlderIntents ? (
-                          <Loader2Icon className="size-3.5 animate-spin" />
-                        ) : (
-                          <RotateCwIcon className="size-3.5" />
+                      <>
+                        <button
+                          type="button"
+                          onClick={loadOlderIntents}
+                          disabled={loadingOlderIntents}
+                          className="mt-0.5 flex items-center justify-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent/50"
+                        >
+                          {loadingOlderIntents ? (
+                            <Loader2Icon className="size-3.5 animate-spin" />
+                          ) : (
+                            <RotateCwIcon className="size-3.5" />
+                          )}
+                          加载更早的 Worker
+                        </button>
+                        {olderIntentsError && !loadingOlderIntents && (
+                          <p className="px-2 text-center text-[11px] text-red-500" role="alert">
+                            加载更早的 Worker 失败：{olderIntentsError}，可再次点击重试
+                          </p>
                         )}
-                        加载更早的 Worker
-                      </button>
+                      </>
                     )}
                   </div>
                 );

@@ -20,7 +20,11 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { AsyncState } from "@/components/async-state";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
+import { useAsyncData } from "@/hooks/use-async-data";
 import type { MCPServer, MCPTool, Agent } from "@/lib/types";
 
 type Transport = "stdio" | "http" | "sse";
@@ -44,9 +48,14 @@ const emptyForm: FormState = {
 };
 
 export default function MCPPage() {
-  const [servers, setServers] = React.useState<MCPServer[]>([]);
   const [agents, setAgents] = React.useState<Agent[]>([]);
   const [visibility, setVisibility] = React.useState<Record<number, string[]>>({});
+
+  // 服务器列表走统一四态：首载骨架、失败常驻可重试；刷新保留上一份，卡片不闪空。
+  const serversQ = useAsyncData(() => api.mcpServers(), []);
+  const servers = serversQ.data ?? [];
+  const listStatus = serversQ.status === "error" ? "error" : serversQ.initialLoading ? "loading" : "ready";
+  const [pendingDelete, setPendingDelete] = React.useState<MCPServer | null>(null);
 
   const [open, setOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<MCPServer | null>(null); // null = add mode
@@ -57,24 +66,23 @@ export default function MCPPage() {
   const [toolsLoading, setToolsLoading] = React.useState(false);
   const [refreshing, setRefreshing] = React.useState(false);
 
+  // 变更后统一刷新：Agent 列表 + 服务器列表。
   const load = React.useCallback(() => {
     api.agents().then(setAgents).catch(() => {});
-    api
-      .mcpServers()
-      .then((ss) => {
-        setServers(ss);
-        ss.forEach((s) =>
-          api
-            .resourceVisibility("mcp", s.id)
-            .then((ids) => setVisibility((v) => ({ ...v, [s.id]: ids })))
-            .catch(() => {}),
-        );
-      })
-      .catch(() => {});
-  }, []);
+    serversQ.reload();
+  }, [serversQ.reload]);
   React.useEffect(() => {
-    load();
-  }, [load]);
+    api.agents().then(setAgents).catch(() => {});
+  }, []);
+  // 可见性按服务器单独补拉，不拖慢列表首屏。
+  React.useEffect(() => {
+    for (const s of serversQ.data ?? []) {
+      api
+        .resourceVisibility("mcp", s.id)
+        .then((ids) => setVisibility((v) => ({ ...v, [s.id]: ids })))
+        .catch(() => {});
+    }
+  }, [serversQ.data]);
 
   function setF(patch: Partial<FormState>) {
     setForm((f) => ({ ...f, ...patch }));
@@ -205,6 +213,8 @@ export default function MCPPage() {
       load();
     } catch (e) {
       toast.error("删除失败：" + (e as Error).message);
+      // 抛给 ConfirmDialog：失败时保持确认框打开，不假装已删除。
+      throw e;
     }
   }
 
@@ -369,6 +379,18 @@ export default function MCPPage() {
         <p className="text-muted-foreground text-sm">外部 MCP 工具服务器 · 按 Agent 授权可见</p>
       </div>
 
+      <AsyncState
+        status={listStatus}
+        error={serversQ.error}
+        onRetry={serversQ.reload}
+        skeleton={
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-hidden="true">
+            {[0, 1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-[116px] rounded-xl" />
+            ))}
+          </div>
+        }
+      >
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <button
           type="button"
@@ -406,7 +428,7 @@ export default function MCPPage() {
                     size="icon"
                     variant="outline"
                     aria-label={`删除 MCP ${s.name}`}
-                    onClick={() => removeServer(s)}
+                    onClick={() => setPendingDelete(s)}
                   >
                     <Trash2Icon className="text-destructive" />
                   </Button>
@@ -435,10 +457,12 @@ export default function MCPPage() {
           </Card>
         ))}
       </div>
+      </AsyncState>
 
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent
           side="right"
+          busy={saving}
           className="w-full! data-[side=right]:sm:max-w-lg"
         >
           <SheetHeader>
@@ -484,6 +508,18 @@ export default function MCPPage() {
           )}
         </SheetContent>
       </Sheet>
+
+      <ConfirmDialog
+        open={!!pendingDelete}
+        onOpenChange={(o) => { if (!o) setPendingDelete(null); }}
+        title={pendingDelete ? `删除 MCP 服务器「${pendingDelete.name}」？` : "删除 MCP 服务器？"}
+        description="将删除该服务器的连接配置、已发现的工具，以及各 Agent 的可见性授权。此操作不可撤销。"
+        confirmLabel="删除"
+        destructive
+        onConfirm={async () => {
+          if (pendingDelete) await removeServer(pendingDelete);
+        }}
+      />
     </div>
   );
 }

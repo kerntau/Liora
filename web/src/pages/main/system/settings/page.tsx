@@ -7,13 +7,17 @@ import { toast } from "@/components/ui/sonner";
 
 import Link from "@/lib/router-compat";
 
+import { AsyncState } from "@/components/async-state";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useAsyncData } from "@/hooks/use-async-data";
 import { api } from "@/lib/api";
 import { CHAT_SEND_MODE_OPTIONS, type ChatSendMode, setChatSendMode, useChatSendMode } from "@/lib/chat-send-mode";
 import type { Settings } from "@/lib/types";
@@ -33,29 +37,48 @@ export default function SystemSettingsPage() {
   const [globalProxyInput, setGlobalProxyInput] = React.useState("");
   const [savingGlobalProxy, setSavingGlobalProxy] = React.useState(false);
   const [testing, setTesting] = React.useState(false);
-  const [loaded, setLoaded] = React.useState(false);
-  const [saving, setSaving] = React.useState(false);
+  // 写操作计数：并发保存时不会提前解锁，也避免旧响应把新状态覆盖回去。
+  const [savingCount, setSavingCount] = React.useState(0);
+  const saving = savingCount > 0;
+  const beginSaving = React.useCallback(() => setSavingCount((n) => n + 1), []);
+  const endSaving = React.useCallback(() => setSavingCount((n) => Math.max(0, n - 1)), []);
   const [savingKey, setSavingKey] = React.useState(false);
   const [pyInterp, setPyInterp] = React.useState("");
   const [workers, setWorkers] = React.useState("3");
-  const [savingWorkers, setSavingWorkers] = React.useState(false);
+  const [workersError, setWorkersError] = React.useState<string | null>(null);
+  // 开启流量捕获会全量落库并重建 Agent，先确认再写。
+  const [confirmCapture, setConfirmCapture] = React.useState(false);
   // 操作约束注入范围(默认都开)。
   const [injectPlanner, setInjectPlanner] = React.useState(true);
   const [injectWorker, setInjectWorker] = React.useState(true);
   // 纯前端偏好：不走 /api/settings，直接读写 localStorage。
   const sendMode = useChatSendMode();
 
+  // 服务端已保存的值：用于判断「未保存」，也用于避免保存其它开关时冲掉正在编辑的草稿。
+  const savedRef = React.useRef({ python: "", workers: "3", wsProxy: "", globalProxy: "" });
+  const [saved, setSaved] = React.useState(savedRef.current);
+
   const apply = React.useCallback((s: Settings) => {
+    const next = {
+      python: s.python_interpreter ?? "",
+      workers: String(s.workers ?? 3),
+      wsProxy: s.web_search_proxy ?? "",
+      globalProxy: s.global_proxy ?? "",
+    };
+    const prev = savedRef.current;
+    savedRef.current = next;
+    setSaved(next);
     setTrafficCapture(!!s.traffic_capture);
     setAgentTrafficBinding(!!s.agent_traffic_binding);
     setWebSearch(!!s.web_search_enabled);
     setBackend(s.web_search_backend || "ddgs");
     setBraveKeySet(!!s.brave_key_set);
     setTavilyKeySet(!!s.tavily_key_set);
-    setProxyInput(s.web_search_proxy ?? "");
-    setGlobalProxyInput(s.global_proxy ?? "");
-    setPyInterp(s.python_interpreter ?? "");
-    setWorkers(String(s.workers ?? 3));
+    // 只同步没有被编辑过的字段，别把用户输入覆盖掉。
+    setProxyInput((cur) => (cur === prev.wsProxy ? next.wsProxy : cur));
+    setGlobalProxyInput((cur) => (cur === prev.globalProxy ? next.globalProxy : cur));
+    setPyInterp((cur) => (cur === prev.python ? next.python : cur));
+    setWorkers((cur) => (cur === prev.workers ? next.workers : cur));
     setInjectPlanner(s.constraints_inject_planner !== false);
     setInjectWorker(s.constraints_inject_worker !== false);
   }, []);
@@ -63,10 +86,11 @@ export default function SystemSettingsPage() {
   const saveWorkers = () => {
     const n = Number(workers);
     if (!Number.isInteger(n) || n <= 0) {
-      toast.error("并发数必须是大于 0 的整数");
+      setWorkersError("并发数必须是大于 0 的整数");
       return;
     }
-    setSavingWorkers(true);
+    setWorkersError(null);
+    beginSaving();
     api
       .setSettings({ workers: n })
       .then((s) => {
@@ -74,11 +98,11 @@ export default function SystemSettingsPage() {
         toast.success("已保存并发工作 agent 数（对之后启动的任务生效）");
       })
       .catch((e) => toast.error("保存失败：" + (e as Error).message))
-      .finally(() => setSavingWorkers(false));
+      .finally(endSaving);
   };
 
   const savePython = () => {
-    setSaving(true);
+    beginSaving();
     api
       .setSettings({ python_interpreter: pyInterp.trim() })
       .then((s) => {
@@ -86,76 +110,91 @@ export default function SystemSettingsPage() {
         toast.success("已保存 Python 解释器配置");
       })
       .catch((e) => toast.error("保存失败：" + (e as Error).message))
-      .finally(() => setSaving(false));
+      .finally(endSaving);
   };
   const detectPython = () => {
-    setSaving(true);
+    beginSaving();
     api
       .detectPython()
       .then((r) => setPyInterp(r.python_interpreter))
-      .catch(() => undefined)
-      .finally(() => setSaving(false));
+      .catch((e) => toast.error("检测失败：" + (e as Error).message))
+      .finally(endSaving);
   };
 
+  const { data: settings, error: loadError, status: loadStatus, reload } = useAsyncData(() => api.settings(), []);
   React.useEffect(() => {
-    api
-      .settings()
-      .then(apply)
-      .catch(() => undefined)
-      .finally(() => setLoaded(true));
-  }, [apply]);
+    if (settings) apply(settings);
+  }, [settings, apply]);
+  // 没有拿到服务端配置前不渲染表单：否则会把默认值当成真实设置展示、还能直接提交。
+  const loaded = !!settings;
 
-  const toggleTraffic = (v: boolean) => {
+  const persistTraffic = (v: boolean) => {
     setTrafficCapture(v); // optimistic
-    setSaving(true);
-    api
+    beginSaving();
+    return api
       .setSettings({ traffic_capture: v })
       .then(apply)
-      .catch(() => setTrafficCapture(!v)) // revert on failure
-      .finally(() => setSaving(false));
+      .catch((e) => {
+        setTrafficCapture(!v); // revert on failure
+        toast.error("保存失败：" + (e as Error).message);
+      })
+      .finally(endSaving);
+  };
+
+  const toggleTraffic = (v: boolean) => {
+    if (v) {
+      // 开启会全量落库并即时重建 Agent，先确认后果。
+      setConfirmCapture(true);
+      return;
+    }
+    void persistTraffic(false);
   };
 
   const toggleInjectPlanner = (v: boolean) => {
     setInjectPlanner(v); // optimistic
+    beginSaving();
     api
       .setSettings({ constraints_inject_planner: v })
       .then(apply)
-      .catch(() => setInjectPlanner(!v)); // revert on failure
+      .catch((e) => {
+        setInjectPlanner(!v); // revert on failure
+        toast.error("保存失败：" + (e as Error).message);
+      })
+      .finally(endSaving);
   };
 
   const toggleAgentTrafficBinding = (v: boolean) => {
-    setAgentTrafficBinding(v);
-    setSaving(true);
+    setAgentTrafficBinding(v); // optimistic
+    beginSaving();
     api
       .setSettings({ agent_traffic_binding: v })
-      .then((s) => {
-        apply(s);
-        toast.success(v ? "已开启 Agent 自动绑定流量" : "已关闭 Agent 自动绑定流量");
-      })
+      .then(apply)
       .catch((e) => {
         setAgentTrafficBinding(!v);
         toast.error(`保存失败：${(e as Error).message}`);
       })
-      .finally(() => setSaving(false));
+      .finally(endSaving);
   };
 
   const toggleInjectWorker = (v: boolean) => {
     setInjectWorker(v); // optimistic
+    beginSaving();
     api
       .setSettings({ constraints_inject_worker: v })
       .then(apply)
-      .catch(() => setInjectWorker(!v)); // revert on failure
+      .catch((e) => {
+        setInjectWorker(!v); // revert on failure
+        toast.error("保存失败：" + (e as Error).message);
+      })
+      .finally(endSaving);
   };
 
   // Persist a web-search patch (enable and/or backend). Optimistic with refetch.
   const saveWebSearch = (patch: Partial<Settings>) => {
-    setSaving(true);
+    beginSaving();
     api
       .setSettings(patch)
-      .then((s) => {
-        apply(s);
-        toast.success("已保存网络搜索配置");
-      })
+      .then(apply)
       .catch((e) => {
         toast.error("保存失败：" + (e as Error).message);
         api
@@ -163,11 +202,12 @@ export default function SystemSettingsPage() {
           .then(apply)
           .catch(() => undefined);
       })
-      .finally(() => setSaving(false));
+      .finally(endSaving);
   };
 
   const saveBraveKey = () => {
     setSavingKey(true);
+    beginSaving();
     api
       .setSettings({ brave_search_api_key: braveKeyInput })
       .then((s) => {
@@ -176,11 +216,15 @@ export default function SystemSettingsPage() {
         toast.success("已保存 Brave API Key");
       })
       .catch((e) => toast.error("保存失败：" + (e as Error).message))
-      .finally(() => setSavingKey(false));
+      .finally(() => {
+        setSavingKey(false);
+        endSaving();
+      });
   };
 
   const saveTavilyKey = () => {
     setSavingTavilyKey(true);
+    beginSaving();
     api
       .setSettings({ tavily_search_api_key: tavilyKeyInput })
       .then((s) => {
@@ -189,11 +233,15 @@ export default function SystemSettingsPage() {
         toast.success("已保存 Tavily API Key");
       })
       .catch((e) => toast.error("保存失败：" + (e as Error).message))
-      .finally(() => setSavingTavilyKey(false));
+      .finally(() => {
+        setSavingTavilyKey(false);
+        endSaving();
+      });
   };
 
   const saveProxy = () => {
     setSavingProxy(true);
+    beginSaving();
     api
       .setSettings({ web_search_proxy: proxyInput.trim() })
       .then((s) => {
@@ -201,11 +249,15 @@ export default function SystemSettingsPage() {
         toast.success(proxyInput.trim() ? "已保存出口代理" : "已清除出口代理（改为直连）");
       })
       .catch((e) => toast.error("保存失败：" + (e as Error).message))
-      .finally(() => setSavingProxy(false));
+      .finally(() => {
+        setSavingProxy(false);
+        endSaving();
+      });
   };
 
   const saveGlobalProxy = () => {
     setSavingGlobalProxy(true);
+    beginSaving();
     api
       .setSettings({ global_proxy: globalProxyInput.trim() })
       .then((s) => {
@@ -213,7 +265,10 @@ export default function SystemSettingsPage() {
         toast.success(globalProxyInput.trim() ? "已保存全局代理" : "已清除全局代理（改为直连）");
       })
       .catch((e) => toast.error("保存失败：" + (e as Error).message))
-      .finally(() => setSavingGlobalProxy(false));
+      .finally(() => {
+        setSavingGlobalProxy(false);
+        endSaving();
+      });
   };
 
   // Run a real "test" search ("test") against the CURRENT form values (backend +
@@ -237,6 +292,38 @@ export default function SystemSettingsPage() {
 
   // brave-free selected but no key stored and none being entered → tool stays off.
   const braveNeedsKey = webSearch && backend === "brave-free" && !braveKeySet;
+
+  // 与服务端已保存值不一致即为「未保存」草稿。
+  const pythonDirty = pyInterp.trim() !== saved.python.trim();
+  const workersDirty = workers.trim() !== saved.workers.trim();
+  const globalProxyDirty = globalProxyInput.trim() !== saved.globalProxy.trim();
+  const wsProxyDirty = proxyInput.trim() !== saved.wsProxy.trim();
+
+  // 首载与失败都不渲染表单：否则默认值会被当成真实配置，失败也无处重试。
+  if (!settings) {
+    return (
+      <div className="flex flex-1 flex-col gap-4 md:gap-6">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">系统设置</h1>
+          <p className="text-muted-foreground text-sm">常用运行配置集中显示，工具与网络参数按需调整。</p>
+        </div>
+        <AsyncState
+          status={loadStatus === "error" ? "error" : "loading"}
+          error={loadError}
+          onRetry={reload}
+          skeleton={
+            <div className="grid gap-4 md:grid-cols-2 md:gap-6">
+              {[0, 1, 2, 3].map((i) => (
+                <Skeleton key={i} className="h-40 w-full" />
+              ))}
+            </div>
+          }
+        >
+          <div />
+        </AsyncState>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-1 flex-col gap-4 md:gap-6">
@@ -339,6 +426,7 @@ export default function SystemSettingsPage() {
                   <Button onClick={savePython} disabled={!loaded || saving}>
                     保存
                   </Button>
+                  {pythonDirty && <span className="text-amber-500 text-xs">未保存</span>}
                 </div>
               </CardContent>
             </Card>
@@ -365,13 +453,24 @@ export default function SystemSettingsPage() {
                     className="w-32 font-mono text-sm"
                     placeholder="3"
                     value={workers}
-                    disabled={!loaded || savingWorkers}
-                    onChange={(e) => setWorkers(e.target.value)}
+                    aria-invalid={!!workersError}
+                    aria-describedby={workersError ? "worker-count-error" : undefined}
+                    disabled={!loaded || saving}
+                    onChange={(e) => {
+                      setWorkers(e.target.value);
+                      if (workersError) setWorkersError(null);
+                    }}
                   />
-                  <Button onClick={saveWorkers} disabled={!loaded || savingWorkers}>
+                  <Button onClick={saveWorkers} disabled={!loaded || saving}>
                     保存
                   </Button>
+                  {workersDirty && !workersError && <span className="text-amber-500 text-xs">未保存</span>}
                 </div>
+                {workersError && (
+                  <p id="worker-count-error" role="alert" className="text-destructive text-xs">
+                    {workersError}
+                  </p>
+                )}
               </CardContent>
             </Card>
             <Card className="mb-4 break-inside-avoid md:mb-6">
@@ -466,6 +565,7 @@ export default function SystemSettingsPage() {
                 </div>
                 <p className="text-muted-foreground text-xs">
                   {globalProxyInput.trim() ? "已配置 · 所有目标流量经此代理出网" : "未配置 · 目标流量直连出网"}
+                  {globalProxyDirty && <span className="text-amber-500"> · 有未保存的修改</span>}
                 </p>
               </CardContent>
             </Card>
@@ -491,7 +591,7 @@ export default function SystemSettingsPage() {
                   <Switch
                     id="inject-planner"
                     checked={injectPlanner}
-                    disabled={!loaded}
+                    disabled={!loaded || saving}
                     onCheckedChange={toggleInjectPlanner}
                   />
                 </div>
@@ -502,7 +602,7 @@ export default function SystemSettingsPage() {
                   <Switch
                     id="inject-worker"
                     checked={injectWorker}
-                    disabled={!loaded}
+                    disabled={!loaded || saving}
                     onCheckedChange={toggleInjectWorker}
                   />
                 </div>
@@ -670,6 +770,7 @@ export default function SystemSettingsPage() {
                         保存
                       </Button>
                     </div>
+                    {wsProxyDirty && <p className="text-amber-500 text-xs">有未保存的修改</p>}
                     <p className="text-muted-foreground text-xs">
                       独立出口代理，仅用于访问搜索端点（VPN/SOCKS 等）。与记录流量的 MITM
                       代理无关；网络不通时经此代理访问。
@@ -698,6 +799,15 @@ export default function SystemSettingsPage() {
           </div>
         </TabsContent>
       </Tabs>
+
+      <ConfirmDialog
+        open={confirmCapture}
+        onOpenChange={setConfirmCapture}
+        title="开启流量捕获？"
+        description="开启后所有 Agent 的 HTTP 流量会经记录代理全量落库，并即时重建 Agent 注入代理配置与流量工具，Token 消耗随之上升。可随时关闭。"
+        confirmLabel="开启捕获"
+        onConfirm={() => persistTraffic(true)}
+      />
     </div>
   );
 }
