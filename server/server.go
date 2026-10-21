@@ -46,6 +46,15 @@ type Server struct {
 	skillDir string // root directory for skill subdirectories
 	jwtKey   []byte // HS256 signing key loaded from / generated into dataDir/jwt.key
 
+	// loginMu guards loginFails, the per-client-IP failed-login counter that
+	// throttles /api/auth/login. The state is deliberately in-memory: Liora is a
+	// single-instance deployment and this needs no external dependency (see the
+	// login throttling comment in auth.go for the restart trade-off).
+	loginMu       sync.Mutex
+	loginFails    map[string]loginAttempt
+	loginWindow   time.Duration
+	loginMaxFails int
+
 	// concMu serializes concurrency-cap decisions (admission + reconcile) so a
 	// scheduler tick and an HTTP settings change / task creation can't both count
 	// free slots off the same snapshot and over-promote past the limit.
@@ -158,7 +167,8 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		triggerActive: map[string]int{}, triggerCfg: map[string]triggerBehavior{},
 		profChatAgents: map[int64]*agent.ChatAgent{},
 		provByProfile:  map[int64]*provEntry{}, llmHealth: newLLMHealthRegistry(m.pg),
-		taskAgents: map[string]*taskAgentBundle{}, archiveWake: make(chan struct{}, 1)}
+		taskAgents: map[string]*taskAgentBundle{}, archiveWake: make(chan struct{}, 1),
+		loginFails: map[string]loginAttempt{}, loginWindow: defaultLoginWindow, loginMaxFails: defaultLoginMaxFails}
 	s.initSideQuestions()
 	// 熔断阈值/冷却是失败路径上的热参数，启动时把全局重试策略推给 Registry 一次；
 	// 之后每次保存策略再推一次（saveLLMRetryPolicy）。

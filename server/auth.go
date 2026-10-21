@@ -4,10 +4,13 @@ import (
 	"crypto/rand"
 	"fmt"
 	"log"
+	"math"
 	"math/big"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -218,8 +221,118 @@ func (s *Server) authChangePassword(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
+// Login throttling is intentionally process-local. Liora is deployed as a
+// single instance and the auth endpoint must not pull in Redis or another
+// dependency just to count failures; a mutex-guarded map is enough to make
+// online guessing of the fixed admin account impractical. The trade-off is
+// that a restart (or a second replica, should one ever exist) forgets the
+// counters and the window starts over — acceptable for a brute-force speed
+// bump, but not a durable audit/ban list. Persistent lockouts would need
+// storage and an explicit unlock path, which this endpoint deliberately lacks.
+const (
+	defaultLoginWindow       = 5 * time.Minute
+	defaultLoginMaxFails     = 5
+	loginFailsSweepThreshold = 1024
+)
+
+// loginAttempt is one client IP's failure record. The window is anchored to the
+// first failure: once first+loginWindow has passed, the record expires and the
+// IP gets a fresh budget.
+type loginAttempt struct {
+	fails int
+	first time.Time
+}
+
+func (s *Server) loginWindowOrDefault() time.Duration {
+	if s.loginWindow > 0 {
+		return s.loginWindow
+	}
+	return defaultLoginWindow
+}
+
+func (s *Server) loginMaxFailsOrDefault() int {
+	if s.loginMaxFails > 0 {
+		return s.loginMaxFails
+	}
+	return defaultLoginMaxFails
+}
+
+// loginClientKey identifies the caller for throttling. RemoteAddr is host:port;
+// the port changes on every connection, so only the host is stable. A malformed
+// value (some tests and custom transports omit the port) is used verbatim.
+func loginClientKey(r *http.Request) string {
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil && host != "" {
+		return host
+	}
+	return r.RemoteAddr
+}
+
+// loginBlocked reports whether key is over the failure limit and, if so, how
+// long remains in the current window. Expired records are dropped on access so
+// idle IPs do not need a background sweeper.
+func (s *Server) loginBlocked(key string) (time.Duration, bool) {
+	s.loginMu.Lock()
+	defer s.loginMu.Unlock()
+	a, ok := s.loginFails[key]
+	if !ok {
+		return 0, false
+	}
+	now := time.Now()
+	window := s.loginWindowOrDefault()
+	if now.Sub(a.first) >= window {
+		delete(s.loginFails, key)
+		return 0, false
+	}
+	if a.fails < s.loginMaxFailsOrDefault() {
+		return 0, false
+	}
+	return a.first.Add(window).Sub(now), true
+}
+
+// recordLoginFailure counts one failed attempt for key. When the map has grown
+// past loginFailsSweepThreshold it also sweeps every expired entry, so a stream
+// of distinct source IPs cannot grow it without bound.
+func (s *Server) recordLoginFailure(key string) {
+	s.loginMu.Lock()
+	defer s.loginMu.Unlock()
+	if s.loginFails == nil {
+		s.loginFails = map[string]loginAttempt{}
+	}
+	now := time.Now()
+	window := s.loginWindowOrDefault()
+	if len(s.loginFails) > loginFailsSweepThreshold {
+		for k, a := range s.loginFails {
+			if now.Sub(a.first) >= window {
+				delete(s.loginFails, k)
+			}
+		}
+	}
+	a, ok := s.loginFails[key]
+	if !ok || now.Sub(a.first) >= window {
+		s.loginFails[key] = loginAttempt{fails: 1, first: now}
+		return
+	}
+	a.fails++
+	s.loginFails[key] = a
+}
+
+// clearLoginFailures forgets key after a successful login.
+func (s *Server) clearLoginFailures(key string) {
+	s.loginMu.Lock()
+	defer s.loginMu.Unlock()
+	delete(s.loginFails, key)
+}
+
 // POST /api/auth/login — validates username/password and returns a JWT.
 func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
+	clientKey := loginClientKey(r)
+	if retryAfter, blocked := s.loginBlocked(clientKey); blocked {
+		// Retry-After is in whole seconds and must round up, otherwise a client
+		// could retry while the window is still open.
+		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(retryAfter.Seconds()))))
+		writeErr(w, http.StatusTooManyRequests, "登录尝试过于频繁，请稍后再试")
+		return
+	}
 	pg := s.pg(w)
 	if pg == nil {
 		return
@@ -233,15 +346,18 @@ func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Username != defaultAdminUsername {
+		s.recordLoginFailure(clientKey)
 		writeErr(w, 401, "用户名或密码错误")
 		return
 	}
 	hash, ok, _ := pg.GetSetting(authPassKey)
 	if !ok || hash == "" {
+		s.recordLoginFailure(clientKey)
 		writeErr(w, 403, "密码未初始化，请先设置密码")
 		return
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password)); err != nil {
+		s.recordLoginFailure(clientKey)
 		writeErr(w, 401, "用户名或密码错误")
 		return
 	}
@@ -250,5 +366,6 @@ func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "token 生成失败")
 		return
 	}
+	s.clearLoginFailures(clientKey)
 	writeJSON(w, 200, map[string]any{"token": tok})
 }
