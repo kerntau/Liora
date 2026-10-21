@@ -127,6 +127,24 @@ func (d *DB) DeleteTriggersForAgent(agentKey string) error {
 	return err
 }
 
+// DeleteOrphanTriggers removes every trigger whose agent_key has no matching row
+// in agents(key), returning how many rows were deleted.
+//
+// agent_triggers.agent_key deliberately has no FK to agents(key) (see
+// DeleteAgentWithTriggers): a database written by an older build can still hold
+// triggers for agents that are already gone, and the scheduler would keep firing
+// them by key. The single DELETE is idempotent — a second call on a clean table
+// deletes nothing and returns 0 — and built-in agents are untouched because they
+// do have a row in agents.
+func (d *DB) DeleteOrphanTriggers() (int64, error) {
+	res, err := d.Exec(`DELETE FROM agent_triggers
+WHERE NOT EXISTS (SELECT 1 FROM agents WHERE agents.key = agent_triggers.agent_key)`)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // ---------- scheduler_state (kv watermarks) ----------
 
 func (d *DB) GetSchedState(key string) (string, error) {

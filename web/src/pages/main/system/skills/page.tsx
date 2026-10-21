@@ -297,7 +297,6 @@ export default function SkillsPage() {
   // 技能列表走统一四态：首载骨架、失败常驻可重试；刷新保留上一份，树不闪空。
   const skillsQ = useAsyncData(() => api.skills(), []);
   const skills = skillsQ.data ?? [];
-  const listStatus = skillsQ.status === "error" ? "error" : skillsQ.initialLoading ? "loading" : "ready";
   const [agents, setAgents] = React.useState<Agent[]>([]);
   const [selected, setSelected] = React.useState<Selected | null>(null);
   const [visibility, setVisibility] = React.useState<Record<string, string[]>>({});
@@ -553,6 +552,8 @@ export default function SkillsPage() {
       load();
     } catch (e) {
       toast.error("删除失败：" + (e as Error).message);
+      // 抛给确认框：失败时保持打开，不假装已删除。
+      throw e;
     }
   }
 
@@ -564,6 +565,7 @@ export default function SkillsPage() {
       load();
     } catch (e) {
       toast.error("删除失败：" + (e as Error).message);
+      throw e;
     }
   }
 
@@ -574,9 +576,12 @@ export default function SkillsPage() {
     try {
       if (p.kind === "skill") await deleteSkill(p.skill);
       else await deletePath(p.skill, p.path);
+      // 只有真的删掉才关确认框；失败时留在原地，用户能看到原因并重试。
+      setPendingDelete(null);
+    } catch {
+      /* 错误已 toast */
     } finally {
       setDeleting(false);
-      setPendingDelete(null);
     }
   }
 
@@ -765,6 +770,7 @@ export default function SkillsPage() {
           )}>
             <Button size="icon" variant="ghost" className="size-5"
               title="删除文件"
+              aria-label={`删除文件 ${node.path}`}
               onClick={(e) => { e.stopPropagation(); setPendingDelete({ kind: "file", skill, path: node.path }); }}>
               <Trash2Icon className="size-3 text-destructive" />
             </Button>
@@ -877,9 +883,10 @@ export default function SkillsPage() {
           <ScrollArea className="flex-1 [&>[data-slot=scroll-area-viewport]>div]:!block">
             <div className="p-1">
               <AsyncState
-                status={listStatus}
+                status={skillsQ.status}
                 error={skillsQ.error}
                 onRetry={skillsQ.reload}
+                refreshing={skillsQ.refreshing}
                 isEmpty={skills.length === 0}
                 skeleton={
                   <div className="space-y-1" aria-hidden="true">
@@ -941,14 +948,17 @@ export default function SkillsPage() {
                         isSkillSelected ? "bg-accent" : "bg-muted",
                       )}>
                         <Button size="icon" variant="ghost" className="size-5" title="新建文件"
+                          aria-label={`在 ${s.name} 下新建文件`}
                           onClick={(e) => { e.stopPropagation(); startCreate(s.name, "", "file"); }}>
                           <FilePlusIcon className="size-3 text-muted-foreground" />
                         </Button>
                         <Button size="icon" variant="ghost" className="size-5" title="新建文件夹"
+                          aria-label={`在 ${s.name} 下新建文件夹`}
                           onClick={(e) => { e.stopPropagation(); startCreate(s.name, "", "dir"); }}>
                           <FolderPlusIcon className="size-3 text-muted-foreground" />
                         </Button>
                         <Button size="icon" variant="ghost" className="size-5" title="删除 Skill"
+                          aria-label={`删除 Skill ${s.name}`}
                           onClick={(e) => { e.stopPropagation(); setPendingDelete({ kind: "skill", skill: s.name }); }}>
                           <Trash2Icon className="size-3 text-destructive" />
                         </Button>
@@ -981,7 +991,7 @@ export default function SkillsPage() {
                 missing={missing}
                 onSelect={(name) => setSelected({ skill: name, path: null })}
               />
-            ) : listStatus === "loading" ? (
+            ) : skillsQ.status === "loading" ? (
               <div className="mx-auto w-full max-w-3xl space-y-3" aria-hidden="true">
                 <Skeleton className="h-5 w-40" />
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

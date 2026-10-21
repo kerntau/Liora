@@ -57,3 +57,12 @@
 [T10.10][12:55] 格式化收尾｜任务页改用 lib/format、findings 移除过渡再导出｜typecheck/test/build 0｜提交 f3eeb5d、7aa7063
 [T10.11][12:56] 全量复验｜go build/vet/test 15 包全绿；go test -race ./server 通过（34.5s）｜命令输出｜e2e 待跑
 [T10.12][13:00] e2e 复跑｜62 passed / 0 failed（rsbuild + embedded，3.0m）｜E2E_EXIT=0｜第四轮交付完成
+
+[T11][13:40] 第五轮启动：运行时体验与健壮性｜6 个实施会话｜峰值 6 并发
+[T11.1][13:52] 会话页拆分｜2120 → 1220 行 + 6 处轮询统一｜typecheck/test/build 0｜merge 91ef965
+[T11.2][13:55] 孤儿触发器清理与调度器校验｜启动 DELETE + 每 tick 存在性过滤｜db/server 测试全绿｜merge 5a235fb
+[T11.3][13:58] 任务页轮询统一｜列表/详情/待审批/漏洞/资产改 usePolling；未知任务 404 提示｜typecheck/test/build 0｜merge fe2a708
+[T11.4][14:02] 系统页收尾｜LLM 池状态失败可见、MCP 授权失败、工具旁路数据、技能删除确认｜typecheck/test/build 0｜merge 05e91f5
+[T11.5][14:18] 仪表盘拆分｜1351 → 379 行，11 个组件 + usePolling｜typecheck/test/build 0｜merge c0c0309
+[T11.6][14:24] e2e 回归｜新增 5 个用例 × 双模式｜首次调试修正 token 前置与可访问名定位｜10/10 通过
+[T11.7][14:44] 全量复验｜go test -p 1 ./... 15 包全绿；typecheck 0；npm test 29/29；build 0；e2e 72/72｜命令输出｜第五轮交付完成

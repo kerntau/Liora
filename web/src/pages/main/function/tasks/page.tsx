@@ -77,6 +77,7 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { usePolling } from "@/hooks/use-polling";
 import { api } from "@/lib/api";
 import { getLocalStorageValue, setLocalStorageValue } from "@/lib/local-storage.client";
 import { type SortDirection, useStoredSortPreference } from "@/lib/sort-preference";
@@ -322,7 +323,8 @@ function TasksPageInner() {
 
   const load = React.useCallback(() => {
     const seq = ++loadSeqRef.current;
-    api
+    // 返回 Promise，让 usePolling 能识别「上一轮仍在进行」并跳过重叠的一轮。
+    return api
       .tasks()
       .then((r) => {
         if (seq !== loadSeqRef.current) return;
@@ -356,17 +358,18 @@ function TasksPageInner() {
       });
   }, []);
 
+  // 分类只在进入页面时拉一次，不参与任务列表轮询。
   React.useEffect(() => {
-    load();
     loadCategories();
-    const i = setInterval(load, POLL_MS);
-    return () => clearInterval(i);
-  }, [load, loadCategories]);
+  }, [loadCategories]);
+
+  // 任务列表每 POLL_MS 轮询一次；启用即执行、隐藏页暂停、重叠跳过都由 usePolling 负责。
+  usePolling(load, POLL_MS);
 
   const refreshCategoriesAndTasks = React.useCallback(() => {
     lastRef.current = "";
     loadCategories();
-    load();
+    void load();
   }, [load, loadCategories]);
 
   const applyTaskCategoryMove = React.useCallback(
@@ -410,7 +413,7 @@ function TasksPageInner() {
         } else {
           toast.success(deleteSummary(result));
         }
-        load();
+        void load();
       } catch (e) {
         toast.error("删除失败：" + (e as Error).message);
         throw e;
@@ -434,7 +437,7 @@ function TasksPageInner() {
       } finally {
         // 无论成败都刷新:失败多半是状态已变化,重新拉取才能让按钮回到正确形态。
         lastRef.current = "";
-        load();
+        void load();
       }
     },
     [load],
@@ -446,7 +449,7 @@ function TasksPageInner() {
         await api.renameTask(task.id, name);
         toast.success(`任务 #${task.id} 已重命名`);
         lastRef.current = "";
-        load();
+        void load();
       } catch (error) {
         toast.error(`重命名失败：${(error as Error).message}`);
         throw error;
@@ -462,7 +465,7 @@ function TasksPageInner() {
         await api.pinTask(task.id, !pinned);
         toast.success(pinned ? `任务 #${task.id} 已取消置顶` : `任务 #${task.id} 已置顶`);
         lastRef.current = "";
-        load();
+        void load();
       } catch (error) {
         toast.error(`${pinned ? "取消置顶" : "置顶"}失败：${(error as Error).message}`);
         throw error;
@@ -478,7 +481,7 @@ function TasksPageInner() {
         toast.success(`任务 #${task.id} 已进入归档队列`);
         setActiveTab("archived");
         lastRef.current = "";
-        load();
+        void load();
       } catch (error) {
         toast.error(`归档失败：${(error as Error).message}`);
         throw error;
@@ -541,7 +544,7 @@ function TasksPageInner() {
           .join("；");
         toast.error(`${failed.length} 个任务删除失败：${head}${failed.length > 3 ? " 等" : ""}`);
       }
-      load();
+      void load();
     },
     [load],
   );
@@ -577,7 +580,7 @@ function TasksPageInner() {
     setSelectedIds(new Set());
     setActiveTab("archived");
     lastRef.current = "";
-    load();
+    void load();
   }, [archivableTaskIDs, load]);
 
   const controlSelectedTasks = React.useCallback(
@@ -607,7 +610,7 @@ function TasksPageInner() {
           toast.error(`${failed.length} 个任务操作失败：${details}${failed.length > 3 ? " 等" : ""}`);
         }
         lastRef.current = "";
-        load();
+        void load();
       } catch (error) {
         toast.error(`${action === "pause" ? "批量暂停" : "批量继续"}失败：${(error as Error).message}`);
       } finally {

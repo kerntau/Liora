@@ -234,7 +234,14 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 			log.Printf("[retester] seed: %v", err)
 		}
 		go s.evidenceStore().RunGC(s.ctx)
-		s.seedPythonInterpreter()     // 自定义脚本工具:开机检测 python 解释器入库(仅空时)
+		s.seedPythonInterpreter() // 自定义脚本工具:开机检测 python 解释器入库(仅空时)
+		// agent_triggers.agent_key 无外键，旧库可能残留所属 agent 已删除的触发器。
+		// 启动时清一次，避免调度器继续按 key 触发不存在的 agent；0 条时不打日志。
+		if n, err := m.pg.DeleteOrphanTriggers(); err != nil {
+			log.Printf("[scheduler] 清理孤儿触发器失败: %v", err)
+		} else if n > 0 {
+			log.Printf("[scheduler] 已清理 %d 条孤儿触发器（所属 agent 已删除）", n)
+		}
 		go newScheduler(s).Run(s.ctx) // P3 触发器调度(定时/finding/目标事件),仅自定义 agent
 		// Fill the tool cache for any enabled MCP that has none yet (notably the
 		// seeded browser MCP on first run). Async so it never blocks startup.
@@ -1873,7 +1880,9 @@ func (s *Server) findings(w http.ResponseWriter, r *http.Request) {
 	}
 	t := s.m.ResolveTask(taskParam)
 	if t == nil {
-		writeJSON(w, 200, []any{})
+		// 任务不存在不是「没有发现」：200 [] 会让前端把缺失的任务渲染成空列表。
+		// 与上面的读失败显式化同一条原则，未知 task 返回 404。
+		writeErr(w, http.StatusNotFound, "task not found")
 		return
 	}
 	f, err := t.Store.ListByKind(db.KindFinding, 200)

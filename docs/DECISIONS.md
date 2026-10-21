@@ -624,3 +624,68 @@ P0—P3 已完成并记录，立即进入 P4；不等待用户回复。施工采
 - Agent 删除失败从 200 变为 500，是刻意的契约变化（CONTRACT 9.1）。
 - 资产删除 >5000 从可能 500 变为明确 400（CONTRACT 9.2）。
 - 页面拆分后的轮询相位与资产视图空 tick 已记录在 CONTRACT 9.7。
+
+---
+
+## 2026-10-21 13:40 第五轮：运行时体验与健壮性（多会话并行）
+
+- 时间戳：2026-10-21 13:40 +08:00（Asia/Shanghai）
+- 基线：main @ 35fd62b；第四轮验证（go test / typecheck / npm test / build / e2e 62/62）通过。
+- 用户指令：继续干，没说停不许停。
+
+### 目标冻结（G12—G16）
+
+1. **G12 页面结构**：拆分 sessions-tab 与 dashboard 两个大页面，行为不变。
+2. **G13 轮询统一**：所有数据轮询走 usePolling（隐藏暂停、重叠跳过、主体切换立即刷新）。
+3. **G14 后端健壮性**：历史孤儿触发器清理、调度器存在性校验、未知任务显式 404。
+4. **G15 系统页体验**：LLM/MCP/工具/技能的失败态、防重复提交与可访问性。
+5. **G16 验证资产**：新增 10 个 e2e 回归用例（失败态、部分失败、刷新保留内容、过期会话提示）。
+
+### 多会话分工（6 个实施会话，峰值 6 ≤ 上限 10）
+
+| 会话 | 分支 | 内容 |
+| --- | --- | --- |
+| sessions-split | feat/sessions-split | 会话页 2120 → 1220 行 + 6 处轮询统一 |
+| dashboard-split | feat/dashboard-split | 仪表盘 1351 → 379 行 + 三源轮询 |
+| polling-adopt | feat/polling-adopt | 任务列表/详情/漏洞/资产轮询 + 任务缺失提示 |
+| backend-robust | fix/backend-robust | 孤儿触发器清理、调度器校验、findings 404 |
+| system-pages | feat/system-pages | LLM/MCP/工具/技能失败态与 a11y |
+| e2e-regression | test/e2e-regression | 新增回归用例（由主会话接手完成） |
+
+执行偏差（如实记录）：本轮 6 个会话在运行中因主机内存/页面文件耗尽被中断，其中 4 个已完成改动但未提交、1 个（仪表盘）停在组件已抽出但页面未接线、e2e 会话未产出。主会话接手完成：仪表盘接线与轮询替换、MCP 缺失的 renderVisibility、所有未提交改动的验证与原子提交、e2e 用例编写与调试。
+
+### 裁决
+
+| 项 | 裁决 | 理由 |
+| --- | --- | --- |
+| 仪表盘继续拆分到 <400 行 | 做 | 组件已抽出，接线后 379 行 |
+| 会话页继续拆分 | 不做 | 1220 行且逻辑内聚，再拆收益递减 |
+| 历史孤儿触发器回填 | 做（启动清理） | 一条幂等 DELETE，风险低 |
+| 调度器删除孤儿行 | 不做 | 删除职责归启动清理，调度器只跳过 |
+| findings?task 404 | 做 | 前端已能区分「任务不存在」 |
+| 全仓 biome 格式化 | 不做 | 基线仍非 clean |
+
+### 交付分支与合并
+
+| 分支 | 合并 |
+| --- | --- |
+| fix/backend-robust | 5a235fb |
+| feat/polling-adopt | fe2a708 |
+| feat/system-pages | 05e91f5 |
+| feat/sessions-split | 91ef965 |
+| feat/dashboard-split | c0c0309 |
+| test/e2e-regression | 由主会话直接提交（cf2b6ed、ef92033、1dcce3b） |
+
+### 验证
+
+- go build ./...、go vet ./...、go test -p 1 ./... -count=1：15 包全绿（并行编译在内存紧张时会触发工具链 OOM，故用 -p 1 复验）。
+- npm run typecheck、npm test（29/29，含 format/task-not-found 等新增用例）、npm run build：通过（构建偶发 rspack os error 1455，重试通过，属主机内存限制）。
+- npm run test:e2e：72 passed / 0 failed（62 原有 + 10 新增，rsbuild + embedded）。
+- 新增用例覆盖：过期会话提示、任务列表失败态、发现列表失败态、仪表盘部分失败、刷新期间保留列表内容。
+
+### 风险与回滚
+
+- 页面拆分是逐字搬移，回滚对应 merge commit 即可。
+- findings 未知任务从 200 [] 改为 404 是契约变化（CONTRACT 10.1），前端已同步。
+- 启动清理孤儿触发器只删除 agent 已不存在的行；回滚为移除调用。
+- 已知偏差：仪表盘 token 仍为 2.0M 风格；请求序号只丢弃旧响应，不取消在途请求。

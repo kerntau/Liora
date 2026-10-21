@@ -37,6 +37,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { usePolling } from "@/hooks/use-polling";
 import { api } from "@/lib/api";
 import type { InterceptApprovalRow, LLMProfile, Task } from "@/lib/types";
 
@@ -243,69 +244,79 @@ function TaskDetailInner() {
       .catch(() => setProfiles([]));
   }, []);
 
-  React.useEffect(() => {
-    let alive = true;
-    const load = () =>
-      api
-        // Ask for pending explicitly: the unfiltered endpoint returns the newest 100
-        // rows of ANY status, so an older pending approval could fall outside the page.
-        .interceptTaskPage(id, 1, 100, { status: "pending" })
-        .then(({ items, total }) => {
-          if (!alive) return;
-          setPendingIntercepts((prev) => (samePendingIntercepts(prev, items) ? prev : items));
-          setPendingInterceptTotal(total);
-        })
-        .catch(() => {
-          // Polling is best-effort; the next interval retries automatically.
-        });
-    void load();
-    const t = setInterval(load, 5000);
-    return () => {
-      alive = false;
-      clearInterval(t);
-    };
+  // id 变化时 usePolling 不会重启定时器，用 ref 丢弃旧任务的迟到响应。
+  const idRef = React.useRef(id);
+  idRef.current = id;
+
+  const loadPendingIntercepts = React.useCallback(async () => {
+    const requestedID = id;
+    try {
+      // Ask for pending explicitly: the unfiltered endpoint returns the newest 100
+      // rows of ANY status, so an older pending approval could fall outside the page.
+      const { items, total } = await api.interceptTaskPage(requestedID, 1, 100, { status: "pending" });
+      if (idRef.current !== requestedID) return;
+      setPendingIntercepts((prev) => (samePendingIntercepts(prev, items) ? prev : items));
+      setPendingInterceptTotal(total);
+    } catch {
+      // Polling is best-effort; the next interval retries automatically.
+    }
   }, [id]);
 
+  // 切到另一个任务时立即刷新一次；首轮由 usePolling 的「启用即执行」负责。
+  const pendingRefreshedOnce = React.useRef(false);
+  React.useEffect(() => {
+    if (!pendingRefreshedOnce.current) {
+      pendingRefreshedOnce.current = true;
+      return;
+    }
+    void loadPendingIntercepts();
+  }, [loadPendingIntercepts]);
+  usePolling(loadPendingIntercepts, 5000);
+
   const taskLoadInFlight = React.useRef<string | null>(null);
-  const load = React.useCallback(() => {
+  const load = React.useCallback(async () => {
     if (taskLoadInFlight.current === id) return;
     taskLoadInFlight.current = id;
-    Promise.all([api.task(id), api.stats(id).catch(() => null)])
-      .then(([task, s]) => {
-        if (taskLoadInFlight.current !== id) return;
-        const base = { ...task };
-        const at = s?.active_task;
-        if (at) {
-          base.in_flight = at.in_flight;
-          base.goals_total = at.goals_total;
-          base.goals_met = at.goals_met;
-          base.engine_mode = s?.engine_mode ?? at.engine_mode;
-          base.paused = at.paused;
-        }
-        setTask(base);
-        setPaused(at?.paused ?? base.paused ?? false);
-        setLoadError(null);
-        setNotFound(false);
-      })
-      .catch((error: unknown) => {
-        // 保留上一份任务状态;只有 404 才把任务判为不存在,其余按「加载失败」并可重试。
-        if (taskLoadInFlight.current !== id) return;
-        const cause = error instanceof Error ? error : new Error(String(error));
-        setLoadError(cause);
-        setNotFound(cause.message === "task not found");
-      })
-      .finally(() => {
-        if (taskLoadInFlight.current === id) {
-          taskLoadInFlight.current = null;
-          setLoaded(true);
-        }
-      });
+    try {
+      const [task, s] = await Promise.all([api.task(id), api.stats(id).catch(() => null)]);
+      if (taskLoadInFlight.current !== id) return;
+      const base = { ...task };
+      const at = s?.active_task;
+      if (at) {
+        base.in_flight = at.in_flight;
+        base.goals_total = at.goals_total;
+        base.goals_met = at.goals_met;
+        base.engine_mode = s?.engine_mode ?? at.engine_mode;
+        base.paused = at.paused;
+      }
+      setTask(base);
+      setPaused(at?.paused ?? base.paused ?? false);
+      setLoadError(null);
+      setNotFound(false);
+    } catch (error: unknown) {
+      // 保留上一份任务状态;只有 404 才把任务判为不存在,其余按「加载失败」并可重试。
+      if (taskLoadInFlight.current !== id) return;
+      const cause = error instanceof Error ? error : new Error(String(error));
+      setLoadError(cause);
+      setNotFound(cause.message === "task not found");
+    } finally {
+      if (taskLoadInFlight.current === id) {
+        taskLoadInFlight.current = null;
+        setLoaded(true);
+      }
+    }
   }, [id]);
+
+  // 切到另一个任务时立即拉一次；首轮由 usePolling 的「启用即执行」负责。
+  const taskRefreshedOnce = React.useRef(false);
   React.useEffect(() => {
-    load();
-    const timer = setInterval(load, 5000);
-    return () => clearInterval(timer);
+    if (!taskRefreshedOnce.current) {
+      taskRefreshedOnce.current = true;
+      return;
+    }
+    void load();
   }, [load]);
+  usePolling(load, 5000);
 
   // 切页签用 replace：浏览历史里不该堆满 tab 切换记录，后退仍然回到上一页。
   const selectTab = React.useCallback(

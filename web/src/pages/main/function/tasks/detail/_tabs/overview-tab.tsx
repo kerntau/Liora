@@ -28,6 +28,7 @@ import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Progress } from "@/components/ui/progress";
 import { api } from "@/lib/api";
 import { fmtTokens } from "@/lib/format";
+import { isTaskNotFoundError } from "@/lib/task-not-found";
 import type {
   Finding,
   ModelTokenStat,
@@ -137,6 +138,8 @@ export function OverviewTab({ taskId }: { taskId: string }) {
   const [editConKind, setEditConKind] = React.useState<TaskConstraint["kind"]>("deny");
   // 轮询/首载失败要看得见：保留旧值 + 顶部提示 + 手动重试。
   const [loadFailed, setLoadFailed] = React.useState(false);
+  // 任务已被删除/归档（findings 404）：显示明确文案，不再报通用「刷新失败」。
+  const [notFound, setNotFound] = React.useState(false);
   const [reloadTick, setReloadTick] = React.useState(0);
 
   const loadTokens = React.useCallback(async () => {
@@ -377,6 +380,7 @@ export function OverviewTab({ taskId }: { taskId: string }) {
         setIntents(intentsResp);
         setFindings(findingsResp);
         setLoadFailed(false);
+        setNotFound(false);
         // coverage is independent + may 503 when no asset store — fetch separately so
         // its failure never blocks the others.
         api
@@ -387,9 +391,15 @@ export function OverviewTab({ taskId }: { taskId: string }) {
           .catch(() => {
             // A transient coverage failure is retried by the next poll.
           });
-      } catch {
+      } catch (error: unknown) {
         // 保留旧值，下一轮自动重试；失败在顶部显式提示，不静默。
-        if (!cancelled) setLoadFailed(true);
+        if (cancelled) return;
+        if (isTaskNotFoundError(error)) {
+          setNotFound(true);
+          setLoadFailed(false);
+        } else {
+          setLoadFailed(true);
+        }
       } finally {
         loading = false;
       }
@@ -432,6 +442,15 @@ export function OverviewTab({ taskId }: { taskId: string }) {
 
   return (
     <div className="flex flex-col gap-4">
+      {notFound && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-muted-foreground"
+        >
+          <AlertTriangleIcon className="size-3.5 text-amber-500" />
+          任务不存在或已归档，无法加载总览数据
+        </div>
+      )}
       {loadFailed && (
         <div
           role="alert"

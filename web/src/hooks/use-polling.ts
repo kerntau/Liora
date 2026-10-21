@@ -11,9 +11,11 @@ import * as React from "react";
 export function usePolling(
   task: () => Promise<void> | void,
   intervalMs: number,
-  options: { enabled?: boolean } = {},
+  options: { enabled?: boolean; resetKey?: unknown } = {},
 ): void {
-  const { enabled = true } = options;
+  // resetKey restarts the cadence (and runs once immediately) when the caller
+  // switches subject — e.g. navigating from conversation A to B.
+  const { enabled = true, resetKey } = options;
   const taskRef = React.useRef(task);
   taskRef.current = task;
 
@@ -74,5 +76,5 @@ export function usePolling(
       clearTimer();
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [enabled, intervalMs]);
+  }, [enabled, intervalMs, resetKey]);
 }

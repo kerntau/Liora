@@ -38,6 +38,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { usePolling } from "@/hooks/use-polling";
 import { api } from "@/lib/api";
 import { parseCompanyScopeText } from "@/lib/company-scope";
 import { taskAssetSourceLabel } from "@/lib/task-assets";
@@ -397,54 +398,57 @@ export function AssetsTab({ taskId }: { taskId: string }) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: these controls intentionally reset server pagination.
   React.useEffect(() => setPage(0), [tab, size, query]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: refreshKey is an explicit manual-reload trigger.
-  React.useEffect(() => {
-    let active = true;
+  const load = React.useCallback(async () => {
     const dsl = query.trim();
     const request = ++assetsRequestRef.current;
-    const load = async () => {
-      setLoading(true);
-      try {
-        // The search always stays within this task's assets: taskAssets and
-        // searchTaskAssets both pin task_id server-side.
-        const [current, nextCounts] = await Promise.all([
-          dsl
-            ? api.searchTaskAssets(taskId, dsl, tab, size, page * size)
-            : api.taskAssets(taskId, tab, size, page * size),
-          api.assetCounts(taskId),
-        ]);
-        if (!active || assetsRequestRef.current !== request) return;
-        setRows(current.assets);
-        setTotal(current.total);
-        setCounts(nextCounts ?? {});
-        setDslError("");
-      } catch (reason) {
-        if (!active || assetsRequestRef.current !== request) return;
-        const message = String((reason as Error)?.message ?? reason);
-        if (dsl) {
-          // 搜索失败时保留上一次的结果：清空会让表格落进「暂无数据」，把失败伪装成空结果。
-          // 错误由搜索框的内联状态行展示；本来就没有旧行时由表格内的错误行提示并给重试。
-          setDslError(message);
-        } else {
-          toast.error(`加载任务资产失败：${message}`);
-        }
-      } finally {
-        if (active && assetsRequestRef.current === request) {
-          setLoading(false);
-          setLoaded(true);
-          setRefreshing(false);
-        }
+    setLoading(true);
+    try {
+      // The search always stays within this task's assets: taskAssets and
+      // searchTaskAssets both pin task_id server-side.
+      const [current, nextCounts] = await Promise.all([
+        dsl
+          ? api.searchTaskAssets(taskId, dsl, tab, size, page * size)
+          : api.taskAssets(taskId, tab, size, page * size),
+        api.assetCounts(taskId),
+      ]);
+      if (assetsRequestRef.current !== request) return;
+      setRows(current.assets);
+      setTotal(current.total);
+      setCounts(nextCounts ?? {});
+      setDslError("");
+    } catch (reason) {
+      if (assetsRequestRef.current !== request) return;
+      const message = String((reason as Error)?.message ?? reason);
+      if (dsl) {
+        // 搜索失败时保留上一次的结果：清空会让表格落进「暂无数据」，把失败伪装成空结果。
+        // 错误由搜索框的内联状态行展示；本来就没有旧行时由表格内的错误行提示并给重试。
+        setDslError(message);
+      } else {
+        toast.error(`加载任务资产失败：${message}`);
       }
-    };
-    // Debounce DSL keystrokes; plain (re)loads and polling run immediately.
-    const debounce = setTimeout(() => void load(), dsl ? 400 : 0);
-    const timer = setInterval(() => void load(), 10_000);
-    return () => {
-      active = false;
-      clearTimeout(debounce);
-      clearInterval(timer);
-    };
-  }, [page, query, refreshKey, size, tab, taskId]);
+    } finally {
+      if (assetsRequestRef.current === request) {
+        setLoading(false);
+        setLoaded(true);
+        setRefreshing(false);
+      }
+    }
+  }, [page, query, size, tab, taskId]);
+
+  // 查询/页签/分页/手动刷新变化时立即重新加载；DSL 输入保留 400ms 防抖。
+  const refreshedOnce = React.useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refreshKey 是手动刷新的触发器，不参与 load 身份。
+  React.useEffect(() => {
+    if (!refreshedOnce.current) {
+      refreshedOnce.current = true;
+      return;
+    }
+    const debounce = setTimeout(() => void load(), query.trim() ? 400 : 0);
+    return () => clearTimeout(debounce);
+  }, [load, query, refreshKey]);
+
+  // 数据轮询交给 usePolling：启用即执行、隐藏页暂停、重叠跳过。
+  usePolling(load, 10_000);
 
   React.useEffect(() => {
     const maxPage = Math.max(0, Math.ceil(total / size) - 1);

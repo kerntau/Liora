@@ -13,9 +13,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger } from "@/components/ui/select";
+import { usePolling } from "@/hooks/use-polling";
 import { api } from "@/lib/api";
 import { useStoredSortPreference } from "@/lib/sort-preference";
 import { statusMeta } from "@/lib/status";
+import { isTaskNotFoundError } from "@/lib/task-not-found";
 import type { Finding, FindingStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -144,7 +146,8 @@ export function FindingsTab({ taskId }: { taskId: string }) {
   // 首载/失败分开记录:首载用骨架,失败才显示错误卡片,轮询失败保留旧数据。
   const [loaded, setLoaded] = React.useState(false);
   const [loadError, setLoadError] = React.useState<Error | null>(null);
-  const [reloadKey, setReloadKey] = React.useState(0);
+  // 任务已被删除/归档时后端回 404：单独标记，显示明确文案而不是通用「加载失败」。
+  const [notFound, setNotFound] = React.useState(false);
   const [sortPreference, setSortPreference] = useStoredSortPreference(
     FINDING_SORT_PREFERENCE_KEY,
     FINDING_SORT_FIELDS,
@@ -152,38 +155,47 @@ export function FindingsTab({ taskId }: { taskId: string }) {
     "desc",
   );
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reloadKey 是手动重试的触发器。
+  // 请求序号 + taskId 快照：手动重试可能和轮询并发，迟到的旧响应直接丢弃。
+  const requestRef = React.useRef(0);
+  const taskIdRef = React.useRef(taskId);
+  taskIdRef.current = taskId;
+
+  const load = React.useCallback(async () => {
+    const request = ++requestRef.current;
+    const requestedTaskId = taskId;
+    try {
+      const fs = await api.findings(requestedTaskId);
+      if (requestRef.current !== request || taskIdRef.current !== requestedTaskId) return;
+      setFindings(fs);
+      setLoadError(null);
+      setNotFound(false);
+      setLoaded(true);
+    } catch (error: unknown) {
+      // Keep the last successful snapshot during transient refresh failures.
+      if (requestRef.current !== request || taskIdRef.current !== requestedTaskId) return;
+      const cause = error instanceof Error ? error : new Error(String(error));
+      setLoadError(cause);
+      setNotFound(isTaskNotFoundError(cause));
+      setLoaded(true);
+    }
+  }, [taskId]);
+
+  // 切到另一个任务时立即刷新一次；首轮由 usePolling 的「启用即执行」负责。
+  const refreshedOnce = React.useRef(false);
   React.useEffect(() => {
-    let active = true;
-    const load = () => {
-      api
-        .findings(taskId)
-        .then((fs) => {
-          if (!active) return;
-          setFindings(fs);
-          setLoadError(null);
-          setLoaded(true);
-        })
-        .catch((error: unknown) => {
-          // Keep the last successful snapshot during transient refresh failures.
-          if (!active) return;
-          setLoadError(error instanceof Error ? error : new Error(String(error)));
-          setLoaded(true);
-        });
-    };
-    load();
-    const t = setInterval(load, 3000);
-    return () => {
-      active = false;
-      clearInterval(t);
-    };
-  }, [taskId, reloadKey]);
+    if (!refreshedOnce.current) {
+      refreshedOnce.current = true;
+      return;
+    }
+    void load();
+  }, [load]);
+  usePolling(load, 3000);
 
   const retry = React.useCallback(() => {
     setLoaded(false);
     setLoadError(null);
-    setReloadKey((key) => key + 1);
-  }, []);
+    void load();
+  }, [load]);
 
   const onStatus = React.useCallback(async (f: Finding, next: FindingStatus) => {
     if (f.inherited || !f.finding_id || next === f.status) return;
@@ -197,6 +209,22 @@ export function FindingsTab({ taskId }: { taskId: string }) {
       toast.error("更新失败：" + (e as Error).message);
     }
   }, []);
+
+  if (notFound) {
+    return (
+      <Card className="overflow-hidden py-0">
+        <CardContent className="px-0">
+          <div
+            role="alert"
+            className="flex flex-col items-center justify-center gap-2 px-4 py-12 text-center text-muted-foreground text-sm"
+          >
+            <div className="text-foreground">任务不存在或已归档</div>
+            <p className="text-xs">无法加载该任务的漏洞结果，请确认任务是否仍然存在。</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   const items = findings
     .filter((f) => f.task_id === taskId || f.inherited)

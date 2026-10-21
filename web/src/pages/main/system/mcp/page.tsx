@@ -47,6 +47,19 @@ const emptyForm: FormState = {
   insecure: false,
 };
 
+// 授权区的错误行：权限或 Agent 列表没拉到时必须明确报错，
+// 不能把「没拉到」渲染成「谁都没授权」。
+function AuthErrorRow({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div role="alert" className="flex flex-wrap items-center gap-2 text-destructive text-xs">
+      <span>{message}</span>
+      <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={onRetry}>
+        重试
+      </Button>
+    </div>
+  );
+}
+
 export default function MCPPage() {
   const [agents, setAgents] = React.useState<Agent[]>([]);
   const [visibility, setVisibility] = React.useState<Record<number, string[]>>({});
@@ -56,7 +69,6 @@ export default function MCPPage() {
   // 服务器列表走统一四态：首载骨架、失败常驻可重试；刷新保留上一份，卡片不闪空。
   const serversQ = useAsyncData(() => api.mcpServers(), []);
   const servers = serversQ.data ?? [];
-  const listStatus = serversQ.status === "error" ? "error" : serversQ.initialLoading ? "loading" : "ready";
   const [pendingDelete, setPendingDelete] = React.useState<MCPServer | null>(null);
 
   const [open, setOpen] = React.useState(false);
@@ -71,14 +83,22 @@ export default function MCPPage() {
   // 切换服务器时旧请求可能后到；序号保证只有最新一次请求能写入工具列表。
   const toolsSeq = React.useRef(0);
 
+  // Agent 列表拉不到时不能静默：空数组会被渲染成「一个 Agent 都没授权」。
+  const [agentsFailed, setAgentsFailed] = React.useState(false);
+  const loadAgents = React.useCallback(() => {
+    setAgentsFailed(false);
+    api.agents()
+      .then(setAgents)
+      .catch(() => setAgentsFailed(true));
+  }, []);
   // 变更后统一刷新：Agent 列表 + 服务器列表。
   const load = React.useCallback(() => {
-    api.agents().then(setAgents).catch(() => {});
+    loadAgents();
     serversQ.reload();
-  }, [serversQ.reload]);
+  }, [loadAgents, serversQ.reload]);
   React.useEffect(() => {
-    api.agents().then(setAgents).catch(() => {});
-  }, []);
+    loadAgents();
+  }, [loadAgents]);
   // 可见性按服务器批量补拉：一次刷新只发一轮并发请求，不拖慢列表首屏。
   // 失败时明确报错，不能把"没拉到"渲染成"未授权"。
   const loadVisibility = React.useCallback(() => {
@@ -274,6 +294,29 @@ export default function MCPPage() {
     }
   }
 
+  // 授权区：权限或 Agent 列表任一失败都必须明确报错，不能渲染成「谁都没授权」。
+  function renderVisibility(server: MCPServer) {
+    if (visibilityError) {
+      return <AuthErrorRow message="权限加载失败，暂无法查看或修改授权。" onRetry={loadVisibility} />;
+    }
+    if (agentsFailed) {
+      return <AuthErrorRow message="Agent 列表加载失败，暂无法查看或修改授权。" onRetry={loadAgents} />;
+    }
+    return (
+      <div className="flex flex-wrap gap-x-4 gap-y-2">
+        {agents.map((a) => (
+          <label key={a.key} className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={(visibility[server.id] ?? []).includes(a.id)}
+              onCheckedChange={() => toggleVisibility(server.id, a.id, a.name)}
+            />
+            {a.name}
+          </label>
+        ))}
+      </div>
+    );
+  }
+
   function renderForm() {
     return (
       <div className="grid gap-4 py-4">
@@ -433,9 +476,10 @@ export default function MCPPage() {
       </div>
 
       <AsyncState
-        status={listStatus}
+        status={serversQ.status}
         error={serversQ.error}
         onRetry={serversQ.reload}
+        refreshing={serversQ.refreshing}
         skeleton={
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-hidden="true">
             {[0, 1, 2, 3].map((i) => (
@@ -494,31 +538,7 @@ export default function MCPPage() {
               </p>
               <div role="group" aria-label={`${s.name} 的 Agent 授权`} className="grid gap-2" onClick={(e) => e.stopPropagation()}>
                 <span className="text-muted-foreground text-xs">可见性（按 Agent 授权）</span>
-                {visibilityError ? (
-                  <div role="alert" className="flex flex-wrap items-center gap-2 text-destructive text-xs">
-                    <span>权限加载失败，暂无法查看或修改授权。</span>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-6 px-2 text-xs"
-                      onClick={loadVisibility}
-                    >
-                      重试
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="flex flex-wrap gap-x-4 gap-y-2">
-                    {agents.map((a) => (
-                      <label key={a.key} className="flex items-center gap-2 text-sm">
-                        <Checkbox
-                          checked={(visibility[s.id] ?? []).includes(a.id)}
-                          onCheckedChange={() => toggleVisibility(s.id, a.id, a.name)}
-                        />
-                        {a.name}
-                      </label>
-                    ))}
-                  </div>
-                )}
+                {renderVisibility(s)}
               </div>
             </CardContent>
           </Card>

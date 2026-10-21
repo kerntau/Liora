@@ -111,7 +111,8 @@ test("skills preserve keyboard file editing, inline creation, delete cancellatio
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect.poll(() => files.get("fixture-skill/SKILL.md")).toBe("Fixture updated content");
   await root.hover();
-  await root.getByRole("button", { name: "新建文件", exact: true }).click();
+  // The button's accessible name now carries the target skill ("在 … 下新建文件").
+  await root.getByRole("button", { name: "在 fixture-skill 下新建文件", exact: true }).click();
   const inline = page.getByRole("textbox", { name: "新文件名称", exact: true });
   await expect(inline).toBeFocused();
   await inline.fill("new.py");
@@ -120,13 +121,13 @@ test("skills preserve keyboard file editing, inline creation, delete cancellatio
   await expect(newFile).toBeVisible();
   expect(fileWrites.filter((item) => item.path === "fixture-skill/new.py")).toHaveLength(1);
   await newFile.hover();
-  await newFile.getByRole("button", { name: "删除文件", exact: true }).click();
+  await newFile.getByRole("button", { name: /删除文件/ }).click();
   const deletion = page.getByRole("alertdialog", { name: "删除文件「new.py」？", exact: true });
   await deletion.getByRole("button", { name: "取消", exact: true }).click();
   await expect(deletion).toBeHidden();
   expect(deleted).toHaveLength(0);
   await newFile.hover();
-  await newFile.getByRole("button", { name: "删除文件", exact: true }).click();
+  await newFile.getByRole("button", { name: /删除文件/ }).click();
   await deletion.getByRole("button", { name: "删除", exact: true }).click();
   await expect(newFile).toBeHidden();
   expect(deleted).toEqual(["fixture-skill/new.py"]);

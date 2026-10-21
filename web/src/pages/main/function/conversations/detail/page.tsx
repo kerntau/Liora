@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { usePolling } from "@/hooks/use-polling";
 import { useSideQuestions } from "@/hooks/use-side-questions";
 import { mergeActivities } from "@/lib/activity-merge";
 import { api } from "@/lib/api";
@@ -370,36 +371,23 @@ function ChatView({
     if (conv.running) setRunning(true);
   }, [conv.running]);
 
-  // poll while a turn is running: pull new steps after the cursor.
-  React.useEffect(() => {
-    if (!running) return;
-    let live = true;
-    let timer: ReturnType<typeof setTimeout>;
-    const tick = async () => {
-      let keepPolling = true;
-      try {
-        const r = await api.conversationMessages(conv.id, cursorRef.current);
-        if (!live) return;
-        if (r.items.length) {
-          setMessages((prev) => mergeActivities(prev, r.items));
-        }
-        cursorRef.current = Math.max(cursorRef.current, r.cursor);
-        keepPolling = r.running;
-        setRunning(r.running);
-        if (!r.running) onTitleMaybeChanged(); // first-turn auto-title landed
-      } catch {
-        /* transient — keep polling */
-      } finally {
-        // Slow responses must not overlap another poll with the same cursor.
-        if (live && keepPolling) timer = setTimeout(() => void tick(), 1000);
+  // poll while a turn is running: pull new steps after the cursor. usePolling
+  // serializes ticks (a slow response cannot overlap the next one) and pauses in a
+  // hidden tab; the server's running flag turns it off when the turn ends.
+  const pollRunningTurn = React.useCallback(async () => {
+    try {
+      const r = await api.conversationMessages(conv.id, cursorRef.current);
+      if (r.items.length) {
+        setMessages((prev) => mergeActivities(prev, r.items));
       }
-    };
-    void tick();
-    return () => {
-      live = false;
-      clearTimeout(timer);
-    };
-  }, [running, conv.id, onTitleMaybeChanged]);
+      cursorRef.current = Math.max(cursorRef.current, r.cursor);
+      setRunning(r.running);
+      if (!r.running) onTitleMaybeChanged(); // first-turn auto-title landed
+    } catch {
+      /* transient — the next tick retries */
+    }
+  }, [conv.id, onTitleMaybeChanged]);
+  usePolling(pollRunningTurn, 1000, { enabled: running });
 
   const loadFocusPage = React.useCallback((before: number) => api.conversationHistory(conv.id, before, HISTORY_PAGE), [conv.id]);
   const mergeFocusPage = React.useCallback((page: { items: Activity[]; hasMore: boolean }) => {
@@ -683,15 +671,14 @@ function ConversationDetailInner() {
   }, [id]);
   React.useEffect(() => {
     let alive = true;
-    let timer: ReturnType<typeof setTimeout>;
     setConv(null);
     setLoaded(false);
-    const poll = async () => { await reload(); if (alive) timer = setTimeout(() => void poll(), 2000); };
-    void poll();
     void api.agents().then(items => { if (alive) setAgents(items); }).catch(() => {});
     void api.llmProfiles().then(items => { if (alive) setProfiles(items); }).catch(() => {});
-    return () => { alive = false; requestSeq.current++; clearTimeout(timer); };
+    return () => { alive = false; requestSeq.current++; };
   }, [reload]);
+  // Metadata refresh (running flag / title) every 2s; a hidden tab skips it.
+  usePolling(reload, 2000, { enabled: Number.isSafeInteger(id) && id > 0, resetKey: id });
   // 站内跳转进入（有历史栈）时回退上一页；直接打开链接时兜底回漏洞结果列表。
   function goBack() {
     const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0;

@@ -24,6 +24,11 @@ type Scheduler struct {
 	s    *Server
 	pg   *db.DB
 	tick time.Duration
+	// orphanLogged remembers agent keys already reported as missing so a stale
+	// enabled trigger cannot log on every 5s tick. It is only touched from the
+	// Run loop (step), so no lock is needed; a key is forgotten once its agent
+	// reappears, so a later deletion is reported again.
+	orphanLogged map[string]struct{}
 }
 
 const (
@@ -45,7 +50,7 @@ const (
 const goalFiredOverlap = time.Hour
 
 func newScheduler(s *Server) *Scheduler {
-	return &Scheduler{s: s, pg: s.m.pg, tick: 5 * time.Second}
+	return &Scheduler{s: s, pg: s.m.pg, tick: 5 * time.Second, orphanLogged: map[string]struct{}{}}
 }
 
 // Run loops until ctx is done, ticking the scheduler. Started once from server New.
@@ -148,12 +153,58 @@ func (sc *Scheduler) step() {
 	if len(triggers) == 0 {
 		return
 	}
+	// 一次 tick 只校验一次存在性，覆盖下面全部 fire* 入口：并发删除 agent 的窗口
+	// 里，触发器行可能还在，但按 key 启动一个不存在的 agent 没有意义。行不在这里
+	// 删除——历史孤儿由启动时的 DeleteOrphanTriggers 负责。
+	triggers = sc.existingAgentTriggers(triggers)
+	if len(triggers) == 0 {
+		return
+	}
 	sc.fireIntervals(triggers)
 	sc.fireFindings(triggers)
 	sc.fireGoals(triggers)
 	sc.fireTaskTimeouts(triggers)
 	sc.fireToolCalls(triggers)
 	sc.fireTaskCreates(triggers)
+}
+
+// existingAgentTriggers drops enabled triggers whose agent_key no longer exists
+// in agents, returning the rest. One ListAgents per tick covers every trigger
+// family. A missing key is logged once (not once per tick, and not once per
+// trigger): the cleanup is DeleteOrphanTriggers' job, so the row is left in place.
+// If the agent lookup itself fails, the whole tick is skipped rather than firing
+// against keys we cannot verify.
+func (sc *Scheduler) existingAgentTriggers(triggers []*db.AgentTrigger) []*db.AgentTrigger {
+	agents, err := sc.pg.ListAgents()
+	if err != nil {
+		log.Printf("[scheduler] 校验触发器 agent 存在性失败，本轮跳过: %v", err)
+		return nil
+	}
+	exists := make(map[string]struct{}, len(agents))
+	for _, a := range agents {
+		exists[a.Key] = struct{}{}
+	}
+	kept := make([]*db.AgentTrigger, 0, len(triggers))
+	var newlyMissing []string
+	for _, tr := range triggers {
+		if _, ok := exists[tr.AgentKey]; ok {
+			delete(sc.orphanLogged, tr.AgentKey) // agent 回来了，之后再删时重新报告
+			kept = append(kept, tr)
+			continue
+		}
+		if _, logged := sc.orphanLogged[tr.AgentKey]; logged {
+			continue
+		}
+		if sc.orphanLogged == nil {
+			sc.orphanLogged = map[string]struct{}{}
+		}
+		sc.orphanLogged[tr.AgentKey] = struct{}{}
+		newlyMissing = append(newlyMissing, tr.AgentKey)
+	}
+	if len(newlyMissing) > 0 {
+		log.Printf("[scheduler] 跳过 agent 已不存在的触发器（%s）；触发器行保留，由启动清理删除", strings.Join(newlyMissing, ", "))
+	}
+	return kept
 }
 
 // fireIntervals fires triggers whose interval has elapsed since last_fire.

@@ -29,7 +29,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { type AsyncStatus, useAsyncData } from "@/hooks/use-async-data";
+import { useAsyncData } from "@/hooks/use-async-data";
+import { usePolling } from "@/hooks/use-polling";
 import { api } from "@/lib/api";
 import type { LLMPoolMember, LLMPoolStatus, LLMProfile, LLMRetryOverride } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -111,21 +112,23 @@ function PoolSheet({
   open,
   onOpenChange,
   pool,
+  poolError,
   onReload,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   pool: LLMPoolStatus | null;
+  /** 拉取轮询状态失败：不能把「未知」画成「未开启 / 暂无配置」。 */
+  poolError: Error | null;
   onReload: () => Promise<void>;
 }) {
   const [busy, setBusy] = React.useState(false);
+  const [recovering, setRecovering] = React.useState(false);
 
-  // 冷却倒计时是后端算出的剩余秒数——抽屉开着且有配置不正常时才定时拉，让它走起来。
-  React.useEffect(() => {
-    if (!open || !pool?.enabled || !pool.chain.some((m) => m.state !== "ok")) return;
-    const t = setInterval(() => void onReload(), 10_000);
-    return () => clearInterval(t);
-  }, [open, pool, onReload]);
+  // 冷却倒计时是后端算出的剩余秒数——抽屉开着、轮询启用、且有配置不正常时才定时拉，
+  // 让它走起来。调度交给 usePolling：页面隐藏时暂停、上一轮没结束就跳过，避免慢请求叠加。
+  const hasAbnormal = !!pool?.chain.some((m) => m.state !== "ok");
+  usePolling(onReload, 10_000, { enabled: open && !!pool?.enabled && hasAbnormal });
 
   async function toggle(patch: { llm_pool_enabled?: boolean; llm_pool_bind_fallback?: boolean }) {
     if (busy) return;
@@ -146,12 +149,16 @@ function PoolSheet({
   }
 
   async function recover(id?: string) {
+    if (recovering) return;
+    setRecovering(true);
     try {
       await api.resetLLMPool(id);
       await onReload();
       toast.success(id ? "已恢复该配置" : "已恢复全部配置");
     } catch (e) {
       toast.error(`恢复失败：${(e as Error).message}`);
+    } finally {
+      setRecovering(false);
     }
   }
 
@@ -175,6 +182,24 @@ function PoolSheet({
         </SheetHeader>
 
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pb-6">
+          {poolError && (
+            <div
+              role="alert"
+              className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs"
+            >
+              <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+                轮询状态加载失败：{poolError.message}
+                {!pool && "（下方开关的真实状态未知，先重试再改）"}
+              </span>
+              <button
+                type="button"
+                onClick={() => void onReload()}
+                className="shrink-0 text-foreground underline underline-offset-2"
+              >
+                重试
+              </button>
+            </div>
+          )}
           <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
             <div className="grid gap-0.5">
               <Label className="text-sm">启用轮询</Label>
@@ -182,7 +207,7 @@ function PoolSheet({
             </div>
             <Switch
               checked={enabled}
-              disabled={busy}
+              disabled={busy || !pool}
               onCheckedChange={(v) => void toggle({ llm_pool_enabled: v })}
               aria-label="LLM 轮询开关"
             />
@@ -200,7 +225,7 @@ function PoolSheet({
                 </div>
                 <Switch
                   checked={pool?.bind_fallback ?? false}
-                  disabled={busy}
+                  disabled={busy || !pool}
                   onCheckedChange={(v) => void toggle({ llm_pool_bind_fallback: v })}
                   aria-label="绑定配置失败兜底开关"
                 />
@@ -212,7 +237,7 @@ function PoolSheet({
                 <div className="flex items-center justify-between">
                   <Label className="text-sm">轮询顺序</Label>
                   {tripped.length > 0 && (
-                    <Button size="sm" variant="ghost" onClick={() => void recover()}>
+                    <Button size="sm" variant="ghost" disabled={recovering} onClick={() => void recover()}>
                       <RotateCcwIcon /> 全部恢复
                     </Button>
                   )}
@@ -259,6 +284,7 @@ function PoolSheet({
                               className="size-7"
                               aria-label="立即恢复"
                               title="立即恢复：清除熔断，下次调用重试该配置"
+                              disabled={recovering}
                               onClick={() => void recover(m.profile_id)}
                             >
                               <RotateCcwIcon className="size-3.5" />
@@ -836,11 +862,9 @@ export default function LLMPage() {
   const profilesQ = useAsyncData<LLMProfile[]>(() => api.llmProfiles(), []);
   const reloadProfiles = profilesQ.reload;
   const profiles = profilesQ.data ?? [];
-  // 首载（含 idle 第一帧）出骨架；之后的刷新保留现有卡片，避免列表闪空；失败内联报错。
-  let listStatus: AsyncStatus = "ready";
-  if (profilesQ.error) listStatus = "error";
-  if (profilesQ.initialLoading || profilesQ.status === "idle") listStatus = "loading";
+  // 首载出骨架；之后的刷新保留现有卡片（失败也只加一条窄提示），避免列表闪空。
   const [pool, setPool] = React.useState<LLMPoolStatus | null>(null);
+  const [poolError, setPoolError] = React.useState<Error | null>(null);
   const [poolOpen, setPoolOpen] = React.useState(false);
   const [confirmDelete, setConfirmDelete] = React.useState<LLMProfile | null>(null);
   const [deleting, setDeleting] = React.useState(false);
@@ -856,8 +880,10 @@ export default function LLMPage() {
   const loadPool = React.useCallback(async () => {
     try {
       setPool(await api.llmPool());
-    } catch {
-      /* ignore */
+      setPoolError(null);
+    } catch (e) {
+      // 不能静默吞掉：pool 为空会让抽屉把「加载失败」画成「轮询未开启 / 暂无配置」。
+      setPoolError(e instanceof Error ? e : new Error(String(e)));
     }
   }, []);
 
@@ -939,9 +965,10 @@ export default function LLMPage() {
 
         <TabsContent value="profiles" className="mt-4">
           <AsyncState
-            status={listStatus}
+            status={profilesQ.status}
             error={profilesQ.error}
             onRetry={reloadProfiles}
+            refreshing={profilesQ.refreshing}
             isEmpty={profiles.length === 0}
             empty={
               <div className="rounded-lg border border-dashed p-10 text-center text-muted-foreground text-sm">
@@ -1054,7 +1081,13 @@ export default function LLMPage() {
       </Tabs>
 
       <ProfileSheet profile={editing} open={editOpen} onOpenChange={setEditOpen} onSaved={() => void load()} />
-      <PoolSheet open={poolOpen} onOpenChange={setPoolOpen} pool={pool} onReload={loadPool} />
+      <PoolSheet
+        open={poolOpen}
+        onOpenChange={setPoolOpen}
+        pool={pool}
+        poolError={poolError}
+        onReload={loadPool}
+      />
 
       {/* 删除会连同 Key / 限速 / 重试设置一起丢，先确认再发请求。 */}
       <ConfirmDialog

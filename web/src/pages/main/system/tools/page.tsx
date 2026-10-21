@@ -149,19 +149,22 @@ function ToolEditor({
   tool,
   agents,
   captureOn,
+  agentsFailed,
   onSaved,
   onClose,
   onBusyChange,
 }: {
   tool: Tool;
   agents: Agent[];
-  captureOn: boolean;
+  /** null = 系统设置没拉到，流量门控状态未知，不能据此拦截绑定。 */
+  captureOn: boolean | null;
+  agentsFailed: boolean;
   onSaved: () => void;
   onClose: () => void;
   onBusyChange?: (busy: boolean) => void;
 }) {
   // traffic tools can't be bound/enabled until the global 流量捕获 switch is on.
-  const trafficGated = TRAFFIC_TOOL_KEYS.has(tool.key) && !captureOn;
+  const trafficGated = TRAFFIC_TOOL_KEYS.has(tool.key) && captureOn === false;
   const [description, setDescription] = React.useState(tool.description);
   const [bound, setBound] = React.useState<string[]>(tool.agents);
   const [enabled, setEnabled] = React.useState(tool.enabled);
@@ -237,7 +240,12 @@ function ToolEditor({
                   <span className="text-muted-foreground font-mono text-xs">{ag.key}</span>
                 </label>
               ))}
-              {agents.length === 0 && <span className="text-muted-foreground text-xs">（无 Agent）</span>}
+              {agents.length === 0 &&
+                (agentsFailed ? (
+                  <span className="text-destructive text-xs">Agent 列表加载失败，绑定可能不完整</span>
+                ) : (
+                  <span className="text-muted-foreground text-xs">（无 Agent）</span>
+                ))}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -409,6 +417,10 @@ function ToolGridCard({ tool, onClick }: { tool: Tool; onClick: () => void }) {
 export default function ToolsPage() {
   const [agents, setAgents] = React.useState<Agent[]>([]);
   const [captureOn, setCaptureOn] = React.useState(false);
+  // 旁路数据（Agent 列表 / 系统设置）失败时不能静默：否则「无 Agent」和
+  // 「流量捕获未开启」都会变成看起来正常的假象。
+  const [agentsFailed, setAgentsFailed] = React.useState(false);
+  const [captureFailed, setCaptureFailed] = React.useState(false);
   const [selectedKey, setSelectedKey] = React.useState<string | null>(null);
   const [customEdit, setCustomEdit] = React.useState<Tool | "new" | null>(null);
   const [editorBusy, setEditorBusy] = React.useState(false);
@@ -418,10 +430,15 @@ export default function ToolsPage() {
   const tools = toolsQ.data ?? [];
   const reload = toolsQ.reload;
 
-  React.useEffect(() => {
-    api.agents().then(setAgents).catch(() => {});
-    api.settings().then((s) => setCaptureOn(!!s.traffic_capture)).catch(() => {});
+  const loadSide = React.useCallback(() => {
+    setAgentsFailed(false);
+    setCaptureFailed(false);
+    api.agents().then(setAgents).catch(() => setAgentsFailed(true));
+    api.settings().then((s) => setCaptureOn(!!s.traffic_capture)).catch(() => setCaptureFailed(true));
   }, []);
+  React.useEffect(() => {
+    loadSide();
+  }, [loadSide]);
 
   const [query, setQuery] = React.useState("");
 
@@ -460,6 +477,25 @@ export default function ToolsPage() {
           />
         </div>
       </div>
+
+      {(agentsFailed || captureFailed) && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs"
+        >
+          <span className="min-w-0 flex-1">
+            {agentsFailed && "Agent 列表加载失败，工具绑定显示可能不完整。"}
+            {captureFailed && "系统设置加载失败，流量工具的门控状态未知。"}
+          </span>
+          <button
+            type="button"
+            onClick={loadSide}
+            className="shrink-0 text-foreground underline underline-offset-2"
+          >
+            重试
+          </button>
+        </div>
+      )}
 
       <Tabs defaultValue="system">
         <TabsList>
@@ -559,7 +595,8 @@ export default function ToolsPage() {
                 key={selected.key}
                 tool={selected}
                 agents={agents}
-                captureOn={captureOn}
+                captureOn={captureFailed ? null : captureOn}
+                agentsFailed={agentsFailed}
                 onSaved={reload}
                 onClose={() => setSelectedKey(null)}
                 onBusyChange={setEditorBusy}
@@ -572,6 +609,7 @@ export default function ToolsPage() {
       <CustomToolDialog
         edit={customEdit}
         agents={agents}
+        agentsFailed={agentsFailed}
         onClose={() => setCustomEdit(null)}
         onSaved={() => {
           setCustomEdit(null);
@@ -599,11 +637,13 @@ type ExecState = {
 function CustomToolDialog({
   edit,
   agents,
+  agentsFailed,
   onClose,
   onSaved,
 }: {
   edit: Tool | "new" | null;
   agents: Agent[];
+  agentsFailed: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -848,6 +888,7 @@ function CustomToolDialog({
           <div className="grid gap-1.5">
             <Label className="text-muted-foreground text-xs">绑定 Agent</Label>
             <div className="flex flex-wrap gap-3">
+              {agentsFailed && <span className="text-destructive text-xs">Agent 列表加载失败，绑定可能不完整</span>}
               {agents.map((a) => (
                 <label key={a.key} className="flex items-center gap-2 text-sm">
                   <Checkbox checked={bound.includes(a.key)} onCheckedChange={() => toggleAgent(a.key)} />
