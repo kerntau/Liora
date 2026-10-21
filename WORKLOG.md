@@ -76,3 +76,10 @@
 [T12.6][15:06] stats SQL 聚合｜KindStateCounts + 500 语义 + 2 个测试｜go test db/server 全绿｜merge 224a83a
 [T12.7][15:08] 可访问性｜资产勾选/分页、漏洞详情下拉、会话附件与当前项｜typecheck/build/test 0｜merge dcd8606
 [T12.8][15:20] e2e 复验｜embedded 36/36 通过；rsbuild 受主机内存阻塞（rspack panic os error 1455），分块仅 mui-system/editors/controls 10/10 通过｜命令输出｜环境限制，已记录
+
+[T13][15:29] 第七轮启动：安全与查询效率｜4 个实施会话｜峰值 4
+[T13.1][15:31] 登录限流｜5 分钟/5 次，429 + Retry-After，成功清零｜4 个测试 + race 通过｜merge f8923de
+[T13.2][15:33] 状态计数覆盖索引｜idx_expnodes_kind_state，EXPLAIN 命中 COVERING INDEX｜go test ./db 全绿｜merge faa8b01
+[T13.3][15:36] server.go 拆分｜3685 → 3169 行，findings/stream 纯移动｜go test ./server 全绿｜merge 247254d
+[T13.4][15:45] 系统页可访问性｜日志级别、MCP 传输、技能调用、工具绑定｜typecheck 0｜merge f3487a9
+[T13.5][15:48] 前端构建受阻｜rspack panic os error 1455（主机提交内存耗尽），重试/关缓存/限堆均无效｜记录为环境限制｜待重启后复跑 build 与 e2e

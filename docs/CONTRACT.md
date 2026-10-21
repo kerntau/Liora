@@ -325,3 +325,31 @@ GET /api/report?task=<task_id>
 
 - GROUP BY state 仍扫描该 kind 的匹配行（现有 (exploration_id, kind) 索引可用）。
 - /api/stats 在数据库异常时由「0」变为 500，前端会显示对应面板失败。
+
+---
+
+## 12. 2026-10-21 第七轮（安全与查询效率）【已实现】
+
+### 12.1 登录失败限流
+
+- 按客户端 IP（RemoteAddr 的 host）统计失败：窗口 5 分钟、上限 5 次；达到上限后返回 429 {"error":"登录尝试过于频繁，请稍后再试"} 并带 Retry-After（剩余秒数）。
+- 用户名错误、密码错误、密码未初始化都计一次失败；成功登录清零；过期记录惰性清理。
+- 状态仅在进程内：重启清零、多实例不共享；反向代理部署时按代理 IP 计数（不解析 X-Forwarded-For）。
+
+### 12.2 状态计数覆盖索引
+
+- 新增 idx_expnodes_kind_state ON exploration_nodes(exploration_id, kind, state)；schema.sql 与每次 Open 的幂等补建路径同时提供。
+- KindStateCounts 的执行计划为 SEARCH ... USING COVERING INDEX idx_expnodes_kind_state（EXPLAIN 断言测试）。
+- 旧索引 idx_expnodes_part(exploration_id, kind) 保留，前缀可复用。
+
+### 12.3 server 文件拆分（内部）
+
+- server/server.go 3685 → 3169 行；findings handler 移到 server/findings_http.go，日志/活动 SSE 移到 server/stream_http.go。
+- 纯移动，无路由/文案/行为变化。
+
+### 12.4 系统页可访问性（内部）
+
+- 日志：级别筛选按钮组名称 + aria-pressed，每条日志补 sr-only 级别文本。
+- MCP：传输方式按钮组关联 Label。
+- 技能：调用次数通过 aria-describedby 暴露；MCP 关联与可见性分组关联 Label。
+- 工具：绑定 Agent 分组关联 Label（内置工具与自定义工具两处）。

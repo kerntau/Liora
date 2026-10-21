@@ -21,6 +21,17 @@ ON exploration_nodes(updated_at) WHERE kind='goal' AND state='met'`
 const activityKindCreatedIndexSQL = `CREATE INDEX IF NOT EXISTS idx_act_kind_created
 ON activity(kind, created_at)`
 
+// expNodesKindStateIndexSQL serves KindStateCounts (db/exploration.go), which groups
+// the states of one (exploration_id, kind) slice. idx_expnodes_part stops at the row
+// lookup, leaving state to be read from the table for every match; this index carries
+// state as a trailing key column, so the aggregation is answered from the index alone
+// and in state order. schema.sql is only replayed for a brand-new database, so it is
+// also re-ensured here on every open (CREATE INDEX IF NOT EXISTS is additive).
+//
+// Rollback: DROP INDEX IF EXISTS idx_expnodes_kind_state.
+const expNodesKindStateIndexSQL = `CREATE INDEX IF NOT EXISTS idx_expnodes_kind_state
+ON exploration_nodes(exploration_id, kind, state)`
+
 // llmUsageTSIndexSQL serves UsageDaily (db/llm_usage.go), which filters the whole
 // ledger by ts. llm_usage is created lazily by EnsureLLMUsageTable and is therefore
 // absent from schema.sql; the index is declared in that table's DDL too. EnsureQueryIndexes
@@ -42,6 +53,9 @@ func (d *DB) EnsureSchedulerIndexes() error {
 // slows the aggregation queries down rather than changing their results.
 func (d *DB) EnsureQueryIndexes() error {
 	if _, err := d.Exec(activityKindCreatedIndexSQL); err != nil {
+		return err
+	}
+	if _, err := d.Exec(expNodesKindStateIndexSQL); err != nil {
 		return err
 	}
 	// llm_usage may not exist yet: EnsureLLMUsageTable creates it (with its indexes)

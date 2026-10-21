@@ -18,6 +18,12 @@ const levelDot: Record<LogLine["level"], string> = {
   warn: "bg-amber-500",
   error: "bg-red-500",
 };
+// 级别不只靠颜色区分：给读屏用户提供同义文本。
+const levelLabel: Record<LogLine["level"], string> = {
+  info: "信息",
+  warn: "警告",
+  error: "错误",
+};
 
 export default function LogsPage() {
   const [lines, setLines] = React.useState<LogLine[]>([]);
@@ -161,13 +167,14 @@ export default function LogsPage() {
             onChange={(e) => setQ(e.target.value)}
             className="h-8 max-w-xs"
           />
-          <div className="flex gap-1">
+          <div role="group" aria-label="日志级别筛选" className="flex gap-1">
             {(["all", "info", "warn", "error"] as const).map((lv) => (
               <Button
                 key={lv}
                 size="sm"
                 variant={level === lv ? "default" : "outline"}
                 className="h-8"
+                aria-pressed={level === lv}
                 onClick={() => setLevel(lv)}
               >
                 {lv === "all" ? "全部" : lv}
@@ -228,6 +235,7 @@ export default function LogsPage() {
               return (
                 <div key={l.seq} className="flex items-start gap-2 px-1 py-0.5 hover:bg-muted/40">
                   <span className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", levelDot[l.level])} />
+                  <span className="sr-only">{levelLabel[l.level]}</span>
                   <span className="shrink-0 tabular-nums text-muted-foreground">{fmtTime(l.ts, "datetime")}</span>
                   {l.tag && (
                     <span className="shrink-0 rounded bg-muted px-1 text-[10px] text-foreground/70">{l.tag}</span>

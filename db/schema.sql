@@ -789,6 +789,12 @@ CREATE INDEX IF NOT EXISTS idx_sv2_company ON company_scope(company_id);
 
 CREATE INDEX IF NOT EXISTS idx_expnodes_part     ON exploration_nodes(exploration_id, kind);
 
+-- KindStateCounts (db/exploration.go) reads the states of one (exploration_id, kind)
+-- slice and groups them by state. idx_expnodes_part can only locate those rows; state
+-- is not in it, so every matching row still has to be fetched from the table. Adding
+-- state to the key makes the GROUP BY an index-only scan over an already sorted range.
+CREATE INDEX IF NOT EXISTS idx_expnodes_kind_state ON exploration_nodes(exploration_id, kind, state);
+
 CREATE INDEX IF NOT EXISTS idx_expnodes_frontier ON exploration_nodes(exploration_id, priority DESC)
     WHERE kind='intent' AND state='open';
 

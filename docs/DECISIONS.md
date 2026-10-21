@@ -747,3 +747,62 @@ P0—P3 已完成并记录，立即进入 P4；不等待用户回复。施工采
 - stats 语义变化（错误由 0 变 500）已写入 CONTRACT 11.1；回滚对应 merge。
 - asset-cells 的 Chips dense 参数保留两页原有字号；未做浏览器视觉回归，e2e 覆盖资产页交互。
 - 请求 ID 只改 http()；fetchBlobText 等直连请求不带 id。
+
+---
+
+## 2026-10-21 15:29 第七轮：安全与查询效率（多会话并行）
+
+- 时间戳：2026-10-21 15:29 +08:00（Asia/Shanghai）
+- 基线：main @ febdd16；第六轮 Go 测试全绿、typecheck/npm test 通过、embedded e2e 36/36。
+- 用户指令：持续优化。
+
+### 目标冻结（G21—G24）
+
+1. **G21 认证安全**：登录失败按 IP 限流，返回 429 与 Retry-After。
+2. **G22 查询效率**：状态计数使用覆盖索引，EXPLAIN 断言固定。
+3. **G23 可维护性**：server.go 拆分 findings/stream handler（纯移动）。
+4. **G24 可访问性**：设置/日志/MCP/技能/工具页剩余可访问名缺口。
+
+### 多会话分工（4 个实施会话，峰值 4）
+
+| 会话 | 分支 | 内容 |
+| --- | --- | --- |
+| login-throttle | feat/login-throttle | 内存限流 + 4 个测试 |
+| stats-index | perf/stats-index | 覆盖索引 + EXPLAIN + benchmark |
+| server-split | refactor/server-split | findings/stream handler 纯移动 |
+| a11y-remaining | a11y/system-remaining | 4 个系统页可访问名 |
+
+执行偏差：a11y 会话在验证阶段被主机内存阻塞，改动已就绪但未提交；主会话执行 typecheck 后代为提交并合并。
+
+### 裁决
+
+| 项 | 裁决 | 理由 |
+| --- | --- | --- |
+| 登录限流窗口/阈值 | 5 分钟 / 5 次 | 常规阈值，单管理员场景足够 |
+| 解析 X-Forwarded-For | 不做 | 信任边界未定义，贸然解析可被伪造 |
+| 删除旧索引 idx_expnodes_part | 不做 | 其它查询仍可复用前缀 |
+| server.go 继续拆到 <3000 | 本轮不做 | 需动 activity/traffic 等未授权 handler |
+
+### 交付分支与合并
+
+| 分支 | 合并 |
+| --- | --- |
+| feat/login-throttle | f8923de |
+| perf/stats-index | faa8b01 |
+| refactor/server-split | 247254d |
+| a11y/system-remaining | f3487a9 |
+
+### 验证
+
+- go build ./...、go vet ./...、go test -p 1 ./... -count=1：15 包全绿（含新增限流、索引计划、拆分后 handler 测试）。
+- go test -race ./server -run TestLoginThrottle：通过（由实施会话执行）。
+- npm run typecheck：exit 0；npm test：33/33。
+- npm run build：**受主机提交内存耗尽阻塞**（rspack panic: unable to allocate fiber, 页面文件太小 os error 1455，多次重试与关闭 buildCache、限制 Node 堆均无效）。同一命令在本轮合并 a11y 之前曾成功；a11y 改动仅为 aria 属性且 typecheck 通过。
+- e2e：本轮未执行（依赖 build:embed，同上被阻塞）。
+
+### 风险与回滚
+
+- 登录限流：NAT 后共用额度可能造成 5 分钟拒绝；反向代理需在代理侧限流。回滚为 revert f8923de。
+- 覆盖索引：10 万节点约 +2.5MB、写入 +12.8%，读取约 4.5×；回滚为 DROP INDEX。
+- server 拆分：纯移动，回滚为 revert 247254d。
+- 主机内存限制需重启后复跑 build 与 e2e。

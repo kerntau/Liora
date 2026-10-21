@@ -321,8 +321,8 @@ export default function MCPPage() {
     return (
       <div className="grid gap-4 py-4">
         <div className="grid gap-2">
-          <Label>传输方式</Label>
-          <div className="flex gap-2">
+          <Label id="mcp-transport-label">传输方式</Label>
+          <div role="group" aria-labelledby="mcp-transport-label" className="flex gap-2">
             <Button
               type="button"
               variant={form.transport === "stdio" ? "default" : "outline"}

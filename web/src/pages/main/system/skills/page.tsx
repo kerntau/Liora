@@ -908,6 +908,7 @@ export default function SkillsPage() {
                     <div
                       role="treeitem"
                       aria-label={s.name}
+                      aria-describedby={s.calls > 0 ? `skill-calls-${s.name}` : undefined}
                       aria-expanded={isOpen}
                       aria-selected={isSkillSelected}
                       aria-level={1}
@@ -941,6 +942,12 @@ export default function SkillsPage() {
                           title={`被调用 ${s.calls} 次 · 最近 ${fmtLastUsed(s.last_used)}`}
                         >
                           {s.calls}
+                        </span>
+                      )}
+                      {s.calls > 0 && (
+                        <span id={`skill-calls-${s.name}`} className="sr-only">
+                          被调用 {s.calls} 次
+                          {s.last_used ? `，最近 ${fmtLastUsed(s.last_used)}` : ""}
                         </span>
                       )}
                       <span className={cn(
@@ -1058,14 +1065,18 @@ export default function SkillsPage() {
                 {/* ── 左侧：关联 MCP + 可见性 ── */}
                 <div className="space-y-5 lg:min-w-0 lg:flex-1">
                   <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground">
+                    <Label id="skill-mcp-label" className="text-xs text-muted-foreground">
                       关联 MCP
                       <span className="ml-1 font-normal">（加载 Skill 时才披露/解锁其工具）</span>
                     </Label>
                     {mcpOptions.length === 0 ? (
                       <p className="text-xs text-muted-foreground">暂无 MCP，可在「MCP」页添加。</p>
                     ) : (
-                      <div className="flex flex-wrap gap-x-4 gap-y-2">
+                      <div
+                        role="group"
+                        aria-labelledby="skill-mcp-label"
+                        className="flex flex-wrap gap-x-4 gap-y-2"
+                      >
                         {mcpOptions.map((m) => (
                           <label key={m.id} className="flex cursor-pointer items-center gap-2 text-sm">
                             <Checkbox
@@ -1080,8 +1091,10 @@ export default function SkillsPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground">可见性（按 Agent 授权）</Label>
-                    <div className="space-y-2">
+                    <Label id="skill-visibility-label" className="text-xs text-muted-foreground">
+                      可见性（按 Agent 授权）
+                    </Label>
+                    <div role="group" aria-labelledby="skill-visibility-label" className="space-y-2">
                       {visibilityError ? (
                         <div role="alert" className="flex flex-wrap items-center gap-2 text-destructive text-xs">
                           <span>权限加载失败，暂无法查看或修改授权。</span>

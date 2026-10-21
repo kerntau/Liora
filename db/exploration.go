@@ -1169,10 +1169,15 @@ WHERE id=$2 AND exploration_id=$3 AND kind='intent' AND state='open'`, owner, id
 	return n == 1, nil
 }
 
+// kindStateCountsSQL is the KindStateCounts statement. It lives in one place so the
+// plan test (db/index_plan_test.go) can EXPLAIN exactly what production runs; the
+// covering index idx_expnodes_kind_state is what keeps the GROUP BY off the table.
+const kindStateCountsSQL = `SELECT state, count(*) FROM exploration_nodes
+WHERE exploration_id=$1 AND kind=$2 GROUP BY state`
+
 // KindStateCounts returns node counts for one kind grouped by state.
 func (s *ExplorationStore) KindStateCounts(kind string) (map[string]int, error) {
-	rows, err := s.db.Query(`SELECT state, count(*) FROM exploration_nodes
-WHERE exploration_id=$1 AND kind=$2 GROUP BY state`, s.expID, kind)
+	rows, err := s.db.Query(kindStateCountsSQL, s.expID, kind)
 	if err != nil {
 		return nil, err
 	}

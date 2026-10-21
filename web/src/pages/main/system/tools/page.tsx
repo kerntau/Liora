@@ -227,8 +227,10 @@ function ToolEditor({
         {/* binding + switch */}
         <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
           <div className="grid gap-1.5">
-            <Label className="text-muted-foreground text-xs">绑定 Agent（决定该工具给哪些 Agent）</Label>
-            <div className="flex flex-wrap gap-3">
+            <Label id="tool-bind-agents-label" className="text-muted-foreground text-xs">
+              绑定 Agent（决定该工具给哪些 Agent）
+            </Label>
+            <div role="group" aria-labelledby="tool-bind-agents-label" className="flex flex-wrap gap-3">
               {agents.map((ag) => (
                 <label key={ag.key} className="flex items-center gap-2 text-sm">
                   <Checkbox
@@ -886,8 +888,10 @@ function CustomToolDialog({
           )}
 
           <div className="grid gap-1.5">
-            <Label className="text-muted-foreground text-xs">绑定 Agent</Label>
-            <div className="flex flex-wrap gap-3">
+            <Label id="custom-tool-bind-agents-label" className="text-muted-foreground text-xs">
+              绑定 Agent
+            </Label>
+            <div role="group" aria-labelledby="custom-tool-bind-agents-label" className="flex flex-wrap gap-3">
               {agentsFailed && <span className="text-destructive text-xs">Agent 列表加载失败，绑定可能不完整</span>}
               {agents.map((a) => (
                 <label key={a.key} className="flex items-center gap-2 text-sm">
@@ -920,16 +924,21 @@ function CustomToolDialog({
                   <PlayIcon /> {testing ? "运行中…" : "测试运行"}
                 </Button>
               </div>
-              {testResult && (
-                <pre
-                  className={
-                    "max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 font-mono text-xs " +
-                    (testResult.is_error ? "text-destructive" : "")
-                  }
-                >
-                  {testResult.output || "（无输出）"}
-                </pre>
-              )}
+              <pre
+                role="status"
+                className={
+                  "max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 font-mono text-xs " +
+                  (testResult?.is_error ? "text-destructive " : "") +
+                  (testResult ? "" : "sr-only")
+                }
+              >
+                {testResult ? (
+                  <>
+                    <span className="sr-only">{testResult.is_error ? "测试失败：" : "测试输出："}</span>
+                    <span>{testResult.output || "（无输出）"}</span>
+                  </>
+                ) : null}
+              </pre>
             </div>
           )}
         </div>
