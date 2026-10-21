@@ -191,6 +191,9 @@ func (s *Server) findingRetestTools() []actool.CoreTool {
 
 // Seed the editable agent atomically, without an automatic discovery trigger.
 // Once seeded, user edits/deletion survive restarts; a pre-existing key is kept.
+// The seed transaction itself lives in db.EnsureFindingRetesterAgent; this keeps
+// the tool rows (whose descriptions/schemas are code-defined here) and delegates
+// the agent/prompt/settings transaction to the db layer.
 func (s *Server) seedFindingRetester() error {
 	for _, t := range s.findingRetestTools() {
 		schema, _ := json.Marshal(t.InputSchema())
@@ -199,43 +202,7 @@ func (s *Server) seedFindingRetester() error {
 			return err
 		}
 	}
-	const flag = "finding_retester_seed_v1"
-	tx, err := s.m.pg.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	// SQLite transactions acquire the writer reservation at BEGIN IMMEDIATE,
-	// so this migration is serialized across server initializations.
-	var done string
-	err = tx.QueryRow(`SELECT value FROM settings WHERE key=$1`, flag).Scan(&done)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-	if done == "true" {
-		return nil
-	}
-	var id int64
-	err = tx.QueryRow(`INSERT INTO agents(key,name,description,role,builtin,enabled)
-	VALUES ($1,'漏洞复测','从漏洞详情手动启动，读取原证据并保存独立复测结论。','assistant',false,true)
-	ON CONFLICT (key) DO NOTHING RETURNING id`, db.FindingRetestAgentKey).Scan(&id)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-	if id > 0 {
-		var pid int64
-		if err = tx.QueryRow(`INSERT INTO agent_prompts(agent_id,version,template_text,note,updated_by)
-		VALUES ($1,1,$2,'内置默认','system') RETURNING id`, id, agent.RetesterDefaultPrompt).Scan(&pid); err != nil {
-			return err
-		}
-		if _, err = tx.Exec(`UPDATE agents SET current_prompt_id=$1 WHERE id=$2`, pid, id); err != nil {
-			return err
-		}
-	}
-	if _, err = tx.Exec(`INSERT INTO settings(key,value) VALUES ($1,'true') ON CONFLICT(key) DO UPDATE SET value='true'`, flag); err != nil {
-		return err
-	}
-	return tx.Commit()
+	return s.m.pg.EnsureFindingRetesterAgent(agent.RetesterDefaultPrompt)
 }
 
 func (s *Server) finishRetest(id int64, status, reason string) {

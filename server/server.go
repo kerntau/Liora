@@ -2435,8 +2435,7 @@ func (s *Server) explorationGraph(w http.ResponseWriter, r *http.Request) {
 // they point at, so each row can state where it came from and what it produced.
 func (s *Server) explorationNodes(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	page := atoiDefault(q.Get("page"), 1)
-	size := atoiDefault(q.Get("size"), 20)
+	page, size := pageParams(q, 1, 20, 200) // NodesPage clamps to the same bounds
 	t := s.m.ResolveTask(q.Get("task"))
 	if t == nil {
 		writeJSON(w, 200, map[string]any{
@@ -2823,24 +2822,19 @@ func (s *Server) getLogsHistory(w http.ResponseWriter, r *http.Request) {
 // streamLogs is the live SSE tail of the backend log: replays history after
 // ?since=<seq>, then pushes each new line.
 func (s *Server) streamLogs(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
+	sse, ok := newSSE(w)
 	if !ok {
 		writeErr(w, 500, "streaming unsupported")
 		return
 	}
 	since := logStreamCursor(r)
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
 
 	ch, unsub := logSink.subscribe()
 	defer unsub()
 	send := func(l LogLine) {
 		// The id: line is what makes EventSource's automatic reconnect resume from
 		// the last delivered line (Last-Event-ID) instead of replaying ?since=0.
-		writeLogFrame(w, l)
-		flusher.Flush()
+		_ = sse.Send(l.Seq, "", l)
 	}
 	lines, cursor := logSink.recent(since, 1000)
 	for _, l := range lines {
@@ -2849,7 +2843,7 @@ func (s *Server) streamLogs(w http.ResponseWriter, r *http.Request) {
 	if cursor > since {
 		since = cursor
 	}
-	flusher.Flush()
+	sse.flusher.Flush()
 
 	ctx := r.Context()
 	ping := time.NewTicker(20 * time.Second)
@@ -2868,8 +2862,7 @@ func (s *Server) streamLogs(w http.ResponseWriter, r *http.Request) {
 			since = l.Seq
 			send(l)
 		case <-ping.C:
-			fmt.Fprint(w, ": ping\n\n")
-			flusher.Flush()
+			_ = sse.Ping("ping")
 		}
 	}
 }
@@ -2890,19 +2883,13 @@ func logStreamCursor(r *http.Request) int64 {
 	return since
 }
 
-// writeLogFrame renders one SSE frame. Split out so the id/data shape is testable.
-func writeLogFrame(w io.Writer, l LogLine) {
-	b, _ := json.Marshal(l)
-	fmt.Fprintf(w, "id: %d\ndata: %s\n\n", l.Seq, b)
-}
-
 func (s *Server) streamActivity(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.URL.Query().Get("task"))
 	if t == nil {
 		writeErr(w, 404, "task not found")
 		return
 	}
-	flusher, ok := w.(http.Flusher)
+	sse, ok := newSSE(w)
 	if !ok {
 		writeErr(w, 500, "streaming unsupported")
 		return
@@ -2924,11 +2911,6 @@ func (s *Server) streamActivity(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no") // disable proxy buffering
-
 	// Subscribe BEFORE replaying history so events in between aren't lost; dedup the
 	// overlap by skipping channel events whose id was already replayed.
 	ch, unsub := s.engine.Broadcaster().Subscribe(t.ID)
@@ -2937,9 +2919,7 @@ func (s *Server) streamActivity(w http.ResponseWriter, r *http.Request) {
 	// Emit a standard SSE id: line so the browser echoes it as Last-Event-ID on
 	// auto-reconnect (see cursor precedence above).
 	sendSSE := func(a db.Activity) {
-		b, _ := json.Marshal(activityDTO(a))
-		fmt.Fprintf(w, "id: %d\ndata: %s\n\n", a.ID, b)
-		flusher.Flush()
+		_ = sse.Send(a.ID, "", activityDTO(a))
 	}
 
 	// Compensate the DB backlog after `since` in batches until caught up. This is the
@@ -2966,7 +2946,7 @@ func (s *Server) streamActivity(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	flusher.Flush()
+	sse.flusher.Flush()
 
 	ctx := r.Context()
 	ping := time.NewTicker(20 * time.Second)
@@ -2988,8 +2968,7 @@ func (s *Server) streamActivity(w http.ResponseWriter, r *http.Request) {
 			since = a.ID
 			sendSSE(a)
 		case <-ping.C:
-			fmt.Fprint(w, ": ping\n\n")
-			flusher.Flush()
+			_ = sse.Ping("ping")
 		}
 	}
 }

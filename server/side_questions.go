@@ -531,7 +531,7 @@ func (s *Server) cancelSideRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) sideEvents(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
+	sse, ok := newSSE(w)
 	if !ok {
 		writeErr(w, 500, "streaming unavailable")
 		return
@@ -546,9 +546,6 @@ func (s *Server) sideEvents(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "side question not found")
 		return
 	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("X-Accel-Buffering", "no")
 	seq := int64(-1)
 	tick := time.NewTicker(250 * time.Millisecond)
 	defer tick.Stop()
@@ -564,14 +561,11 @@ func (s *Server) sideEvents(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if e == nil {
-			fmt.Fprint(w, "event: cleared\ndata: {}\n\n")
-			flusher.Flush()
+			_ = sse.Send(-1, "cleared", struct{}{})
 			return
 		}
 		if e.Sequence > seq {
-			b, _ := json.Marshal(e)
-			fmt.Fprintf(w, "id: %d\nevent: snapshot\ndata: %s\n\n", e.Sequence, b)
-			flusher.Flush()
+			_ = sse.Send(e.Sequence, "snapshot", e)
 			seq = e.Sequence
 		}
 		if !e.Running() {
@@ -584,8 +578,7 @@ func (s *Server) sideEvents(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-tick.C:
 		case <-heartbeat.C:
-			fmt.Fprint(w, ": keepalive\n\n")
-			flusher.Flush()
+			_ = sse.Ping("keepalive")
 		}
 	}
 }

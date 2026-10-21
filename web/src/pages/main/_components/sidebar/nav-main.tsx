@@ -186,15 +186,49 @@ function InterceptPendingBadge() {
   const [count, setCount] = React.useState(0);
   React.useEffect(() => {
     let live = true;
+    let loading = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
     async function poll() {
+      // The badge is best-effort: a failure keeps the previous count and the next
+      // tick retries. The guard stops a slow request from stacking up.
+      if (loading) return;
+      loading = true;
       try {
         const list = await api.interceptPending();
         if (live) setCount(list.length);
-      } catch { /* ignore */ }
+      } catch {
+        /* keep the last known count */
+      } finally {
+        loading = false;
+      }
     }
-    poll();
-    const t = setInterval(poll, 5000);
-    return () => { live = false; clearInterval(t); };
+    const start = () => {
+      if (timer === null) timer = setInterval(poll, 5000);
+    };
+    const stop = () => {
+      if (timer !== null) {
+        clearInterval(timer);
+        timer = null;
+      }
+    };
+    // Hidden tabs must not keep asking for approvals every 5 s; on return, refresh
+    // immediately so the badge is never stale.
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        stop();
+        return;
+      }
+      void poll();
+      start();
+    };
+    void poll();
+    if (!document.hidden) start();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      live = false;
+      stop();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, []);
   if (count === 0) return null;
   return (

@@ -491,3 +491,136 @@ P0—P3 已完成并记录，立即进入 P4；不等待用户回复。施工采
 
 ---
 
+
+---
+
+## 2026-10-21 11:35 第三轮：整体功能逻辑与页面精细化（多会话并行）
+
+- 时间戳：2026-10-21 11:35 +08:00（Asia/Shanghai）
+- 用户指令：整体项目功能逻辑优化、底层功能设计、页面精细化休整；多开会话智能体全面完成；自行设定目标；以原子提交合入 main；不询问。
+- 基线：main @ 26209ad；go build/test、npm run typecheck、npm test、npm run build 全绿；biome 基线 167 errors（CI 未启用，不作为门禁）。
+- 工作区：10 个既有未跟踪根文件（_asar*.cjs、_ext*.cjs、_install.log*、_plugin-cli.js、_pm/、_t.tar.gz、tsc-out.txt），本轮不读取、不修改、不删除、不纳入提交。
+
+### 目标冻结（G4—G7）
+
+1. **G4 读取边界与故障可见性**：任何读取失败不得渲染成「没有数据」；客户端可控的 limit/size/游标必须有上限与校验。
+2. **G5 数据一致性**：跨表写入必须同事务；不可回滚的文件删除不得放在数据库事务内。
+3. **G6 前端四态与请求时序**：加载/失败/空/有数据四态分离；旧响应不得覆盖新响应；后台标签页停止轮询；重复提交必须被拦截。
+4. **G7 底层共享与可观测性**：HTTP 边界（CORS、体积、panic、请求 id、5xx 日志）集中；任务生命周期 SQL 归位 db；LLM base URL 归一化唯一实现；handler 前奏去重。
+
+三条取舍原则沿用上一轮，并新增第 4 条：
+4. **宁可让用户看到「加载失败 + 重试」，也不能让故障显示成空列表。** 空态只属于「读取成功且确实没有数据」。
+
+### 只读取证（3 个会话，结论均带 file:line）
+
+- 前端：7 个页面把请求失败渲染成空态（tasks/page.tsx:513-532、tasks/detail/page.tsx:252-279、findings-tab.tsx:141-167、agents/page.tsx:225-230、intercept/page.tsx:419-430、assets/page.tsx:140-146、归档面板 1794-1806）；同一 /intercept/task 被两个组件每 5s 各轮询一次；skills/mcp 详情无请求序号；日志 SSE 无连接态；exploration-graph.tsx:160 使用真实 NUL 字节导致文件被判定为二进制。
+- 后端：GET /api/intercept/task/{id} 默认分支无 LIMIT；conversations 的 since 解析失败静默归零；覆盖率 scope_rows 查询错误被丢弃；发现字段跨表双写无事务；归档恢复 rowExists 吞错；裁判配置 6 次独立写；证据 GC 在写事务内删文件；token 聚合缺时间索引；触发器 watermark 失败仍触发；资产来源写入失败被吞；500 响应无服务端日志（209 处仅 5 处有日志）。
+- 架构：tasks 生命周期 SQL 在 server 与 db 两处；LLM base URL 归一化两份；26 处 task 查找、9 处 JSON 解码前奏、5 处路径 id 解析重复。
+
+### 裁决（做/不做）
+
+| 项 | 裁决 | 理由 |
+| --- | --- | --- |
+| 上述 P0/P1 缺陷 | 全部修复 | 直接违反 G4—G7 |
+| 500 原因日志与请求 id | 做 | 故障无法关联是本轮审计最大可观测性缺口 |
+| query token 限制到 SSE | 做 | URL 泄漏面收敛，前端只在这三类端点使用 |
+| 日志 SSE 补 id 行 | 做 | 断线重连会从 since=0 重放，属真实缺陷 |
+| 全仓 biome 重排 | 不做 | 基线 167 errors，CI 未启用；批量重排会淹没行为差异 |
+| tasks/page.tsx 等大文件拆分 | 本轮不做 | 纯移动仍需逐块回归，留待专门一轮 |
+| 前端时间/token 格式化统一 | 部分做 | 只统一逐字节相同的实现位置，显示差异保留并记录 |
+| findings?task=unknown 改 404 | 不做 | 需要前端任务详情同步改，单独立项，已在 CONTRACT 8.7 记录 |
+| 登录限流 | 不做 | 单管理员、默认 127.0.0.1，避免误锁；如需公网部署再立项 |
+| agent_triggers 外键级联 | 不做 | 需要迁移已有库，收益低于本轮风险预算；已在 CONTRACT 待验证 |
+
+### 执行方式与协调
+
+- 3 个只读审计会话先产出证据；随后 7 个实施会话各占一个独立 git worktree 与分支（backend、backend2、backend3、frontend、frontend2、frontend3、frontend4），文件所有权互不重叠。
+- 主会话负责：设定目标、裁决、在 main 上做跨切面小修、按主题合并、复验。
+- 每个实施会话内部按主题拆原子提交；主会话对每个分支使用 --no-ff 合并，冲突只在 server/server.go（utils 迁移 vs 新增中间件）出现一次，已手工合并并复验。
+- 并发上限 10 个会话，本轮峰值 5 个；审计会话在收到收敛指令后交付。
+
+### 交付分支与合并
+
+| 分支 | 内容 | 合并 |
+| --- | --- | --- |
+| feat/backend-hardening | HTTP 边界、读取边界、水位、资产来源 | 378fce0 |
+| feat/ui-refine | 异步状态语义收敛（deriveAsyncView） | d527615 |
+| refactor/shared-logic | 任务生命周期 SQL 归位、URL 归一化、httputil | b26cdb5 |
+| fix/backend-data | 发现双写事务、恢复检查、裁判配置、索引 | 46fa428 |
+| feat/ui-dashboard | 仪表盘部分失败、刷新计数、轮询可见性 | 0ebc3b6 |
+| fix/ui-sequencing | 请求序号、可见性批量、日志连接态、a11y、NUL | a4690fd |
+| fix/ui-error-states | 7 个页面四态、重复轮询上提、防重复提交 | 604192c |
+| refactor/handler-preamble | taskOr404/decodeBody/pathInt 去重 | 80dfdc5 |
+| main 直提 | 请求 id/失败日志、5xx 原因、query token 限制、日志 SSE id、发现读取 500、证据 GC 顺序 | 见 git log |
+
+### 风险与回滚
+
+- 回滚单位是 merge commit 或单个主题提交；不涉及数据迁移，回滚不需要改库。
+- 行为变更点：无分页的 intercept 任务列表改为 100 条上限并带 truncated；query token 仅 SSE 可用；5xx 返回 500 而非 200 空数组；日志 SSE 帧新增 id 行。均已写入 CONTRACT 第 8 节。
+- 已知未覆盖：浏览器手测未执行（e2e 覆盖了主要页面）；biome 基线未清理；大文件未拆分。
+
+---
+
+## 2026-10-21 12:32 第四轮：结构可维护性与剩余一致性（多会话并行）
+
+- 时间戳：2026-10-21 12:32 +08:00（Asia/Shanghai）
+- 基线：main @ 7b0b631；第三轮全部验证（go test / typecheck / npm test / build / e2e 62/62）通过。
+- 用户指令：继续创建目标、多会话开炮。
+
+### 目标冻结（G8—G11）
+
+1. **G8 可维护性**：把超过 2000 行的页面拆成功能组件，行为不变，以 typecheck/build/e2e 验证。
+2. **G9 一致性**：格式化、SSE 帧、分页解析、启动迁移各自只有一份实现。
+3. **G10 数据完整性**：删除 Agent 与触发器同事务；批量删除资产有明确上限。
+4. **G11 验证资产**：新增测试覆盖拆分与修复，补 race 检测。
+
+### 多会话分工（6 个实施会话，峰值 6 ≤ 上限 10）
+
+| 会话 | 分支 | 内容 |
+| --- | --- | --- |
+| tasks-split | feat/tasks-split | tasks/page.tsx 拆分 5 个组件 + task-format |
+| format-lib | feat/format-lib | lib/format.ts + 9 处调用点收敛 |
+| findings-split | feat/findings-split | findings 页拆分 + usePolling |
+| db-seed | refactor/db-seed | 启动播种/工具迁移归位 db |
+| trigger-integrity | fix/trigger-integrity | Agent 删除事务 + 资产批量上限 |
+| sse-paging | refactor/sse-paging | SSE 写入器 + pageParams |
+
+主会话并行完成：待审批角标按服务端 total 计数、侧栏角标后台暂停、初始化页加载态、文档与合并复验。
+
+### 裁决
+
+| 项 | 裁决 | 理由 |
+| --- | --- | --- |
+| tasks/findings 页面拆分 | 做 | 两个最大页面降到 1500 行以内，逐字搬移 |
+| CategoryManagementSheet 继续外移 | 不做 | 当前 1456 行可接受，避免一次改动过大 |
+| dashboard 的 2.0M 显示统一 | 不做 | 属显示变更，需产品确认 |
+| assets-tab 的 fmtBytes（log 分档） | 不做 | 与共享实现不同，强并会改变显示 |
+| findings?task=unknown 改 404 | 不做 | 需前端同步，仍列为已知偏差 |
+| 历史孤儿触发器回填清理 | 不做 | 需要一次数据迁移；本轮保证删除路径不再产生新孤儿 |
+| 全仓 biome 格式化 | 不做 | 基线仍非 clean，批量重排淹没行为差异 |
+
+### 交付分支与合并
+
+| 分支 | 合并 |
+| --- | --- |
+| refactor/sse-paging | 9882fdd |
+| fix/trigger-integrity | 9e6a2c0 |
+| refactor/db-seed | 5af08f1 |
+| feat/format-lib | 6f4aec2 |
+| feat/tasks-split | 796436d |
+| feat/findings-split | 42701b5 |
+
+### 验证
+
+- go build ./...、go vet ./...、go test ./... -count=1：全绿（15 包）。
+- go test -race ./server -count=1：通过（34.5s）。
+- npm run typecheck、npm test（26/26）、npm run build：通过。
+- npm run test:e2e：62 passed / 0 failed（rsbuild + embedded，3.0m）。
+- 真实进程冒烟：health/401/预检/内嵌 SPA/深链/404/安全头（第三轮已验，本轮后端改动未触及这些路径）。
+
+### 风险与回滚
+
+- 拆分均为逐字搬移，回滚单个 merge commit 即可；不涉及数据迁移。
+- Agent 删除失败从 200 变为 500，是刻意的契约变化（CONTRACT 9.1）。
+- 资产删除 >5000 从可能 500 变为明确 400（CONTRACT 9.2）。
+- 页面拆分后的轮询相位与资产视图空 tick 已记录在 CONTRACT 9.7。

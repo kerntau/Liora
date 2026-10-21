@@ -28,3 +28,32 @@
 [T8][02:42] 最终复验｜go test ./... TEST_EXIT=0；go vet 0；typecheck 0；npm test 10/10；build 0｜命令输出｜文档收尾
 
 
+
+[T9][11:35] 第三轮启动：多会话并行｜3 个只读审计（前端/后端/架构）+ 7 个实施 worktree｜基线全绿｜G4—G7 冻结
+[T9.1][11:40] 后端 HTTP 边界收敛｜CORS 授权头、panic 兜底、JSON 2MiB、安全头、IdleTimeout｜5 个中间件测试｜merge 378fce0
+[T9.2][11:45] 读取边界修复｜拦截任务默认分页 100、会话游标 400、覆盖率错误、水位失败跳过、资产来源可审计｜2 个回归测试｜同上
+[T9.3][11:52] 请求 id 与失败日志｜X-Request-Id、5xx/慢请求日志、writeErr 记录 5xx 原因、SSE 保留 Flusher｜6 个测试｜提交 637352a、0031cc7
+[T9.4][11:56] 异步状态语义收敛｜status 表示数据可用性、refreshing 非遮挡、deriveAsyncView 纯函数｜typecheck/test/build 0｜merge d527615
+[T9.5][11:58] 底层共享归位｜任务生命周期 SQL 移入 db、NormalizeBaseURL 唯一实现、httputil.go｜go test ./db ./agent ./server 全绿｜merge b26cdb5（手工解冲突）
+[T9.6][12:01] 数据一致性｜发现双写事务、rowExists 返回错误、裁判配置单事务、token 聚合索引｜EXPLAIN 断言通过｜merge 46fa428
+[T9.7][12:01] 仪表盘容错｜settleAll 部分失败、代次刷新计数、隐藏标签页停轮询｜typecheck/test/build 0｜merge 0ebc3b6
+[T9.8][12:06] 前端时序与 a11y｜skills/mcp 请求序号、可见性批量、日志连接态、aria-label、NUL 转义｜typecheck/test/build 0｜merge a4690fd
+[T9.9][12:11] 页面四态｜7 个页面失败不再显示空态、待审批轮询上提、暂停防重复提交｜typecheck/test/build 0｜merge 604192c
+[T9.10][12:12] handler 前奏去重｜taskOr404 26 处、decodeBody 9 处、pathInt 5 处｜go build/vet/test 全绿｜已合并
+[T9.11][12:10] e2e 首跑｜60 passed / 2 failed，均为会话过期跳转期望 /login$ 未包含 ?expired=1｜已修正期望，待复跑
+[T9.12][12:20] e2e 复跑｜62 passed / 0 failed（rsbuild + embedded 双模式），3.2m｜E2E_EXIT=0｜覆盖登录过期跳转、深链、SSE、移动端、控件与主题
+[T9.13][12:22] 最终复验｜go build 0；go vet 0；go test ./... 15 包全绿；npm typecheck 0；npm test 10/10；npm run build 0；npm run test:e2e 62/62｜命令输出｜本轮交付完成
+
+[T10][12:32] 第四轮启动：结构可维护性｜6 个实施会话（tasks/findings 拆分、format、SSE/分页、db 播种、触发器完整性）｜峰值 6 并发
+[T10.1][12:35] 待审批角标修正｜改为 status=pending 显式分页 + 服务端 total，避免 100 条分页漏计｜typecheck/build 0｜提交 eb4383b
+[T10.2][12:36] 侧栏角标后台暂停｜隐藏停表、可见补拉、请求串行｜typecheck/build 0｜提交 0b237be
+[T10.3][12:38] 初始化页加载态｜检查期间显示文案不再白屏｜typecheck 0｜提交 8de00dc
+[T10.4][12:46] SSE 与分页统一｜sseWriter 三种流帧字节不变、pageParams 16 例表驱动｜go test ./server 全绿｜merge 9882fdd
+[T10.5][12:47] 删除完整性｜Agent+触发器同事务、资产批量 json_each + 5000 上限｜db/server 测试全绿｜merge 9e6a2c0
+[T10.6][12:49] 播种归位｜复测 Agent 与工具迁移移入 db，SQL 字节级一致｜go test ./db ./server 全绿｜merge 5af08f1
+[T10.7][12:51] 格式化收敛｜lib/format + 10 个测试；9 个调用点替换｜typecheck/test/build 0｜merge 6f4aec2
+[T10.8][12:52] 任务页拆分｜3301 → 1456 行，7 个文件，逐字搬移校验缺失 0 行｜typecheck/test/build 0｜merge 796436d
+[T10.9][12:53] 发现页拆分｜1427 → 1057 行 + usePolling 统一三处轮询｜typecheck/test/build 0｜merge 42701b5
+[T10.10][12:55] 格式化收尾｜任务页改用 lib/format、findings 移除过渡再导出｜typecheck/test/build 0｜提交 f3eeb5d、7aa7063
+[T10.11][12:56] 全量复验｜go build/vet/test 15 包全绿；go test -race ./server 通过（34.5s）｜命令输出｜e2e 待跑
+[T10.12][13:00] e2e 复跑｜62 passed / 0 failed（rsbuild + embedded，3.0m）｜E2E_EXIT=0｜第四轮交付完成

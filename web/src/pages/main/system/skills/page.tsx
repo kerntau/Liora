@@ -47,16 +47,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { useAsyncData } from "@/hooks/use-async-data";
 import { api } from "@/lib/api";
+import { fmtTime } from "@/lib/format";
 import type { Agent, SkillItem, MCPServer, SkillCall, MissingSkill } from "@/lib/types";
 
-function fmtTime(ts?: string) {
-  if (!ts) return "从未调用";
-  return new Date(ts).toLocaleString("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+// 未调用过的 skill 仍显示「从未调用」，其余时间走共享格式（short）。
+function fmtLastUsed(ts?: string) {
+  return ts ? fmtTime(ts, "short") : "从未调用";
 }
 
 // ── Tree node ──────────────────────────────────────────────────────────────
@@ -259,7 +255,7 @@ function SkillsOverview({
                   className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left hover:bg-muted"
                 >
                   <span className="min-w-0 flex-1 truncate font-mono text-xs" title={s.name}>{s.name}</span>
-                  <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{fmtTime(s.last_used)}</span>
+                  <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{fmtLastUsed(s.last_used)}</span>
                 </button>
               ))}
             </div>
@@ -800,7 +796,7 @@ export default function SkillsPage() {
         <div className="max-h-56 overflow-y-auto">
           {usageCalls.map((c, i) => (
             <div key={`${c.ts}-${i}`} className="flex items-center gap-2 border-b px-2 py-1 text-xs last:border-b-0">
-              <span className="tabular-nums text-muted-foreground">{fmtTime(c.ts)}</span>
+              <span className="tabular-nums text-muted-foreground">{fmtLastUsed(c.ts)}</span>
               <Badge variant="outline" className="font-normal">{c.agent_key || "—"}</Badge>
               <span className="ml-auto text-muted-foreground">
                 {c.task_id > 0 ? `任务 #${c.task_id}` : c.session_id ? "对话会话" : "—"}
@@ -841,7 +837,7 @@ export default function SkillsPage() {
                   <div key={m.skill} className="flex items-center gap-2 text-sm">
                     <code className="min-w-0 flex-1 truncate font-mono text-xs" title={m.skill}>{m.skill}</code>
                     <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{m.calls} 次</span>
-                    <span className="shrink-0 text-xs text-muted-foreground">{fmtTime(m.last_used)}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">{fmtLastUsed(m.last_used)}</span>
                   </div>
                 ))}
               </div>
@@ -935,7 +931,7 @@ export default function SkillsPage() {
                       {s.calls > 0 && (
                         <span
                           className="shrink-0 rounded bg-muted px-1 text-[10px] tabular-nums text-muted-foreground"
-                          title={`被调用 ${s.calls} 次 · 最近 ${fmtTime(s.last_used)}`}
+                          title={`被调用 ${s.calls} 次 · 最近 ${fmtLastUsed(s.last_used)}`}
                         >
                           {s.calls}
                         </span>
@@ -1032,8 +1028,8 @@ export default function SkillsPage() {
                       <p className="text-xs text-muted-foreground">覆盖任务数</p>
                     </div>
                     <div className="rounded-md border p-2">
-                      <p className="truncate text-sm font-medium" title={fmtTime(selectedSkill.last_used)}>
-                        {fmtTime(selectedSkill.last_used)}
+                      <p className="truncate text-sm font-medium" title={fmtLastUsed(selectedSkill.last_used)}>
+                        {fmtLastUsed(selectedSkill.last_used)}
                       </p>
                       <p className="text-xs text-muted-foreground">最近调用</p>
                     </div>

@@ -4,6 +4,7 @@ import * as React from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { sseUrl } from "@/lib/api";
+import { fmtTime } from "@/lib/format";
 import type { LogLine } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -17,13 +18,6 @@ const levelDot: Record<LogLine["level"], string> = {
   warn: "bg-amber-500",
   error: "bg-red-500",
 };
-
-function fmtTime(ts: string) {
-  const d = new Date(ts);
-  if (isNaN(d.getTime())) return "";
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
-}
 
 export default function LogsPage() {
   const [lines, setLines] = React.useState<LogLine[]>([]);
@@ -234,7 +228,7 @@ export default function LogsPage() {
               return (
                 <div key={l.seq} className="flex items-start gap-2 px-1 py-0.5 hover:bg-muted/40">
                   <span className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", levelDot[l.level])} />
-                  <span className="shrink-0 tabular-nums text-muted-foreground">{fmtTime(l.ts)}</span>
+                  <span className="shrink-0 tabular-nums text-muted-foreground">{fmtTime(l.ts, "datetime")}</span>
                   {l.tag && (
                     <span className="shrink-0 rounded bg-muted px-1 text-[10px] text-foreground/70">{l.tag}</span>
                   )}

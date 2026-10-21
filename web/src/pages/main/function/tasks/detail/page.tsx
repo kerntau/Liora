@@ -230,6 +230,9 @@ function TaskDetailInner() {
   const [controlling, setControlling] = React.useState(false);
   // 待审批拦截由本页统一轮询,再传给执行过程页签,避免两处各轮询一次。
   const [pendingIntercepts, setPendingIntercepts] = React.useState<InterceptApprovalRow[]>([]);
+  // The badge counts every pending row; the list itself is capped at 100, so the
+  // server total is the number to show when a task has a long approval history.
+  const [pendingInterceptTotal, setPendingInterceptTotal] = React.useState(0);
   const [profiles, setProfiles] = React.useState<LLMProfile[]>([]);
   const [archiving, setArchiving] = React.useState(false);
 
@@ -244,11 +247,13 @@ function TaskDetailInner() {
     let alive = true;
     const load = () =>
       api
-        .interceptTask(id)
-        .then((rows) => {
+        // Ask for pending explicitly: the unfiltered endpoint returns the newest 100
+        // rows of ANY status, so an older pending approval could fall outside the page.
+        .interceptTaskPage(id, 1, 100, { status: "pending" })
+        .then(({ items, total }) => {
           if (!alive) return;
-          const next = rows.filter((r) => r.status === "pending");
-          setPendingIntercepts((prev) => (samePendingIntercepts(prev, next) ? prev : next));
+          setPendingIntercepts((prev) => (samePendingIntercepts(prev, items) ? prev : items));
+          setPendingInterceptTotal(total);
         })
         .catch(() => {
           // Polling is best-effort; the next interval retries automatically.
@@ -394,7 +399,7 @@ function TaskDetailInner() {
   }
 
   const completed = task.status === "done";
-  const interceptPendingCount = pendingIntercepts.length;
+  const interceptPendingCount = Math.max(pendingInterceptTotal, pendingIntercepts.length);
   const terminal = ["done", "failed", "timeout"].includes(task.status);
   const archiveLifecycleEligible = terminal || paused || task.status === "paused";
   const canArchive = archiveLifecycleEligible && !task.archive_blocked_by_task_id;

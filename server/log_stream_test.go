@@ -1,16 +1,21 @@
 package server
 
 import (
-	"bytes"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
 
 func TestLogStreamFrameCarriesEventID(t *testing.T) {
-	var buf bytes.Buffer
-	writeLogFrame(&buf, LogLine{Seq: 42, Level: "info", Text: "hello"})
-	out := buf.String()
+	rec := httptest.NewRecorder()
+	sw, ok := newSSE(rec)
+	if !ok {
+		t.Fatal("newSSE: recorder is not a Flusher")
+	}
+	if err := sw.Send(42, "", LogLine{Seq: 42, Level: "info", Text: "hello"}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	out := rec.Body.String()
 	if !strings.HasPrefix(out, "id: 42\n") {
 		t.Fatalf("frame=%q, want id: line", out)
 	}

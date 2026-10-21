@@ -51,7 +51,15 @@ export default function SetupPage() {
     }
   }
 
-  if (checking) return null;
+  // Match the login page: an explicit status beats a blank screen while the
+  // one-time initialization check is in flight.
+  if (checking) {
+    return (
+      <div role="status" className="flex min-h-dvh items-center justify-center text-muted-foreground">
+        正在检查初始化状态…
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-dvh">

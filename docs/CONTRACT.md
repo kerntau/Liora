@@ -144,3 +144,107 @@ GET /api/report?task=<task_id>
 - 多进程共享同一 SQLite 数据目录时的审批归属：无单实例锁，后启动实例会收敛先启动实例的 pending（本轮已实测）；部署约束声明为不支持（db/finding_traffic.go:21-28）。
 - 仅存在于 exploration_nodes、没有 findings 行的历史发现节点：任务 Tab 可见，但任务报告不包含；当前真实库为 0 条。若出现，按 DECISIONS 的触发条件改为并集实现。
 - Guard 内存审计在任务重载后的可见范围（本轮不做 UI）。
+
+---
+
+## 8. 2026-10-21 第三轮（工程收敛）【已实现】
+
+> 本节只记录本轮已经落地并有测试/构建证据的行为，旧章节未删除。
+
+### 8.1 HTTP 边界与可观测性
+
+- 中间件顺序：`securityHeaders(cors(withObservability(recoverPanic(limitJSONBody(requireAuth(mux))))))`（server/server.go:883）。
+- CORS：`Access-Control-Allow-Headers: Content-Type, Authorization`，`Access-Control-Max-Age: 600`。跨源部署（独立 SSE 基址）的预检不再失败。
+- 请求 id：每个 /api 响应带 8 位十六进制 `X-Request-Id`；同一 id 注入 request context（server/observability.go）。
+- 失败日志：5xx 或耗时 >=2s 记录 `[http] METHOD PATH -> STATUS in DURATION id=ID`；`writeErr` 在 status>=500 时额外记录 `[http] STATUS: 原因`；panic 记录 `[http] panic on METHOD PATH id=ID` 与堆栈。
+- 请求体：Content-Type 以 `application/json` 开头的请求上限 2 MiB（multipart 上传不受此限，各上传端点保留自己的 MaxBytesReader）。
+- 安全响应头：`X-Content-Type-Options: nosniff`、`Referrer-Policy: same-origin`、`X-Frame-Options: DENY`，API 与内嵌前端统一生效。
+- 服务器超时：`ReadHeaderTimeout=10s`、`IdleTimeout=120s`、`MaxHeaderBytes=1MiB`；`WriteTimeout` 保持 0（SSE 长连接）。
+
+### 8.2 认证来源
+
+- 接受 `Authorization: Bearer` 或 `liora_token` cookie。
+- `?token=` 仅对路径以 `/stream` 或 `/events` 结尾的 SSE 端点生效（server/auth.go）。其他端点带 query token 视为未认证。
+- 前端收到 401 时清 token 并跳转 `/login?expired=1`，登录页显示「登录状态已过期」；并行 401 只跳转一次（web/src/lib/auth.ts、api.ts）。
+
+### 8.3 读取边界
+
+- `GET /api/intercept/task/{id}`：无 page/size 时返回最新 100 条，响应 `{items,total,truncated}`；total 为真实总数，truncated=total>len(items)。带 page/size 时行为不变。
+- `GET /api/conversations/{id}/messages?since=`：since 必须是非负整数，否则 400 `{"error":"since 必须是非负整数"}`；增量突发上限固定 1000 条，`?limit` 只作用于历史分页。
+- `GET /api/exploration/findings`（无 page/limit 的汇总分支）与 `GET /api/exploration/frontier`：读取失败返回 500 与原因，不再返回 200 空数组。
+- 任务不存在时 `GET /api/exploration/findings?task=` 仍返回 200 `[]`（既有前端契约，本轮未改，见 8.7）。
+
+### 8.4 数据一致性
+
+- 发现字段更新：findings 行与 exploration_nodes payload 的同步写入在同一事务内；节点同步失败回滚整个更新（db/findings.go）。
+- 裁判配置：judge_enabled 与 5 个 setting 通过 `db.SetSettings` 单事务写入；失败整体回滚（intercept/intercept.go、db/settings.go）。
+- 归档恢复：`rowExists` 返回 `(bool, error)`，查询失败中止恢复事务，不再把错误当成「行不存在」（db/task_archives_restore.go）。
+- 证据 GC：元数据事务只负责 unreferenced_at/删除与候选收集，blob 文件在事务提交后删除；失败的下一次 GC 重试（evidence/store.go）。
+- 覆盖率：`scope_rows` 查询失败返回错误，不再以 0 表示「范围未锚定」（db/task_assets_context.go）。
+- 资产登记：来源关联写入失败会进入响应的 errors 数组，不再静默成功（server/assets.go）。
+
+### 8.5 索引
+
+- `idx_act_kind_created ON activity(kind, created_at)`（schema.sql，并在每次 Open 幂等补建）。
+- `idx_llm_usage_ts ON llm_usage(ts)`（llm_usage 表惰性创建，索引随表创建并在每次 Open 补建）。
+- 两者都有 `EXPLAIN QUERY PLAN` 断言测试（db/index_plan_test.go）。
+
+### 8.6 前端异步契约
+
+- `useAsyncData.status` 表示「当前是否有可用数据」：首载 loading、有数据 ready、无数据失败 error；刷新时保持 ready 并给出 `refreshing`。
+- `AsyncState`：仅首载渲染骨架；有数据刷新时保留内容并显示非遮挡「更新中」；有数据刷新失败显示可关闭/可重试的窄条错误；无数据失败保持整块错误。
+- 状态推导唯一入口：`web/src/lib/async-status.ts` 的 `deriveAsyncView`，由 hook 与组件共用，并有 node:test 用例。
+
+### 8.7 已知偏差（本轮保留）
+
+- `GET /api/exploration/findings?task=<unknown>` 返回 200 `[]`：改成 404 需要前端任务详情同步处理，单独立项。
+- 前端仍有多套时间格式化（fmtTime 5 种样式）与 token 格式化（dashboard 显示 2.0M、其他页 2M）；本轮只统一了逐字节相同的 fmtBytes/fmtTokens 的实现位置，未改显示。
+- biome 基线仍有大量 import 排序/format 诊断，CI 未启用，本轮不批量重排。
+
+---
+
+## 9. 2026-10-21 第四轮（结构与一致性）【已实现】
+
+### 9.1 删除 Agent 的事务边界
+
+- DELETE /api/agents/{key}：agents 行与 agent_triggers 在同一事务内删除；任一步失败整体回滚并返回 500。
+- 删除不存在的 key 仍为 404（HTTP 层先查 agentByKey）；DB 层 DeleteAgentWithTriggers 对未知/内置 key 保持 no-op。
+- 工具绑定清理仍为 best-effort（既有语义）。agent_triggers.agent_key 无外键，已有库不重建表。
+
+### 9.2 批量删除资产上限
+
+- DELETE /api/assets 的 ids 数量上限 5000（maxAssetDeleteIDs）；超过返回 400，文案包含实际数量。
+- DB 层改为 WHERE id IN (SELECT value FROM json_each($1))，不再受 SQLite 变量数量上限约束。
+
+### 9.3 分页参数
+
+- 统一入口 pageParams(q, defPage, defSize, cap)（server/httputil.go）：page<1→1；size<=0→defSize；size>cap→cap；cap<=0 表示不设上限。
+- 现有端点参数与上限保持不变：findings 1/20/200，分组 1/10/100，intercept 1/20/100，exploration nodes 1/20/200。page 仍为 1-based。
+- 仍为单值 ?limit 的端点（intents、activityHistory）未折叠，避免改变 0 值的回落语义。
+
+### 9.4 SSE 帧
+
+- 三个流（日志、活动、旁路问答）共用 server/sse.go 的 newSSE/Send/Ping；帧字节与改造前一致：
+  - 日志/活动：id: N + data: {...} + 空行（无 event 行）。
+  - 旁路 snapshot：id: N + event: snapshot + data；cleared：event: cleared + data。
+  - 心跳：: ping / : keepalive。
+- 先断言 http.Flusher 再查询的既有优先级保留。
+
+### 9.5 前端格式化、轮询与拆分
+
+- web/src/lib/format.ts 成为字节/token/时间/时长的唯一实现；format.test.mjs 覆盖边界与非法输入。
+  - 时间样式：short = MM/DD HH:mm，datetime = YYYY-MM-DD HH:mm:ss，seconds = MM/DD HH:mm:ss；空值/非法值返回 —。
+  - fmtDuration 以 unit 区分 sec（1m 30s）与 ms（1m30s）两种既有排版。
+- web/src/hooks/use-polling.ts：启用即执行、隐藏标签页暂停、可见时补跑、重叠跳过、卸载清理；错误仍由调用方处理。
+- 拆分（无行为变化）：tasks/page.tsx 3301 → 1456 行；findings/page.tsx 1427 → 1057 行。
+
+### 9.6 启动期播种与迁移
+
+- 复测 Agent 播种事务与 finding workflow 工具 schema/绑定迁移从 server 移入 db（EnsureFindingRetesterAgent / EnsureToolSchema）；SQL、flag、顺序与幂等语义不变。
+- 提示词与工具 schema 默认值由调用方注入（db 不反向依赖 agent/traffic）。
+
+### 9.7 本轮新增已知偏差
+
+- findings/detail 的发现时间由 toLocaleString 默认格式（2026/10/21 12:34:56）改为 datetime 样式（2026-10-21 12:34:56），分隔符变化。
+- 轮询相位：改筛选/翻页不再重置 5s 倒计时（hook 用 ref 保存任务），最坏等待仍为 5s。
+- 资产视图仍有 5s 空 tick（不发请求）。

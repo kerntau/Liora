@@ -305,8 +305,10 @@ func (s *Server) pgUpdateAgent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
-// pgDeleteAgent removes a custom agent (built-in rejected). Prompts/vars/visibility
-// cascade via FK; tool-binding cleanup is best-effort.
+// pgDeleteAgent removes a custom agent (built-in rejected). The agent row and its
+// triggers are deleted in one transaction, so a trigger-cleanup failure rolls the
+// agent back and surfaces as 500 instead of leaving orphan triggers behind.
+// Prompts/vars/visibility cascade via FK; tool-binding cleanup stays best-effort.
 func (s *Server) pgDeleteAgent(w http.ResponseWriter, r *http.Request) {
 	pg, a, ok := s.agentByKey(w, r)
 	if !ok {
@@ -316,15 +318,12 @@ func (s *Server) pgDeleteAgent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "内置 agent 不可删除")
 		return
 	}
-	if err := pg.DeleteAgent(a.Key); err != nil {
+	if err := pg.DeleteAgentWithTriggers(a.Key); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
 	if err := pg.RemoveAgentFromToolBindings(a.Key); err != nil {
 		log.Printf("[agents] 清理 %s 工具绑定失败: %v", a.Key, err)
-	}
-	if err := pg.DeleteTriggersForAgent(a.Key); err != nil {
-		log.Printf("[agents] 清理 %s 触发器失败: %v", a.Key, err)
 	}
 	writeJSON(w, 200, map[string]any{"deleted": a.Key})
 }

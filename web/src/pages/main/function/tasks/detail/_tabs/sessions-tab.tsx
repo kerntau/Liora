@@ -51,6 +51,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSideQuestions } from "@/hooks/use-side-questions";
 import { api, sseUrl } from "@/lib/api";
+import { fmtBytes, fmtDuration, fmtTokens } from "@/lib/format";
 import { shouldSubmitOnKey, useChatSendMode } from "@/lib/chat-send-mode";
 import { isBtwCommand } from "@/lib/side-questions";
 import { taskAssetSourceLabel, taskAssetTypeLabel } from "@/lib/task-assets";
@@ -74,13 +75,6 @@ import { cn } from "@/lib/utils";
 // so fall back to the model id rather than rendering an empty badge.
 function resolutionLabel(r: TaskLLMResolution): string {
   return r.name || r.model || "未命名配置";
-}
-
-// fmtBytes renders a human file size for attachment chips (mirrors transcript.tsx).
-function fmtBytes(n: number): string {
-  if (n >= 1 << 20) return `${(n / (1 << 20)).toFixed(1)} MB`;
-  if (n >= 1 << 10) return `${(n / (1 << 10)).toFixed(1)} KB`;
-  return `${n} B`;
 }
 
 // ── Reliability model (see docs/task-session-history-sse-remediation.md) ──────────
@@ -185,13 +179,6 @@ function statusIcon(status: SessionStatus) {
   }
 }
 
-// fmtTokens renders a compact token count (1234 → 1.2k, 2_000_000 → 2M).
-function fmtTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
-  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
-  return String(n);
-}
-
 const TokenMetrics = React.forwardRef<
   HTMLSpanElement,
   React.ComponentPropsWithoutRef<"span"> & {
@@ -221,16 +208,6 @@ const TokenMetrics = React.forwardRef<
   );
 });
 TokenMetrics.displayName = "TokenMetrics";
-
-// fmtDuration renders an elapsed milliseconds span compactly (90s → 1m30s).
-function fmtDuration(ms: number): string {
-  const s = Math.floor(ms / 1000);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m${String(s % 60).padStart(2, "0")}s`;
-  const h = Math.floor(m / 60);
-  return `${h}h${String(m % 60).padStart(2, "0")}m`;
-}
 
 const roleMeta = {
   mainagent: { label: "主 Agent", icon: UserIcon },
@@ -1816,7 +1793,7 @@ export function SessionsTab({
                 {runDuration != null && (
                   <span className="inline-flex items-center gap-1" title="运行时长（首步 → 末步）">
                     <ClockIcon className="size-3" />
-                    {fmtDuration(runDuration)}
+                    {fmtDuration(runDuration, "ms")}
                   </span>
                 )}
                 {isMain && <span>可交互</span>}

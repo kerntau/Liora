@@ -578,6 +578,44 @@ func (d *DB) DeleteAgent(key string) error {
 	return err
 }
 
+// DeleteAgentWithTriggers removes a custom agent and every trigger attached to it
+// in one transaction. Either both deletes commit or neither does.
+//
+// agent_triggers.agent_key intentionally has no FK to agents(key) (see
+// schema.sql): adding one now would mean rebuilding the table on every existing
+// database, which SQLite cannot do safely in place. So instead of relying on
+// ON DELETE CASCADE we couple the two statements here. Without this, a failed
+// trigger cleanup was logged and ignored, leaving orphan triggers that the
+// scheduler would keep firing by agent_key even though the agent is gone.
+//
+// An unknown or built-in key stays a no-op (matching DeleteAgent): the trigger
+// cleanup only runs after the agent row was actually deleted, so a built-in
+// agent's triggers can never be stripped by mistake.
+func (d *DB) DeleteAgentWithTriggers(key string) error {
+	tx, err := d.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	res, err := tx.Exec(`DELETE FROM agents WHERE key=$1 AND builtin=false`, key)
+	if err != nil {
+		return err
+	}
+	deleted, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if deleted == 0 {
+		// Preserve DeleteAgent's no-op semantics for unknown/built-in keys.
+		return tx.Commit()
+	}
+	if _, err := tx.Exec(`DELETE FROM agent_triggers WHERE agent_key=$1`, key); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // SetAgentMaxTurns updates an agent's max_turns (0 = unlimited).
 func (d *DB) SetAgentMaxTurns(key string, maxTurns int) error {
 	if maxTurns < 0 {

@@ -416,6 +416,13 @@ func (s *Server) assetCounts(w http.ResponseWriter, r *http.Request) {
 // DELETE /api/assets
 // =====================================================================
 
+// maxAssetDeleteIDs caps one DELETE /api/assets batch. The DB layer expands the
+// list as a single JSON parameter, so this is not a bind-variable limit anymore;
+// it bounds per-request work (JSON encode + full ID scan) and keeps a single
+// request from amplifying into an unbounded delete. 5000 is far above any UI
+// selection while staying well under SQLite's default 32766 variables.
+const maxAssetDeleteIDs = 5000
+
 func (s *Server) deleteAssets(w http.ResponseWriter, r *http.Request) {
 	as := s.assetStore()
 	if as == nil {
@@ -431,6 +438,10 @@ func (s *Server) deleteAssets(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(req.IDs) == 0 {
 		writeErr(w, 400, "ids required")
+		return
+	}
+	if len(req.IDs) > maxAssetDeleteIDs {
+		writeErr(w, 400, fmt.Sprintf("一次最多删除 %d 个资产（收到 %d 个）", maxAssetDeleteIDs, len(req.IDs)))
 		return
 	}
 	deleted, err := as.DeleteByIDs(req.IDs)

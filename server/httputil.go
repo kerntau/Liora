@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"net/url"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -117,4 +118,23 @@ func pageLimit(raw string, def int) int {
 		limit = maxReadPageSize
 	}
 	return limit
+}
+
+// pageParams parses the shared ?page/?size pair. Pages are 1-based: a missing,
+// non-numeric or non-positive page becomes 1, a non-positive size falls back to
+// defSize, and a size above cap is clamped to it (cap <= 0 means "no cap", for
+// endpoints that only bound one of the two values).
+func pageParams(q url.Values, defPage, defSize, cap int) (page, size int) {
+	page = atoiDefault(q.Get("page"), defPage)
+	if page < 1 {
+		page = 1
+	}
+	size = atoiDefault(q.Get("size"), defSize)
+	if size <= 0 {
+		size = defSize
+	}
+	if cap > 0 && size > cap {
+		size = cap
+	}
+	return page, size
 }

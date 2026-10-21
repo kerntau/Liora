@@ -334,18 +334,7 @@ func interceptFilterParams(q url.Values) (db.InterceptApprovalFilter, error) {
 }
 
 func interceptPageParams(q url.Values) (int, int) {
-	page := atoiDefault(q.Get("page"), 1)
-	size := atoiDefault(q.Get("size"), 20)
-	if page < 1 {
-		page = 1
-	}
-	if size < 1 {
-		size = 20
-	}
-	if size > 100 {
-		size = 100
-	}
-	return page, size
+	return pageParams(q, 1, 20, 100)
 }
 
 func (s *Server) interceptDecide(w http.ResponseWriter, r *http.Request) {

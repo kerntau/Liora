@@ -2,23 +2,9 @@
 
 import * as React from "react";
 
-import Link from "@/lib/router-compat";
-
-import {
-  ArrowUpRightIcon,
-  BugIcon,
-  ChevronRightIcon,
-  ClockIcon,
-  DownloadIcon,
-  InfoIcon,
-  SearchIcon,
-  ShieldAlertIcon,
-  TriangleAlertIcon,
-} from "lucide-react";
-import { toast } from "@/components/ui/sonner";
+import { BugIcon, ClockIcon, InfoIcon, ShieldAlertIcon, TriangleAlertIcon } from "lucide-react";
 
 import { FindingRetestDialog } from "@/components/finding-retest-dialog";
-import { StatusBadge } from "@/components/status-badge";
 import { TablePagination } from "@/components/table-pagination";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,16 +17,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { toast } from "@/components/ui/sonner";
 import { Spinner } from "@/components/ui/spinner";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { usePolling } from "@/hooks/use-polling";
 import { api } from "@/lib/api";
 import { getLocalStorageValue, setLocalStorageValue } from "@/lib/local-storage.client";
-import { statusMeta } from "@/lib/status";
 import type {
   ActiveFindingRetest,
   Finding,
@@ -52,26 +34,27 @@ import type {
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-import { AssetTree, assetPathOf } from "./_components/asset-tree";
+import { AssetTreePanel } from "./_components/asset-tree-panel";
+import { ExportDialog, type ExportFormat, type ExportScope } from "./_components/export-dialog";
+import {
+  type FindingRowProps,
+  FindingsGroups,
+  findingGroupKey,
+  type GroupFindingsState,
+} from "./_components/findings-groups";
 import {
   FINDING_STATUSES,
   type FindingEdit,
   type FindingReport,
   FindingsTable,
   findingRowKey,
-  fmtTime,
   isSameFinding,
   SEVERITIES,
   UNASSIGNED_TASK,
 } from "./_components/findings-table";
+import { FINDING_VIEWS, FindingsToolbar, FindingsViewTabs, type FindingView } from "./_components/findings-toolbar";
 
 const FINDING_LIST_PREFERENCE_KEY = "artex_finding_list_preferences";
-
-// 列表视图:flat = 跨任务平铺大表(默认);grouped = 按任务分组折叠;
-// asset = 左侧资产树 + 右侧该子树下的发现。
-type FindingView = "flat" | "grouped" | "asset";
-
-const FINDING_VIEWS: FindingView[] = ["flat", "grouped", "asset"];
 
 // 资产树的一次性快照。与另外两个视图不同,资产视图不轮询:进入视图、改筛选、
 // 或本页改动了发现之后才重新查询。
@@ -93,20 +76,6 @@ const EMPTY_ASSET_TREE: AssetTreeState = {
   loading: false,
 };
 
-// 分组视图里每个已展开任务组自带一份分页状态,彼此独立。
-interface GroupFindingsState {
-  items: Finding[];
-  total: number;
-  page: number;
-  pageSize: number;
-  loaded: boolean;
-  loading: boolean;
-  /** 非轮询触发的刷新(翻页/改筛选)进行中,用于表头细进度条。 */
-  pending: boolean;
-  /** 拉取失败原因;有旧数据时保留旧数据,不把失败当空表。 */
-  error: string | null;
-}
-
 // 平铺视图的页码单独放 state(而非塞进快照),筛选一变就能连带重置并触发重新加载。
 interface FlatFindingsState {
   items: Finding[];
@@ -127,10 +96,6 @@ const EMPTY_FLAT_STATE: FlatFindingsState = {
   pending: false,
   error: null,
 };
-
-function findingGroupKey(group: FindingGroup) {
-  return group.task_id === null ? UNASSIGNED_TASK : String(group.task_id);
-}
 
 const EMPTY_STATS: FindingStats = {
   total: 0,
@@ -184,31 +149,21 @@ export default function FindingsPage() {
   const activeFilterFingerprint = React.useRef(filterFingerprint);
   activeFilterFingerprint.current = filterFingerprint;
 
-  // 一个轻量请求覆盖所有行/视图，避免逐行拉取完整复测历史；等待上一轮完成再轮询。
-  React.useEffect(() => {
-    let disposed = false;
-    let failed = false;
-    let timer: ReturnType<typeof setTimeout>;
-    async function refreshRetests() {
-      const version = retestRefreshVersion.current;
-      try {
-        const rows = await api.activeFindingRetests();
-        if (disposed || version !== retestRefreshVersion.current) return;
-        setActiveRetests(Object.fromEntries(rows.map((item) => [item.finding_id, item])));
-        failed = false;
-      } catch (error) {
-        if (!disposed && !failed) toast.error(`加载复测状态失败：${(error as Error).message}`);
-        failed = true;
-      } finally {
-        if (!disposed) timer = setTimeout(() => void refreshRetests(), 3000);
-      }
+  // 一个轻量请求覆盖所有行/视图，避免逐行拉取完整复测历史；调度交给 usePolling
+  // (上一轮没结束就跳过本轮)，请求序号与失败提示仍在这里维护。
+  const retestPollFailed = React.useRef(false);
+  usePolling(async () => {
+    const version = retestRefreshVersion.current;
+    try {
+      const rows = await api.activeFindingRetests();
+      if (version !== retestRefreshVersion.current) return;
+      setActiveRetests(Object.fromEntries(rows.map((item) => [item.finding_id, item])));
+      retestPollFailed.current = false;
+    } catch (error) {
+      if (!retestPollFailed.current) toast.error(`加载复测状态失败：${(error as Error).message}`);
+      retestPollFailed.current = true;
     }
-    void refreshRetests();
-    return () => {
-      disposed = true;
-      clearTimeout(timer);
-    };
-  }, []);
+  }, 3000);
 
   React.useEffect(() => {
     const raw = getLocalStorageValue(FINDING_LIST_PREFERENCE_KEY);
@@ -268,8 +223,8 @@ export default function FindingsPage() {
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(() => new Set());
   // 导出弹窗状态:范围(当前筛选/全部/选中) × 格式(md 单文件/md 分文件 zip/csv/json)。
   const [exportOpen, setExportOpen] = React.useState(false);
-  const [exportScope, setExportScope] = React.useState<"filtered" | "all" | "selected">("filtered");
-  const [exportFormat, setExportFormat] = React.useState<"md-single" | "md-zip" | "csv" | "json">("md-single");
+  const [exportScope, setExportScope] = React.useState<ExportScope>("filtered");
+  const [exportFormat, setExportFormat] = React.useState<ExportFormat>("md-single");
   const [exporting, setExporting] = React.useState(false);
 
   const toggleSelected = React.useCallback((id: string, checked: boolean) => {
@@ -598,14 +553,10 @@ export default function FindingsPage() {
     void loadAssetTree();
   }, [activeRetestFingerprint, loadAssetTree, preferencesHydrated, view]);
 
-  // 只轮询当前视图:平铺视图刷当前页,分组视图刷组头与每个已展开的组(其分页彼此独立)。
-  // 资产视图只查一次(见下面的 return),它的左树是导航结构,没必要每 5 秒重算。
-  // 等偏好水合后再发首个请求,否则会先按默认视图/筛选白拉一次。
-  React.useEffect(() => {
-    if (!preferencesHydrated) return;
-    void activeRetestFingerprint; // 包括不定时轮询的资产视图，也在复测结束后刷新处置状态。
-    // background = 定时轮询:不点亮 pending 进度条,避免每 5 秒闪一次。
-    const refresh = (background = false) => {
+  // 只刷新当前视图:平铺视图刷当前页,分组视图刷组头与每个已展开的组(其分页彼此独立)。
+  // background = 定时轮询:不点亮 pending 进度条,避免每 5 秒闪一次。
+  const refresh = React.useCallback(
+    (background = false) => {
       if (view === "flat" || view === "asset") {
         // 前台刷新(切筛选/翻页)不能被在途的轮询挡住,否则新筛选要等下一个轮询周期。
         if (background && flatStateRef.current.loading) return;
@@ -618,12 +569,37 @@ export default function FindingsPage() {
         const state = groupFindingsRef.current[key];
         if (state?.loaded && !state.loading) void loadGroup(key, state.page, state.pageSize, background);
       }
-    };
+    },
+    [loadFlat, loadGroup, refreshGroups, view],
+  );
+
+  // 视图/筛选/翻页变化时立即前台刷新一次。首轮由 usePolling 的「启用即执行」负责,
+  // 这里跳过第一次,避免水合时连发两个请求。
+  const refreshedOnce = React.useRef(false);
+  React.useEffect(() => {
+    if (!preferencesHydrated) return;
+    void activeRetestFingerprint; // 包括不定时轮询的资产视图，也在复测结束后刷新处置状态。
+    if (!refreshedOnce.current) {
+      refreshedOnce.current = true;
+      return;
+    }
     refresh();
+  }, [activeRetestFingerprint, preferencesHydrated, refresh]);
+
+  // 定时轮询当前视图(5s):首跑按前台处理,之后按后台;资产视图的左树是导航结构,
+  // 没必要每 5 秒重算,所以 tick 直接返回,只在进入视图/筛选变化时查一次。
+  const firstPollRun = React.useRef(true);
+  const pollCurrentView = React.useCallback(() => {
+    const first = firstPollRun.current;
+    firstPollRun.current = false;
+    if (first) {
+      refresh();
+      return;
+    }
     if (view === "asset") return;
-    const timer = setInterval(() => refresh(true), 5000);
-    return () => clearInterval(timer);
-  }, [activeRetestFingerprint, loadFlat, loadGroup, preferencesHydrated, refreshGroups, view]);
+    refresh(true);
+  }, [refresh, view]);
+  usePolling(pollCurrentView, 5000, { enabled: preferencesHydrated });
 
   React.useEffect(() => {
     const lastPage = Math.max(1, Math.ceil(groupTotal / pageSize));
@@ -638,28 +614,19 @@ export default function FindingsPage() {
 
   // Whole-table aggregates (stat cards + vuln-class options) — independent of the
   // current page, so they stay exact.
-  React.useEffect(() => {
-    let alive = true;
-    const load = () => {
+  usePolling(
+    () =>
       api
         .findingStats()
-        .then((s) => {
-          if (alive) {
-            setStats(s);
-            setStatsLoaded(true);
-          }
+        .then((snapshot) => {
+          setStats(snapshot);
+          setStatsLoaded(true);
         })
         .catch(() => {
           // Keep the previous aggregate snapshot until the next poll.
-        });
-    };
-    load();
-    const t = setInterval(load, 5000);
-    return () => {
-      alive = false;
-      clearInterval(t);
-    };
-  }, []);
+        }),
+    5000,
+  );
 
   React.useEffect(() => {
     if (!statsLoaded) return;
@@ -847,12 +814,7 @@ export default function FindingsPage() {
     setSearch("");
     setQuery("");
   }, []);
-  const assetPath = React.useMemo(
-    () => (view === "asset" ? assetPathOf(assetTree.nodes, assetScope) : []),
-    [assetScope, assetTree.nodes, view],
-  );
-
-  const rowProps = {
+  const rowProps: FindingRowProps = {
     selectedIds,
     onToggleSelected: toggleSelected,
     onToggleSelectedPage: toggleSelectedPage,
@@ -917,43 +879,6 @@ export default function FindingsPage() {
     </Card>
   );
 
-  // 分组列表的空态同样区分「加载中 / 失败 / 筛选无结果 / 没有数据」。
-  let groupsEmptyState: React.ReactNode = null;
-  if (!groupsLoaded && !groupsError) {
-    groupsEmptyState = (
-      <Card>
-        <CardContent className="flex min-h-36 items-center justify-center">
-          <Spinner />
-        </CardContent>
-      </Card>
-    );
-  } else if (groupsError && groups.length === 0) {
-    groupsEmptyState = (
-      <Card>
-        <CardContent className="flex flex-col items-center gap-2 py-12 text-center text-sm text-muted-foreground">
-          <span className="text-foreground">加载失败</span>
-          <span className="max-w-md break-words text-xs">{groupsError}</span>
-          <Button size="sm" variant="outline" onClick={() => void refreshGroups()}>
-            重试
-          </Button>
-        </CardContent>
-      </Card>
-    );
-  } else if (groups.length === 0) {
-    groupsEmptyState = (
-      <Card>
-        <CardContent className="flex flex-col items-center gap-2 py-12 text-center text-sm text-muted-foreground">
-          <span>{hasFilters ? "没有匹配的发现。" : "暂无发现。运行任务后，发现的漏洞会按任务汇总到这里。"}</span>
-          {hasFilters && (
-            <Button size="sm" variant="outline" onClick={clearFilters}>
-              清除筛选
-            </Button>
-          )}
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
     <div className="flex flex-1 flex-col gap-4 md:gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -961,13 +886,7 @@ export default function FindingsPage() {
           <h1 className="text-xl font-semibold tracking-tight">发现</h1>
           <p className="text-muted-foreground text-sm">跨任务漏洞汇总</p>
         </div>
-        <Tabs value={view} onValueChange={(v) => setView(v as FindingView)}>
-          <TabsList>
-            <TabsTrigger value="flat">全部发现</TabsTrigger>
-            <TabsTrigger value="grouped">按任务分组</TabsTrigger>
-            <TabsTrigger value="asset">按资产</TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <FindingsViewTabs view={view} onViewChange={setView} />
       </div>
       <div className="flex flex-1 flex-col gap-4 md:gap-6">
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
@@ -987,308 +906,64 @@ export default function FindingsPage() {
           })}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <InputGroup className="w-full sm:w-72">
-            <InputGroupInput
-              type="search"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="检索漏洞内容"
-              aria-label="检索漏洞内容"
-            />
-            <InputGroupAddon>
-              <SearchIcon aria-hidden="true" />
-            </InputGroupAddon>
-          </InputGroup>
-
-          <ToggleGroup
-            type="single"
-            value={severity}
-            onValueChange={(value) => value && setSeverity(value as "all" | Severity)}
-            variant="outline"
-            size="sm"
-            spacing={0}
-          >
-            {(
-              [
-                ["all", "全部"],
-                ["critical", "严重"],
-                ["high", "高危"],
-                ["medium", "中危"],
-                ["low", "低危"],
-              ] as const
-            ).map(([val, label]) => (
-              <ToggleGroupItem key={val} value={val} aria-label={`按${label}等级筛选`}>
-                {label}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
-
-          <Select value={status} onValueChange={(v) => setStatus(v as "all" | FindingStatus)}>
-            <SelectTrigger size="sm" className="w-32">
-              <SelectValue placeholder="状态" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">全部状态</SelectItem>
-              {FINDING_STATUSES.map((st) => (
-                <SelectItem key={st} value={st}>
-                  {statusMeta("finding", st).label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Select value={vulnclass} onValueChange={setVulnclass}>
-            <SelectTrigger size="sm" className="w-40">
-              <SelectValue placeholder="漏洞类型" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">全部类型</SelectItem>
-              {stats.vulnclasses.map((vc) => (
-                <SelectItem key={vc} value={vc}>
-                  {vc}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Select value={task} onValueChange={setTask}>
-            <SelectTrigger size="sm" className="w-48">
-              <SelectValue placeholder="任务" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">全部任务</SelectItem>
-              <SelectItem value={UNASSIGNED_TASK}>未关联 / 任务已删除</SelectItem>
-              {(stats.tasks ?? []).map((t) => {
-                const id = String(t.id);
-                const label = t.name || t.description || `任务 #${id}（已删除）`;
-                return (
-                  <SelectItem key={id} value={id}>
-                    <span className="flex w-full items-center gap-2">
-                      <span className="max-w-[14rem] truncate" title={label}>
-                        {label}
-                      </span>
-                      <span className="inline-flex items-center gap-1 text-muted-foreground tabular-nums">
-                        <BugIcon className="size-3.5" aria-hidden="true" />
-                        {t.count}
-                      </span>
-                    </span>
-                  </SelectItem>
-                );
-              })}
-            </SelectContent>
-          </Select>
-
-          <Select value={sort} onValueChange={(v) => setSort(v as "severity" | "time")}>
-            <SelectTrigger size="sm" className="w-36">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="severity">按严重度</SelectItem>
-              <SelectItem value="time">按时间</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <div className="ml-auto flex items-center gap-3">
-            {selectedIds.size > 0 && (
-              <span className="text-xs text-muted-foreground tabular-nums">已选 {selectedIds.size} 条</span>
-            )}
-            <Button size="sm" variant="outline" onClick={openExport}>
-              <DownloadIcon /> 导出
-            </Button>
-          </div>
-        </div>
+        <FindingsToolbar
+          search={search}
+          onSearchChange={setSearch}
+          severity={severity}
+          onSeverityChange={setSeverity}
+          status={status}
+          onStatusChange={setStatus}
+          vulnclass={vulnclass}
+          onVulnclassChange={setVulnclass}
+          task={task}
+          onTaskChange={setTask}
+          sort={sort}
+          onSortChange={setSort}
+          vulnclasses={stats.vulnclasses}
+          tasks={stats.tasks}
+          selectedCount={selectedIds.size}
+          onExport={openExport}
+        />
 
         {view === "flat" && flatListCard}
 
         {view === "asset" && (
-          <div className="grid min-h-0 items-start gap-4 lg:grid-cols-[20rem_minmax(0,1fr)] xl:grid-cols-[24rem_minmax(0,1fr)]">
-            <Card className="gap-0 py-3 lg:sticky lg:top-4">
-              <CardContent className="flex max-h-[24rem] flex-col px-3 lg:max-h-[calc(100vh-14rem)]">
-                {assetTree.loading && !assetTree.loaded ? (
-                  <div className="flex min-h-36 items-center justify-center">
-                    <Spinner />
-                  </div>
-                ) : (
-                  <AssetTree
-                    nodes={assetTree.nodes}
-                    selected={assetScope}
-                    onSelect={setAssetScope}
-                    loading={assetTree.loading}
-                    truncated={assetTree.truncated}
-                    droppedKinds={assetTree.droppedKinds}
-                    findingTotal={assetTree.findingTotal}
-                    onRefresh={() => void loadAssetTree()}
-                  />
-                )}
-              </CardContent>
-            </Card>
-            <div className="flex min-w-0 flex-col gap-2">
-              <div className="flex min-w-0 flex-wrap items-center gap-1 text-sm text-muted-foreground">
-                <button
-                  type="button"
-                  className={cn("hover:text-foreground", assetScope === null && "font-medium text-foreground")}
-                  onClick={() => setAssetScope(null)}
-                >
-                  全部资产
-                </button>
-                {assetPath.map((node) => (
-                  <React.Fragment key={node.key}>
-                    <ChevronRightIcon className="size-3.5 shrink-0" aria-hidden="true" />
-                    <button
-                      type="button"
-                      className={cn(
-                        "max-w-[16rem] truncate hover:text-foreground",
-                        node.key === assetScope && "font-medium text-foreground",
-                      )}
-                      title={node.label}
-                      onClick={() => setAssetScope(node.key)}
-                    >
-                      {node.display}
-                    </button>
-                  </React.Fragment>
-                ))}
-                <span className="ml-auto shrink-0 text-xs tabular-nums">共 {flat.total} 条</span>
-              </div>
-              {flatListCard}
-            </div>
-          </div>
+          <AssetTreePanel
+            nodes={assetTree.nodes}
+            scope={assetScope}
+            onScopeChange={setAssetScope}
+            loaded={assetTree.loaded}
+            loading={assetTree.loading}
+            truncated={assetTree.truncated}
+            droppedKinds={assetTree.droppedKinds}
+            findingTotal={assetTree.findingTotal}
+            onRefresh={() => void loadAssetTree()}
+            total={flat.total}
+          >
+            {flatListCard}
+          </AssetTreePanel>
         )}
 
         {view === "grouped" && (
-          <div className="relative flex flex-col gap-3">
-            {/* 分组列表刷新(切筛选/翻页)时压一条细进度条,不遮挡已有分组。 */}
-            {groupsPending && groupsLoaded && (
-              <div
-                role="status"
-                aria-label="正在更新分组列表"
-                className="pointer-events-none absolute inset-x-0 top-0 z-10 h-0.5 animate-pulse rounded-full bg-primary/60"
-              />
-            )}
-            {groups.map((group) => {
-              const key = findingGroupKey(group);
-              const groupOpen = expandedGroups.has(key);
-              const state = groupFindings[key] ?? {
-                items: [],
-                total: group.count,
-                page: 1,
-                pageSize: 10,
-                loaded: false,
-                loading: false,
-                pending: false,
-                error: null,
-              };
-              return (
-                <Card key={key} className="gap-0 py-0">
-                  <CardHeader className="px-4 py-3">
-                    <div className="flex min-w-0 flex-wrap items-center gap-3">
-                      <button
-                        type="button"
-                        className="flex min-w-0 flex-1 items-center gap-3 text-left"
-                        aria-expanded={groupOpen}
-                        onClick={() => toggleGroup(key)}
-                      >
-                        <ChevronRightIcon
-                          className={cn(
-                            "size-4 shrink-0 text-muted-foreground transition-transform",
-                            groupOpen && "rotate-90",
-                          )}
-                        />
-                        <div className="flex min-w-0 flex-col gap-1">
-                          <CardTitle className="truncate text-sm">
-                            {group.task_id === null
-                              ? "未关联 / 任务已删除"
-                              : group.task_name
-                                ? `${group.task_name}（任务 #${group.task_id}）`
-                                : `任务 #${group.task_id}`}
-                          </CardTitle>
-                          <CardDescription className="truncate" title={group.task_description}>
-                            {group.task_description || "来源任务不可用"}
-                          </CardDescription>
-                        </div>
-                      </button>
-                      <div className="flex flex-wrap items-center gap-2">
-                        {group.task_status && <StatusBadge domain="task" value={group.task_status} dot />}
-                        {SEVERITIES.map((level) => {
-                          const count = group[level];
-                          if (count === 0) return null;
-                          return (
-                            <span key={level} className="inline-flex items-center gap-1">
-                              <StatusBadge domain="severity" value={level} dot />
-                              <span className="text-xs tabular-nums text-muted-foreground">{count}</span>
-                            </span>
-                          );
-                        })}
-                        <span className="text-xs tabular-nums text-muted-foreground">
-                          {fmtTime(group.last_found_at)}
-                        </span>
-                        {group.task_id !== null && (
-                          <Button size="icon-sm" variant="ghost" asChild>
-                            <Link
-                              href={`/function/tasks/detail?id=${group.task_id}`}
-                              aria-label={`查看任务 #${group.task_id}`}
-                            >
-                              <ArrowUpRightIcon />
-                            </Link>
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  </CardHeader>
-                  {groupOpen && (
-                    <CardContent className="relative px-0">
-                      {/* 组内翻页时同样只压一条细进度条,不遮挡已加载的行。 */}
-                      {state.pending && state.loaded && (
-                        <div
-                          role="status"
-                          aria-label="正在更新列表"
-                          className="pointer-events-none absolute inset-x-0 top-0 z-10 h-0.5 animate-pulse bg-primary/60"
-                        />
-                      )}
-                      {state.loading && !state.loaded && !state.error ? (
-                        <div className="flex min-h-36 items-center justify-center">
-                          <Spinner />
-                        </div>
-                      ) : (
-                        <>
-                          <FindingsTable
-                            items={state.items}
-                            selectAllLabel="选择本组当前页全部"
-                            error={state.error}
-                            onRetry={() => void loadGroup(key, state.page, state.pageSize)}
-                            hasFilters={hasFilters}
-                            onClearFilters={clearFilters}
-                            {...rowProps}
-                          />
-                          {!(state.error && state.items.length === 0) && (
-                            <TablePagination
-                              page={state.page}
-                              pageSize={state.pageSize}
-                              total={state.total}
-                              onPageChange={(nextPage) => void loadGroup(key, nextPage, state.pageSize)}
-                              onPageSizeChange={(nextSize) => void loadGroup(key, 1, nextSize)}
-                            />
-                          )}
-                        </>
-                      )}
-                    </CardContent>
-                  )}
-                </Card>
-              );
-            })}
-            {groupsEmptyState}
-            <TablePagination
-              page={page}
-              pageSize={pageSize}
-              total={groupTotal}
-              onPageChange={setPage}
-              onPageSizeChange={(nextPageSize) => {
-                setPageSize(nextPageSize);
-                setPage(1);
-              }}
-              pageSizeOptions={[5, 10, 20]}
-            />
-          </div>
+          <FindingsGroups
+            groups={groups}
+            groupTotal={groupTotal}
+            groupsLoaded={groupsLoaded}
+            groupsPending={groupsPending}
+            groupsError={groupsError}
+            expandedGroups={expandedGroups}
+            groupFindings={groupFindings}
+            page={page}
+            pageSize={pageSize}
+            hasFilters={hasFilters}
+            rowProps={rowProps}
+            onToggleGroup={toggleGroup}
+            onLoadGroup={loadGroup}
+            onRefreshGroups={() => void refreshGroups()}
+            onClearFilters={clearFilters}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+          />
         )}
       </div>
 
@@ -1365,63 +1040,18 @@ export default function FindingsPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={exportOpen} onOpenChange={setExportOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>导出发现</DialogTitle>
-            <DialogDescription>选择导出范围与格式,生成后浏览器会自动下载。</DialogDescription>
-          </DialogHeader>
-
-          <div className="flex flex-col gap-5 py-1">
-            <div className="flex flex-col gap-2">
-              <span className="text-xs text-muted-foreground">导出范围</span>
-              <RadioGroup value={exportScope} onValueChange={(v) => setExportScope(v as typeof exportScope)}>
-                <label htmlFor="export-scope-filtered" className="flex items-center gap-2 text-sm">
-                  <RadioGroupItem id="export-scope-filtered" value="filtered" /> 导出当前筛选结果（共 {filteredTotal}{" "}
-                  条）
-                </label>
-                <label htmlFor="export-scope-all" className="flex items-center gap-2 text-sm">
-                  <RadioGroupItem id="export-scope-all" value="all" /> 导出全部
-                </label>
-                <label
-                  htmlFor="export-scope-selected"
-                  className={cn("flex items-center gap-2 text-sm", selectedIds.size === 0 && "text-muted-foreground")}
-                >
-                  <RadioGroupItem id="export-scope-selected" value="selected" disabled={selectedIds.size === 0} />
-                  导出勾选的 {selectedIds.size} 条
-                </label>
-              </RadioGroup>
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <span className="text-xs text-muted-foreground">导出格式</span>
-              <RadioGroup value={exportFormat} onValueChange={(v) => setExportFormat(v as typeof exportFormat)}>
-                <label htmlFor="export-format-md-single" className="flex items-center gap-2 text-sm">
-                  <RadioGroupItem id="export-format-md-single" value="md-single" /> Markdown 汇总报告（单个 .md 文件）
-                </label>
-                <label htmlFor="export-format-md-zip" className="flex items-center gap-2 text-sm">
-                  <RadioGroupItem id="export-format-md-zip" value="md-zip" /> Markdown 分文件（一漏洞一 .md,打包 .zip）
-                </label>
-                <label htmlFor="export-format-csv" className="flex items-center gap-2 text-sm">
-                  <RadioGroupItem id="export-format-csv" value="csv" /> CSV 表格（.csv）
-                </label>
-                <label htmlFor="export-format-json" className="flex items-center gap-2 text-sm">
-                  <RadioGroupItem id="export-format-json" value="json" /> JSON（.json）
-                </label>
-              </RadioGroup>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setExportOpen(false)} disabled={exporting}>
-              取消
-            </Button>
-            <Button onClick={doExport} disabled={exporting || (exportScope === "selected" && selectedIds.size === 0)}>
-              <DownloadIcon /> {exporting ? "导出中…" : "导出"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ExportDialog
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        scope={exportScope}
+        onScopeChange={setExportScope}
+        format={exportFormat}
+        onFormatChange={setExportFormat}
+        filteredTotal={filteredTotal}
+        selectedCount={selectedIds.size}
+        exporting={exporting}
+        onExport={doExport}
+      />
     </div>
   );
 }

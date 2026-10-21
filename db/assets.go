@@ -1345,17 +1345,17 @@ RETURNING type`, h)
 }
 
 // DeleteByIDs hard-deletes assets by their IDs. Returns the number of rows deleted.
+//
+// The ID list travels as one JSON array parameter and is expanded inside SQLite
+// (json_each), the same contract used by the other bulk queries in this file. That
+// keeps the statement at a single bind parameter, so a large batch can never hit
+// SQLite's variable limit (999 on older builds, 32766 by default) — the previous
+// $1..$n expansion failed exactly there.
 func (s *AssetStore) DeleteByIDs(ids []int64) (int64, error) {
 	if len(ids) == 0 {
 		return 0, nil
 	}
-	placeholders := make([]string, len(ids))
-	args := make([]any, len(ids))
-	for i, id := range ids {
-		placeholders[i] = fmt.Sprintf("$%d", i+1)
-		args[i] = id
-	}
-	res, err := s.db.Exec("DELETE FROM assets WHERE id IN ("+strings.Join(placeholders, ",")+")", args...)
+	res, err := s.db.Exec(`DELETE FROM assets WHERE id IN (SELECT value FROM json_each($1))`, ids)
 	if err != nil {
 		return 0, err
 	}

@@ -13,14 +13,12 @@ import (
 
 const maxFindingFollowUpRunes = 4000
 
+// findingPaginationParam parses one pagination value. The findings views read
+// page and limit separately, so hand the shared parser a single-key query and
+// keep the size half: non-numeric/non-positive values fall back, upperBound caps
+// it (0 = unbounded).
 func findingPaginationParam(raw string, fallback, upperBound int) int {
-	value := atoiDefault(raw, fallback)
-	if value <= 0 {
-		value = fallback
-	}
-	if upperBound > 0 && value > upperBound {
-		value = upperBound
-	}
+	_, value := pageParams(url.Values{"size": {raw}}, 1, fallback, upperBound)
 	return value
 }
 

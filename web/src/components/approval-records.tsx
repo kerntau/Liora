@@ -27,6 +27,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api } from "@/lib/api";
+import { fmtTime } from "@/lib/format";
 import type {
   InterceptApprovalFilter,
   InterceptApprovalRow,
@@ -36,17 +37,6 @@ import type {
   InterceptReviewInput,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
-
-function fmtTime(value?: string) {
-  if (!value) return "—";
-  return new Date(value).toLocaleString("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
 
 function source(row: InterceptApprovalRow) {
   if (row.decision_source) return row.decision_source;
@@ -404,9 +394,9 @@ export function ApprovalDetail({
               <ApprovalOrigin row={current} detail />
             </dd>
             <dt className="text-muted-foreground">申请时间</dt>
-            <dd>{fmtTime(row.created_at)}</dd>
+            <dd>{fmtTime(row.created_at, "seconds")}</dd>
             <dt className="text-muted-foreground">决定时间</dt>
-            <dd>{fmtTime(current.decided_at)}</dd>
+            <dd>{fmtTime(current.decided_at, "seconds")}</dd>
             {audit?.rule_name ? (
               <>
                 <dt className="text-muted-foreground">规则快照</dt>
@@ -484,7 +474,8 @@ export function ApprovalDetail({
                       <section className="flex min-w-0 flex-col gap-3">
                         <h3 className="font-medium text-muted-foreground text-xs">可见会话上下文</h3>
                         <p className="text-muted-foreground text-xs">
-                          保存于 {fmtTime(audit.captured_at)} 的会话记录片段。模型实际使用的内容以“模型审查输入”为准。
+                          保存于 {fmtTime(audit.captured_at, "seconds")}{" "}
+                          的会话记录片段。模型实际使用的内容以“模型审查输入”为准。
                         </p>
                         {audit.context_truncated ? (
                           <p className="text-muted-foreground text-xs">仅保存最近的上下文，部分内容已截断。</p>
@@ -529,7 +520,9 @@ export function ApprovalDetail({
                 <div>参数摘要 SHA-256：{audit.input_digest}</div>
                 <div>审查配置指纹 SHA-256：{audit.config_digest || "未记录"}</div>
                 {audit.model_input_digest ? <div>模型审查输入 SHA-256：{audit.model_input_digest}</div> : null}
-                {audit.execution_ended_at ? <div>结果记录时间：{fmtTime(audit.execution_ended_at)}</div> : null}
+                {audit.execution_ended_at ? (
+                  <div>结果记录时间：{fmtTime(audit.execution_ended_at, "seconds")}</div>
+                ) : null}
               </dl>
             </div>
           </CollapsibleContent>
@@ -648,10 +641,10 @@ function ApprovalTable({
                   <StatusBadge status={row.status} />
                 </TableCell>
                 <TableCell className="hidden text-muted-foreground text-xs lg:table-cell">
-                  {fmtTime(row.created_at)}
+                  {fmtTime(row.created_at, "seconds")}
                 </TableCell>
                 <TableCell className="hidden text-muted-foreground text-xs xl:table-cell">
-                  {fmtTime(row.decided_at)}
+                  {fmtTime(row.decided_at, "seconds")}
                 </TableCell>
               </TableRow>
               {open ? (

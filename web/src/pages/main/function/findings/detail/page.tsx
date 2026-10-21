@@ -22,6 +22,7 @@ import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
+import { fmtTime } from "@/lib/format";
 import { statusMeta } from "@/lib/status";
 import type { Finding, FindingStatus, Severity } from "@/lib/types";
 
@@ -39,10 +40,6 @@ const FINDING_STATUSES: FindingStatus[] = [
   "duplicate",
   "risk_accepted",
 ];
-
-function fmtTime(ts: string) {
-  return new Date(ts).toLocaleString("zh-CN");
-}
 
 // FieldRow is one label/value line in the right-hand status panel.
 function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
@@ -318,7 +315,7 @@ function FindingDetailInner() {
 
                 {/* 发现时间 */}
                 <FieldRow label="发现时间">
-                  <span className="tabular-nums">{fmtTime(finding.ts)}</span>
+                  <span className="tabular-nums">{fmtTime(finding.ts, "datetime")}</span>
                 </FieldRow>
               </CardContent>
             </Card>
