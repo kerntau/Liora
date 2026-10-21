@@ -76,3 +76,20 @@ func TestObservabilityStaysQuietOnSuccess(t *testing.T) {
 		t.Fatalf("successful request logged: %q", buf.String())
 	}
 }
+
+func TestObservabilityMarksAPINoStore(t *testing.T) {
+	h := withObservability(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/tasks", nil))
+	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("API Cache-Control=%q, want no-store", got)
+	}
+
+	spa := httptest.NewRecorder()
+	h.ServeHTTP(spa, httptest.NewRequest(http.MethodGet, "/function/tasks", nil))
+	if got := spa.Header().Get("Cache-Control"); got != "" {
+		t.Fatalf("SPA Cache-Control=%q, want empty", got)
+	}
+}

@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 
+import { assetLabel, Chips, firstText, MethodBadge, PAGE_SIZES, statusTone } from "@/components/asset-cells";
 import { AssetDslSearch } from "@/components/asset-dsl-search";
 import { ScopeTextEditor } from "@/components/scope-text-editor";
 import {
@@ -45,18 +46,6 @@ import { taskAssetSourceLabel } from "@/lib/task-assets";
 import type { Asset, NewAssetType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const PAGE_SIZES = [25, 50, 100, 200];
-
-const METHOD_COLOR: Record<string, string> = {
-  DELETE: "bg-red-100 text-red-700",
-  GET: "bg-emerald-100 text-emerald-700",
-  HEAD: "bg-purple-100 text-purple-700",
-  OPTIONS: "bg-slate-100 text-slate-600",
-  PATCH: "bg-orange-100 text-orange-700",
-  POST: "bg-blue-100 text-blue-700",
-  PUT: "bg-amber-100 text-amber-700",
-};
-
 const TABS: { key: NewAssetType; label: string; icon: LucideIcon }[] = [
   { key: "root_domain", label: "根域名", icon: GlobeIcon },
   { key: "ip", label: "IP", icon: NetworkIcon },
@@ -66,70 +55,11 @@ const TABS: { key: NewAssetType; label: string; icon: LucideIcon }[] = [
   { key: "endpoint", label: "接口", icon: LinkIcon },
 ];
 
-function firstText(values: Array<string | undefined>, fallback: string): string {
-  return values.find((value) => value?.trim()) ?? fallback;
-}
-
-function assetLabel(asset: Asset): string {
-  switch (asset.type) {
-    case "root_domain":
-    case "subdomain":
-      return firstText([asset.domain], `#${asset.id}`);
-    case "ip":
-      return firstText([asset.ip], `#${asset.id}`);
-    case "app":
-      return firstText([asset.app_name, asset.url], `#${asset.id}`);
-    case "service": {
-      const host = firstText([asset.ip, asset.domain], "");
-      const address = [host, asset.port].filter((value) => value !== undefined && value !== "").join(":");
-      return firstText([asset.url, address, asset.service_name], `#${asset.id}`);
-    }
-    case "endpoint":
-      return firstText([[asset.method, asset.url].filter(Boolean).join(" ")], `#${asset.id}`);
-  }
-}
-
-function MethodBadge({ method }: { method: string }) {
-  const normalized = method.toUpperCase();
-  return (
-    <span
-      className={cn(
-        "inline-block rounded px-1.5 py-0.5 font-mono font-semibold text-[10px] leading-none",
-        METHOD_COLOR[normalized] ?? "bg-muted text-muted-foreground",
-      )}
-    >
-      {normalized || "—"}
-    </span>
-  );
-}
-
-function statusTone(code: number) {
-  if (code >= 500) return "text-red-500";
-  if (code >= 400) return "text-amber-500";
-  if (code >= 300) return "text-blue-500";
-  if (code >= 200) return "text-emerald-500";
-  return "text-muted-foreground";
-}
-
 function fmtBytes(value?: number | null) {
   if (!value || !Number.isFinite(value) || value <= 0) return "—";
   const units = ["B", "KB", "MB"];
   const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
   return `${index === 0 ? value : (value / 1024 ** index).toFixed(1)} ${units[index]}`;
-}
-
-function Chips({ items, mono }: { items: string[]; mono?: boolean }) {
-  const clean = items.filter(Boolean);
-  if (clean.length === 0) return <span className="text-muted-foreground text-xs">—</span>;
-  return (
-    <div className="flex flex-wrap gap-1">
-      {clean.map((item) => (
-        <Badge key={item} variant="outline" className={cn(mono && "font-mono")}>
-          {item}
-        </Badge>
-      ))}
-    </div>
-  );
 }
 
 function SourceCell({ asset }: { asset: Asset }) {

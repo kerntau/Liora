@@ -50,6 +50,12 @@ func newWebUIHandler(root fs.FS) (http.Handler, error) {
 		}
 		name := strings.TrimPrefix(p, "/")
 		if info, err := fs.Stat(root, name); err == nil && !info.IsDir() {
+			// Rsbuild emits content-hashed bundles under /static/, so a cached copy
+			// can never go stale. Without this header the embedded build re-sends
+			// the ~1.4 MB main chunk on every cold navigation.
+			if strings.HasPrefix(p, "/static/") {
+				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			}
 			http.ServeFileFS(w, r, root, name)
 			return
 		}

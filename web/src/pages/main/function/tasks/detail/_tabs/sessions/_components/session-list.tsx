@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { statusMeta } from "@/lib/status";
 import type { Session, SessionStatus, TokenTotal } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -104,9 +105,11 @@ function SessionItem({
       <button
         type="button"
         onClick={onClick}
+        aria-current={active ? "true" : undefined}
         className="flex min-w-0 flex-1 items-center gap-1 px-2 py-1.5 text-left text-sm"
       >
         {icon ?? <span className="size-3.5 shrink-0" />}
+        {s.role === "worker" && !deleted && <span className="sr-only">{statusMeta("intent", s.status).label}</span>}
         {s.intent_id && (
           <span className="shrink-0 rounded bg-muted px-1 py-0.5 font-mono text-[10px] tabular-nums text-muted-foreground">
             #{s.intent_id}

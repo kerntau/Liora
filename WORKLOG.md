@@ -66,3 +66,13 @@
 [T11.5][14:18] 仪表盘拆分｜1351 → 379 行，11 个组件 + usePolling｜typecheck/test/build 0｜merge c0c0309
 [T11.6][14:24] e2e 回归｜新增 5 个用例 × 双模式｜首次调试修正 token 前置与可访问名定位｜10/10 通过
 [T11.7][14:44] 全量复验｜go test -p 1 ./... 15 包全绿；typecheck 0；npm test 29/29；build 0；e2e 72/72｜命令输出｜第五轮交付完成
+
+[T12][14:56] 第六轮启动：查询效率与错误可定位｜4 个实施会话｜峰值 4
+[T12.1][15:00] API no-store｜/api/* 响应禁止缓存，SPA 静态资源不受影响｜server 测试通过｜提交 9f99a8b
+[T12.2][15:01] 静态资源缓存｜/static/* immutable 一年，index 仍 no-cache｜测试通过｜提交 98dd00a
+[T12.3][15:02] CORS 暴露请求 ID｜跨源可读 X-Request-Id｜测试通过｜提交 12e6b05
+[T12.4][15:03] 5xx 请求 ID｜withRequestId + http() 包装 + 4 个用例｜typecheck/test/build 0｜merge f422281
+[T12.5][15:04] 资产组件去重｜asset-cells.tsx，两页显示不变｜typecheck/build/test 0｜merge d170219
+[T12.6][15:06] stats SQL 聚合｜KindStateCounts + 500 语义 + 2 个测试｜go test db/server 全绿｜merge 224a83a
+[T12.7][15:08] 可访问性｜资产勾选/分页、漏洞详情下拉、会话附件与当前项｜typecheck/build/test 0｜merge dcd8606
+[T12.8][15:20] e2e 复验｜embedded 36/36 通过；rsbuild 受主机内存阻塞（rspack panic os error 1455），分块仅 mui-system/editors/controls 10/10 通过｜命令输出｜环境限制，已记录

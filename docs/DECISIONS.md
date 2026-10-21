@@ -689,3 +689,61 @@ P0—P3 已完成并记录，立即进入 P4；不等待用户回复。施工采
 - findings 未知任务从 200 [] 改为 404 是契约变化（CONTRACT 10.1），前端已同步。
 - 启动清理孤儿触发器只删除 agent 已不存在的行；回滚为移除调用。
 - 已知偏差：仪表盘 token 仍为 2.0M 风格；请求序号只丢弃旧响应，不取消在途请求。
+
+---
+
+## 2026-10-21 14:56 第六轮：查询效率与错误可定位（多会话并行）
+
+- 时间戳：2026-10-21 14:56 +08:00（Asia/Shanghai）
+- 基线：main @ 5a8d0ff；第五轮验证（go test / typecheck / npm test / build / e2e 72/72）通过。
+- 用户指令：没让停就持续优化。
+
+### 目标冻结（G17—G20）
+
+1. **G17 查询效率**：/api/stats 不再全量读取节点，改 SQL 聚合。
+2. **G18 错误可定位**：5xx 前端提示携带请求 ID；API 不缓存；静态资源可长期缓存；跨源可读请求 ID。
+3. **G19 前端复用**：资产页与任务资产页的重复展示组件收敛。
+4. **G20 可访问性**：资产/漏洞详情/会话详情/会话列表的真实可访问名缺口。
+
+### 多会话分工（4 个实施会话，峰值 4）
+
+| 会话 | 分支 | 内容 |
+| --- | --- | --- |
+| backend-stats | perf/stats-counts | KindStateCounts + stats handler + 测试 |
+| request-id | feat/request-id | withRequestId + http() 5xx 附加 id + 测试 |
+| asset-cells | refactor/asset-cells | asset-cells.tsx 抽取（MethodBadge/statusTone/Chips/PAGE_SIZES/assetLabel） |
+| a11y | a11y/asset-finding-session | 9 处可访问名/状态文本 |
+
+主会话并行完成：API no-store、静态资源 immutable 缓存、CORS 暴露 X-Request-Id。
+
+### 裁决
+
+| 项 | 裁决 | 理由 |
+| --- | --- | --- |
+| 合并两份 AssetCard | 不做 | 分页/多选/空态结构不同，合并会改变视觉 |
+| stats 失败返回 500 | 做 | 与「读失败显式化」原则一致 |
+| 4xx 也附请求 ID | 不做 | 参数错误无需对日志，避免噪音 |
+| 跨源 Expose-Headers | 做 | 否则跨源部署读不到 id |
+
+### 交付分支与合并
+
+| 分支 | 合并 |
+| --- | --- |
+| feat/request-id | f422281 |
+| refactor/asset-cells | d170219 |
+| perf/stats-counts | 224a83a |
+| a11y/asset-finding-session | dcd8606 |
+| main 直提 | 98dd00a（静态缓存）、12e6b05（CORS 暴露 id）、9f99a8b（API no-store） |
+
+### 验证
+
+- go build ./...、go vet ./...、go test -p 1 ./... -count=1：15 包全绿。
+- npm run typecheck、npm test（33/33）、npm run build：通过。
+- npm run test:e2e --project=embedded：36 passed / 0 failed（完整套件）。
+- npm run test:e2e --project=rsbuild：受主机提交内存耗尽阻塞。rspack dev server 多次 panic（unable to allocate fiber: 页面文件太小, os error 1455），表现为部分用例通过后 ERR_CONNECTION_REFUSED 或懒加载 chunk 卡在「正在加载…」；同一主机在第五轮曾完整通过 72/72，属环境退化而非代码回归。分块运行仅 chunk 3（mui-system/mui-editors/mui-controls）10/10 通过，其余块在 panic 后中断。
+
+### 风险与回滚
+
+- stats 语义变化（错误由 0 变 500）已写入 CONTRACT 11.1；回滚对应 merge。
+- asset-cells 的 Chips dense 参数保留两页原有字号；未做浏览器视觉回归，e2e 覆盖资产页交互。
+- 请求 ID 只改 http()；fetchBlobText 等直连请求不带 id。

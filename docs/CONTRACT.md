@@ -287,3 +287,41 @@ GET /api/report?task=<task_id>
 
 - 仪表盘 token 仍显示 2.0M 风格（与 lib/format 的 2M 不同），未统一。
 - 任务页/会话页的部分刷新仍可能比轮询更早到达（请求序号负责丢弃旧响应，不是取消请求）。
+
+---
+
+## 11. 2026-10-21 第六轮（查询效率与错误可定位）【已实现】
+
+### 11.1 /api/stats
+
+- 不再用 ListByKind 全量读取 intent/goal 后循环计数；改用 db.KindStateCounts(kind) 的 SQL 聚合（WHERE exploration_id AND kind GROUP BY state）。
+- 响应字段不变：active_task.in_flight = intent state=running 计数，goals_total = 全部 goal 计数，goals_met = state=met 计数。
+- 读取失败返回 500 与明确文案（读取节点统计失败 / 读取意图统计失败 / 读取目标统计失败），不再静默归零。
+
+### 11.2 响应缓存与跨源头
+
+- /api/* 响应带 Cache-Control: no-store（SSE 仍可覆盖为 no-cache）。
+- 内嵌前端 /static/* 带 Cache-Control: public, max-age=31536000, immutable（文件名含内容哈希）；index.html 仍 no-cache。
+- CORS 暴露 X-Request-Id（Access-Control-Expose-Headers），跨源部署也能读取请求 ID。
+
+### 11.3 前端 5xx 错误
+
+- http() 在 status>=500 时读取 X-Request-Id，错误文案追加「（请求 ID xxxxxxxx）」；4xx 与 401 不变。
+- 空白 id 不追加；文案已含该 id 不重复。
+
+### 11.4 共享展示组件
+
+- web/src/components/asset-cells.tsx：MethodBadge、statusTone、PAGE_SIZES、Chips（dense 可选）、assetLabel、firstText。
+- 资产页与任务资产页共用；两份 AssetCard 仍各自保留（视觉结构不同）。
+
+### 11.5 可访问性
+
+- 资产页：行勾选框、全选框、每页数量下拉补可访问名。
+- 漏洞详情：返回链接、严重等级/处理状态下拉补可访问名。
+- 会话详情：附件移除按钮带文件名。
+- 会话列表：当前项 aria-current，Worker 状态补 sr-only 文本。
+
+### 11.6 本轮已知偏差
+
+- GROUP BY state 仍扫描该 kind 的匹配行（现有 (exploration_id, kind) 索引可用）。
+- /api/stats 在数据库异常时由「0」变为 500，前端会显示对应面板失败。

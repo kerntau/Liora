@@ -132,7 +132,7 @@ function FindingDetailInner() {
         <div className="flex flex-wrap items-center gap-2">
           <SidebarTrigger className="-ml-1" />
           <Button asChild variant="ghost" size="icon" className="size-7">
-            <Link href="/function/findings">
+            <Link href="/function/findings" aria-label="返回发现列表">
               <ArrowLeftIcon />
             </Link>
           </Button>
@@ -231,7 +231,11 @@ function FindingDetailInner() {
                     <StatusBadge domain="severity" value={finding.severity} dot />
                   ) : (
                     <Select value={finding.severity} onValueChange={(v) => changeSeverity(v as Severity)}>
-                      <SelectTrigger size="sm" className="h-7 w-auto border-none px-1 shadow-none focus-visible:ring-0">
+                      <SelectTrigger
+                        size="sm"
+                        className="h-7 w-auto border-none px-1 shadow-none focus-visible:ring-0"
+                        aria-label={`严重等级：${statusMeta("severity", finding.severity).label}`}
+                      >
                         <StatusBadge domain="severity" value={finding.severity} dot />
                       </SelectTrigger>
                       <SelectContent position="popper" align="end">
@@ -253,7 +257,11 @@ function FindingDetailInner() {
                     <StatusBadge domain="finding" value={finding.status} dot />
                   ) : (
                     <Select value={finding.status} onValueChange={(v) => changeStatus(v as FindingStatus)}>
-                      <SelectTrigger size="sm" className="h-7 w-auto border-none px-1 shadow-none focus-visible:ring-0">
+                      <SelectTrigger
+                        size="sm"
+                        className="h-7 w-auto border-none px-1 shadow-none focus-visible:ring-0"
+                        aria-label={`处理状态：${statusMeta("finding", finding.status).label}`}
+                      >
                         <StatusBadge domain="finding" value={finding.status} dot />
                       </SelectTrigger>
                       <SelectContent position="popper" align="end">

@@ -18,6 +18,9 @@ func cors(next http.Handler) http.Handler {
 		// frontend served from another origin, e.g. a separate SSE base) sends a
 		// preflight for the Bearer header, and omitting it fails the whole request.
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		// Without this a cross-origin frontend cannot read the id that ties an
+		// error message to the server log line.
+		w.Header().Set("Access-Control-Expose-Headers", "X-Request-Id")
 		w.Header().Set("Access-Control-Max-Age", "600")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(204)

@@ -29,6 +29,9 @@ func TestCORSPreflightAllowsAuthorization(t *testing.T) {
 	if !strings.Contains(strings.ToLower(allowed), "authorization") {
 		t.Fatalf("Allow-Headers=%q does not allow Authorization", allowed)
 	}
+	if exposed := w.Header().Get("Access-Control-Expose-Headers"); !strings.Contains(exposed, "X-Request-Id") {
+		t.Fatalf("Expose-Headers=%q does not expose X-Request-Id", exposed)
+	}
 }
 
 func TestRecoverPanicReturnsJSONError(t *testing.T) {

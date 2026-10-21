@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -69,6 +70,13 @@ func withObservability(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := newRequestID()
 		w.Header().Set("X-Request-Id", id)
+		// API responses carry task, credential and evidence data; browsers and
+		// intermediate proxies must not cache them. The embedded SPA's hashed
+		// assets keep their own caching (this branch is /api only), and an SSE
+		// handler may still override Cache-Control with no-cache.
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			w.Header().Set("Cache-Control", "no-store")
+		}
 		rec := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		start := time.Now()
 		defer func() {

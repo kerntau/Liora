@@ -103,6 +103,7 @@ function Composer({
                   className="ml-0.5 text-muted-foreground hover:text-foreground"
                   onClick={() => onRemoveAttachment(a.path)}
                   title="移除"
+                  aria-label={`移除附件 ${a.name}`}
                 >
                   <XIcon className="size-3" />
                 </button>

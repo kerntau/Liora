@@ -931,23 +931,31 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request) {
 	}
 	out["llm_configured"] = s.engine.ReadyFor(t)
 
-	st, _ := t.Store.Stats()
+	st, err := t.Store.Stats()
+	if err != nil {
+		writeErr(w, 500, "读取节点统计失败")
+		return
+	}
 	out["exploration"] = st
 
 	// per-task running state + heartbeat (distinct from "LLM configured").
-	intents, _ := t.Store.ListByKind(db.KindIntent, 100000)
-	inFlight := 0
-	for _, in := range intents {
-		if in.State == "running" {
-			inFlight++
-		}
+	// Count in SQL: the dashboard polls this every 5s, so listing every intent/goal
+	// row just to count states would materialize the whole task's nodes each time.
+	intentStates, err := t.Store.KindStateCounts(db.KindIntent)
+	if err != nil {
+		writeErr(w, 500, "读取意图统计失败")
+		return
 	}
-	goals, _ := t.Store.ListByKind(db.KindGoal, 10000)
-	goalsMet := 0
-	for _, g := range goals {
-		if g.State == "met" {
-			goalsMet++
-		}
+	inFlight := intentStates["running"]
+	goalStates, err := t.Store.KindStateCounts(db.KindGoal)
+	if err != nil {
+		writeErr(w, 500, "读取目标统计失败")
+		return
+	}
+	goalsMet := goalStates["met"]
+	goalsTotal := 0
+	for _, n := range goalStates {
+		goalsTotal += n
 	}
 	last := s.engine.LastActivity(t.ID)
 	paused := s.engine.IsPaused(t.ID)
@@ -978,7 +986,7 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request) {
 		"llm_in_flight": activeCalls,
 		"last_activity": last,
 		"stalled":       stalled,
-		"goals_total":   len(goals),
+		"goals_total":   goalsTotal,
 		"goals_met":     goalsMet,
 	}
 	writeJSON(w, 200, out)

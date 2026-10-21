@@ -66,3 +66,24 @@ func TestSPAFailsWithoutBuildManifest(t *testing.T) {
 		t.Fatal("missing manifest accepted")
 	}
 }
+
+func TestSPAStaticAssetsAreImmutable(t *testing.T) {
+	h, err := newWebUIHandler(fstest.MapFS{
+		"routes.json":   {Data: []byte("{\"home\":\"/\"}")},
+		"index.html":    {Data: []byte("<!doctype html>")},
+		"static/app.js": {Data: []byte("console.log('liora')")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/static/app.js", nil))
+	if got := w.Header().Get("Cache-Control"); got != "public, max-age=31536000, immutable" {
+		t.Fatalf("static Cache-Control=%q", got)
+	}
+	index := httptest.NewRecorder()
+	h.ServeHTTP(index, httptest.NewRequest("GET", "/", nil))
+	if got := index.Header().Get("Cache-Control"); got != "no-cache" {
+		t.Fatalf("index Cache-Control=%q, want no-cache", got)
+	}
+}

@@ -6,6 +6,7 @@ import { auth } from "./auth";
 // are passed through and formatted at the call site.
 
 import { reportErrorMessage } from "./report-error";
+import { withRequestId } from "./request-id";
 import type { ChatMention } from "@/lib/chat-mentions";
 import type {
   ActiveFindingRetest,
@@ -103,6 +104,7 @@ export async function http<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (!r.ok) {
     const fallback = `${init?.method ?? "GET"} ${path}: ${r.status}`;
+    const requestId = r.headers.get("X-Request-Id");
     let message = fallback;
     try {
       const payload = (await r.json()) as { error?: unknown };
@@ -112,6 +114,9 @@ export async function http<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       // Keep the status-based fallback for empty or non-JSON error responses.
     }
+    // Only 5xx carries the request id: those are the responses whose log entry
+    // pairs with the id. 4xx stays as-is so validation noise does not grow.
+    if (r.status >= 500) message = withRequestId(message, requestId);
     throw new Error(message);
   }
   if (r.status === 204) return undefined as T;

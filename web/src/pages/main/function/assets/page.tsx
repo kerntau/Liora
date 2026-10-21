@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 
+import { Chips, MethodBadge, PAGE_SIZES, statusTone } from "@/components/asset-cells";
 import { AssetDslSearch } from "@/components/asset-dsl-search";
 import { AsyncState } from "@/components/async-state";
 import { ScopeTextEditor } from "@/components/scope-text-editor";
@@ -64,40 +65,6 @@ import { api } from "@/lib/api";
 import { parseCompanyScopeText } from "@/lib/company-scope";
 import type { Asset, Company, CompanyScopeRule } from "@/lib/types";
 import { cn } from "@/lib/utils";
-
-const METHOD_COLOR: Record<string, string> = {
-  GET: "bg-emerald-100 text-emerald-700",
-  POST: "bg-blue-100 text-blue-700",
-  PUT: "bg-amber-100 text-amber-700",
-  PATCH: "bg-orange-100 text-orange-700",
-  DELETE: "bg-red-100 text-red-700",
-  HEAD: "bg-purple-100 text-purple-700",
-  OPTIONS: "bg-slate-100 text-slate-600",
-};
-
-function MethodBadge({ method }: { method: string }) {
-  const m = method.toUpperCase();
-  return (
-    <span
-      className={cn(
-        "inline-block rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold leading-none",
-        METHOD_COLOR[m] ?? "bg-muted text-muted-foreground",
-      )}
-    >
-      {m || "—"}
-    </span>
-  );
-}
-
-function statusTone(code: number) {
-  if (code >= 500) return "text-red-500";
-  if (code >= 400) return "text-amber-500";
-  if (code >= 300) return "text-blue-500";
-  if (code >= 200) return "text-emerald-500";
-  return "text-muted-foreground";
-}
-
-const PAGE_SIZES = [25, 50, 100, 200];
 
 const TABS: { key: string; label: string; icon: LucideIcon }[] = [
   { key: "company", label: "企业", icon: BuildingIcon },
@@ -469,7 +436,11 @@ export default function AssetsPage() {
             {slice(tabData("root_domain")).map((a) => (
               <TableRow key={a.id} className={selected.has(a.id) ? "bg-muted/40" : undefined}>
                 <TableCell className="w-8 pr-0">
-                  <Checkbox checked={selected.has(a.id)} onCheckedChange={() => toggleSelect(a.id)} />
+                  <Checkbox
+                    checked={selected.has(a.id)}
+                    onCheckedChange={() => toggleSelect(a.id)}
+                    aria-label={`选择资产 ${a.domain || a.id}`}
+                  />
                 </TableCell>
                 <TableCell className="font-mono text-xs font-medium">{a.domain}</TableCell>
                 <TableCell className="text-xs">{a.icp || "—"}</TableCell>
@@ -511,17 +482,22 @@ export default function AssetsPage() {
             {slice(tabData("ip")).map((a) => (
               <TableRow key={a.id} className={selected.has(a.id) ? "bg-muted/40" : undefined}>
                 <TableCell className="w-8 pr-0">
-                  <Checkbox checked={selected.has(a.id)} onCheckedChange={() => toggleSelect(a.id)} />
+                  <Checkbox
+                    checked={selected.has(a.id)}
+                    onCheckedChange={() => toggleSelect(a.id)}
+                    aria-label={`选择资产 ${a.ip || a.id}`}
+                  />
                 </TableCell>
                 <TableCell className="font-mono text-xs font-medium">{a.ip}</TableCell>
                 <TableCell className="font-mono text-xs">{a.c_segment || "—"}</TableCell>
                 <TableCell>
-                  <Chips items={a.bound_domains ?? []} mono />
+                  <Chips items={a.bound_domains ?? []} mono dense />
                 </TableCell>
                 <TableCell>
                   <Chips
                     items={(a.open_ports ?? []).map((p) => (p.service ? `${p.port}/${p.service}` : String(p.port)))}
                     mono
+                    dense
                   />
                 </TableCell>
                 <TableCell className="w-8 pl-0">
@@ -559,7 +535,11 @@ export default function AssetsPage() {
             {slice(tabData("subdomain")).map((a) => (
               <TableRow key={a.id} className={selected.has(a.id) ? "bg-muted/40" : undefined}>
                 <TableCell className="w-8 pr-0">
-                  <Checkbox checked={selected.has(a.id)} onCheckedChange={() => toggleSelect(a.id)} />
+                  <Checkbox
+                    checked={selected.has(a.id)}
+                    onCheckedChange={() => toggleSelect(a.id)}
+                    aria-label={`选择资产 ${a.domain || a.id}`}
+                  />
                 </TableCell>
                 <TableCell className="font-mono text-xs font-medium">{a.domain}</TableCell>
                 <TableCell className="font-mono text-xs">{a.root_domain || "—"}</TableCell>
@@ -602,7 +582,11 @@ export default function AssetsPage() {
             {slice(tabData("app")).map((a) => (
               <TableRow key={a.id} className={selected.has(a.id) ? "bg-muted/40" : undefined}>
                 <TableCell className="w-8 pr-0">
-                  <Checkbox checked={selected.has(a.id)} onCheckedChange={() => toggleSelect(a.id)} />
+                  <Checkbox
+                    checked={selected.has(a.id)}
+                    onCheckedChange={() => toggleSelect(a.id)}
+                    aria-label={`选择资产 ${a.app_name || a.id}`}
+                  />
                 </TableCell>
                 <TableCell className="text-xs font-medium">{a.app_name || "—"}</TableCell>
                 <TableCell className="font-mono text-xs">{a.bundle_id || "—"}</TableCell>
@@ -661,7 +645,11 @@ export default function AssetsPage() {
               return (
                 <TableRow key={a.id} className={selected.has(a.id) ? "bg-muted/40" : undefined}>
                   <TableCell className="w-8 pr-0">
-                    <Checkbox checked={selected.has(a.id)} onCheckedChange={() => toggleSelect(a.id)} />
+                    <Checkbox
+                      checked={selected.has(a.id)}
+                      onCheckedChange={() => toggleSelect(a.id)}
+                      aria-label={`选择资产 ${a.url || a.domain || a.id}`}
+                    />
                   </TableCell>
                   <TableCell className="text-xs">
                     <Badge variant={isHttp ? "default" : "secondary"} className="font-mono text-[10px]">
@@ -686,7 +674,7 @@ export default function AssetsPage() {
                     {a.page_title || "—"}
                   </TableCell>
                   <TableCell>
-                    <Chips items={a.technologies ?? []} />
+                    <Chips items={a.technologies ?? []} dense />
                   </TableCell>
                   <TableCell>
                     {(a.auth ?? []).length === 0 ? (
@@ -740,7 +728,11 @@ export default function AssetsPage() {
             {slice(tabData("endpoint")).map((a) => (
               <TableRow key={a.id} className={selected.has(a.id) ? "bg-muted/40" : undefined}>
                 <TableCell className="w-8 pr-0">
-                  <Checkbox checked={selected.has(a.id)} onCheckedChange={() => toggleSelect(a.id)} />
+                  <Checkbox
+                    checked={selected.has(a.id)}
+                    onCheckedChange={() => toggleSelect(a.id)}
+                    aria-label={`选择资产 ${a.url || a.id}`}
+                  />
                 </TableCell>
                 <TableCell className="w-16">
                   <MethodBadge method={a.method || ""} />
@@ -755,6 +747,7 @@ export default function AssetsPage() {
                       return item.name ? `${item.name}(${item.location || "?"})` : "?";
                     })}
                     mono
+                    dense
                   />
                 </TableCell>
                 <TableCell className="w-8 pl-0">
@@ -938,6 +931,7 @@ function AssetCard({
                     <Checkbox
                       checked={allSelected ? true : someSelected ? "indeterminate" : false}
                       onCheckedChange={() => onToggleAll(pageIds)}
+                      aria-label="选择当前页全部资产"
                     />
                   </TableHead>
                 ) : (
@@ -952,7 +946,7 @@ function AssetCard({
       {total > 0 && (
         <div className="flex shrink-0 items-center gap-2 border-t px-3 py-1.5 text-xs text-muted-foreground">
           <Select value={String(size)} onValueChange={(v) => onSize(Number(v))}>
-            <SelectTrigger size="sm" className="h-7 w-24">
+            <SelectTrigger size="sm" className="h-7 w-24" aria-label="每页数量">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -998,20 +992,6 @@ function AssetCard({
         </div>
       )}
     </Card>
-  );
-}
-
-function Chips({ items, mono }: { items: string[]; mono?: boolean }) {
-  const clean = items.filter(Boolean);
-  if (clean.length === 0) return <span className="text-xs text-muted-foreground">—</span>;
-  return (
-    <div className="flex flex-wrap gap-1">
-      {clean.map((s, i) => (
-        <Badge key={i} variant="outline" className={cn("text-[10px]", mono && "font-mono")}>
-          {s}
-        </Badge>
-      ))}
-    </div>
   );
 }
 
