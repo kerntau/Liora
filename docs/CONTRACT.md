@@ -353,3 +353,23 @@ GET /api/report?task=<task_id>
 - MCP：传输方式按钮组关联 Label。
 - 技能：调用次数通过 aria-describedby 暴露；MCP 关联与可见性分组关联 Label。
 - 工具：绑定 Agent 分组关联 Label（内置工具与自定义工具两处）。
+
+---
+
+## 13. 2026-10-21 第八轮（认证错误与性能基线）【已实现】
+
+### 13.1 认证接口的 5xx 文案
+
+- authInit / authChangePassword 的保存失败返回通用文案「保存失败，请查看服务端日志」，底层错误只写服务端日志。
+- authLogin 读取密码配置失败返回 500「读取登录配置失败」，且不计入 IP 失败限流（数据库故障不应消耗合法用户的登录额度）。
+- 401/403 文案与语义不变。
+
+### 13.2 数据库关闭
+
+- db.DB.Close 在关闭连接前 best-effort 执行 PRAGMA optimize 与 PRAGMA wal_checkpoint(TRUNCATE)；只返回底层 Close 错误，重复 Close 行为不变。
+
+### 13.3 热点查询基线
+
+- db/bench_hot_paths_test.go：KindStateCounts、TaskListMetricsAll、ListFindingsPage、FindingGroups，各自独立临时库、单事务 fixture。
+- 运行：go test ./db -bench 'Benchmark(KindStateCounts|TaskListMetricsAll|ListFindingsPage|FindingGroups)$' -benchmem -run '^$'
+- 本机 1x 基线（Ryzen 7 7840HS）：KindStateCounts 404µs/op（2000 intent）、TaskListMetricsAll 8.07ms/op（20 任务）、ListFindingsPage 4.37ms/op（5000 发现）、FindingGroups 10.86ms/op。

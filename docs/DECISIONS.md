@@ -806,3 +806,46 @@ P0—P3 已完成并记录，立即进入 P4；不等待用户回复。施工采
 - 覆盖索引：10 万节点约 +2.5MB、写入 +12.8%，读取约 4.5×；回滚为 DROP INDEX。
 - server 拆分：纯移动，回滚为 revert 247254d。
 - 主机内存限制需重启后复跑 build 与 e2e。
+
+---
+
+## 2026-10-21 15:55 第八轮：认证错误与性能基线（多会话并行）
+
+- 时间戳：2026-10-21 15:55 +08:00（Asia/Shanghai）
+- 基线：main @ 6110bc3；第七轮 Go 全绿、typecheck/npm test 通过；前端构建受主机内存阻塞。
+- 用户指令：持续优化。
+
+### 目标（G25—G27）
+
+1. **G25 认证错误收敛**：认证接口 5xx 不回显数据库内部错误。
+2. **G26 关闭优化**：关闭前持久化规划器统计并截断 WAL。
+3. **G27 性能基线**：四个热点查询的可复现基准。
+
+### 分工
+
+| 会话 | 分支 | 内容 |
+| --- | --- | --- |
+| auth-errors-db-close | fix/auth-errors-db-close | 认证错误收敛 + DB Close |
+| benchmarks | perf/benchmarks | 四个热点基准（合并旧 counts_bench） |
+| audit | （只读） | traffic/agent/enrich 等未覆盖包的审计，因环境中断未产出，已重新发起 |
+
+执行偏差：两个实施会话在提交前被环境中断，改动已就绪；主会话复验后代为提交并合并。
+
+### 交付与合并
+
+| 分支 | 合并 |
+| --- | --- |
+| fix/auth-errors-db-close | 2ee7edb |
+| perf/benchmarks | a9dc583 |
+
+### 验证
+
+- go build ./...、go vet ./...、go test -p 1 ./... -count=1：15 包全绿。
+- 基准可运行并记录基线（见 CONTRACT 13.3）。
+- npm run build：仍受主机提交内存耗尽阻塞（commit 42.8GB / 上限 44.4GB，rspack os error 1455）；本轮无前端改动，第七轮前端改动已 typecheck 通过。
+
+### 风险与回滚
+
+- authLogin 读取配置失败不再计限流：数据库故障期间不消耗额度；回滚 revert 对应提交。
+- db.Close 的 PRAGMA 为 best-effort；回滚删除 Close 覆盖即可。
+- 基准文件仅测试，无生产影响。

@@ -131,6 +131,18 @@ func (s *Server) requireAuth(h http.Handler) http.Handler {
 	})
 }
 
+// writeAuthInternalErr answers a failed auth request with a generic 500 and keeps
+// the underlying error in the server log. The auth endpoints are the ones a
+// caller reaches WITHOUT a token (init/login) or before any trust is established
+// (change-password validates only the token it was handed), so a driver message
+// such as "database is closed", a SQL fragment or a filesystem path must never
+// be echoed back. writeErr still records the 500 itself; this only adds the
+// detail the client is not allowed to see.
+func writeAuthInternalErr(w http.ResponseWriter, publicMsg string, err error) {
+	log.Printf("[auth] %s: %v", publicMsg, err)
+	writeErr(w, http.StatusInternalServerError, publicMsg)
+}
+
 // GET /api/auth/status — reports whether the admin password has been initialised.
 func (s *Server) authStatus(w http.ResponseWriter, r *http.Request) {
 	pg := s.pg(w)
@@ -165,7 +177,7 @@ func (s *Server) authInit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := pg.SetSetting(authPassKey, string(hash)); err != nil {
-		writeErr(w, 500, "保存失败: "+err.Error())
+		writeAuthInternalErr(w, "保存失败，请查看服务端日志", err)
 		return
 	}
 	tok, err := signJWT(s.jwtKey)
@@ -215,7 +227,7 @@ func (s *Server) authChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := pg.SetSetting(authPassKey, string(newHash)); err != nil {
-		writeErr(w, 500, "保存失败: "+err.Error())
+		writeAuthInternalErr(w, "保存失败，请查看服务端日志", err)
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
@@ -350,7 +362,14 @@ func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 401, "用户名或密码错误")
 		return
 	}
-	hash, ok, _ := pg.GetSetting(authPassKey)
+	hash, ok, err := pg.GetSetting(authPassKey)
+	if err != nil {
+		// A read failure is an outage, not a bad credential: report it as such and
+		// deliberately do NOT count it against the per-IP throttle, so a database
+		// hiccup cannot burn a legitimate client's login budget.
+		writeAuthInternalErr(w, "读取登录配置失败", err)
+		return
+	}
 	if !ok || hash == "" {
 		s.recordLoginFailure(clientKey)
 		writeErr(w, 403, "密码未初始化，请先设置密码")

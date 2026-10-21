@@ -83,3 +83,10 @@
 [T13.3][15:36] server.go 拆分｜3685 → 3169 行，findings/stream 纯移动｜go test ./server 全绿｜merge 247254d
 [T13.4][15:45] 系统页可访问性｜日志级别、MCP 传输、技能调用、工具绑定｜typecheck 0｜merge f3487a9
 [T13.5][15:48] 前端构建受阻｜rspack panic os error 1455（主机提交内存耗尽），重试/关缓存/限堆均无效｜记录为环境限制｜待重启后复跑 build 与 e2e
+
+[T14][15:55] 第八轮启动：认证错误与性能基线｜2 个实施会话 + 1 个只读审计｜峰值 3
+[T14.1][16:05] 认证错误收敛｜init/change-password 通用 500，登录读配置失败不计限流｜db/server 测试全绿｜已合并
+[T14.2][16:06] DB 关闭优化｜PRAGMA optimize + wal_checkpoint(TRUNCATE)｜db 测试全绿｜已合并
+[T14.3][16:12] 热点基准｜四个 benchmark 统一到 bench_hot_paths_test.go｜1x 基线记录｜已合并
+[T14.4][16:13] 前端构建复测｜仍因主机提交内存耗尽失败（os error 1455）｜记录环境限制｜待重启
+[T14.5][16:14] traffic/agent 审计｜首个会话被中断无产出，已重新发起只读审计｜等待结论

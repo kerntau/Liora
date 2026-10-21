@@ -104,6 +104,26 @@ func Open(path string) (*DB, error) {
 	return d, nil
 }
 
+// Close persists planner statistics and truncates the WAL before handing the
+// handle back to database/sql.
+//
+// PRAGMA optimize runs first so the statistics SQLite accumulated for the query
+// planner are written into sqlite_stat1 before the connection disappears; doing
+// it once here (instead of ANALYZE on a live database) keeps plans good across
+// restarts without stalling requests. PRAGMA wal_checkpoint(TRUNCATE) then moves
+// the WAL's frames back into the main database file and shrinks the -wal file, so
+// a clean shutdown does not leave a multi-megabyte log for the next start.
+//
+// Both statements are best-effort: a reader still holding the database, or a
+// handle that is already closed, must not turn shutdown into a failure. Only the
+// underlying *sql.DB.Close() error is reported, so a repeated Close keeps the
+// previous behaviour (database/sql returns nil) and never panics.
+func (d *DB) Close() error {
+	_, _ = d.Exec("PRAGMA optimize")
+	_, _ = d.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
+	return d.DB.Close()
+}
+
 func (d *DB) initialize() error {
 	if _, err := d.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		return err
