@@ -50,6 +50,8 @@ const emptyForm: FormState = {
 export default function MCPPage() {
   const [agents, setAgents] = React.useState<Agent[]>([]);
   const [visibility, setVisibility] = React.useState<Record<number, string[]>>({});
+  const [visibilityError, setVisibilityError] = React.useState<string | null>(null);
+  const visibilitySeq = React.useRef(0);
 
   // 服务器列表走统一四态：首载骨架、失败常驻可重试；刷新保留上一份，卡片不闪空。
   const serversQ = useAsyncData(() => api.mcpServers(), []);
@@ -64,7 +66,10 @@ export default function MCPPage() {
   const [saving, setSaving] = React.useState(false);
   const [tools, setTools] = React.useState<MCPTool[]>([]);
   const [toolsLoading, setToolsLoading] = React.useState(false);
+  const [toolsError, setToolsError] = React.useState<string | null>(null);
   const [refreshing, setRefreshing] = React.useState(false);
+  // 切换服务器时旧请求可能后到；序号保证只有最新一次请求能写入工具列表。
+  const toolsSeq = React.useRef(0);
 
   // 变更后统一刷新：Agent 列表 + 服务器列表。
   const load = React.useCallback(() => {
@@ -74,15 +79,34 @@ export default function MCPPage() {
   React.useEffect(() => {
     api.agents().then(setAgents).catch(() => {});
   }, []);
-  // 可见性按服务器单独补拉，不拖慢列表首屏。
-  React.useEffect(() => {
-    for (const s of serversQ.data ?? []) {
-      api
-        .resourceVisibility("mcp", s.id)
-        .then((ids) => setVisibility((v) => ({ ...v, [s.id]: ids })))
-        .catch(() => {});
+  // 可见性按服务器批量补拉：一次刷新只发一轮并发请求，不拖慢列表首屏。
+  // 失败时明确报错，不能把"没拉到"渲染成"未授权"。
+  const loadVisibility = React.useCallback(() => {
+    const list = serversQ.data ?? [];
+    const seq = ++visibilitySeq.current;
+    if (list.length === 0) {
+      setVisibilityError(null);
+      return;
     }
+    setVisibilityError(null);
+    void Promise.all(
+      list.map((s) => api.resourceVisibility("mcp", s.id).then((ids) => [s.id, ids] as const)),
+    )
+      .then((pairs) => {
+        if (visibilitySeq.current !== seq) return;
+        setVisibility((prev) => {
+          const next = { ...prev };
+          for (const [id, ids] of pairs) next[id] = ids;
+          return next;
+        });
+      })
+      .catch(() => {
+        if (visibilitySeq.current !== seq) return;
+        setVisibilityError("权限加载失败");
+      });
   }, [serversQ.data]);
+
+  React.useEffect(() => { loadVisibility(); }, [loadVisibility]);
 
   function setF(patch: Partial<FormState>) {
     setForm((f) => ({ ...f, ...patch }));
@@ -108,9 +132,12 @@ export default function MCPPage() {
   }
 
   function openAdd() {
+    toolsSeq.current++; // 作废仍在途的工具请求，避免回填到新建表单
+    setToolsLoading(false);
     setEditing(null);
     setForm(emptyForm);
     setTools([]);
+    setToolsError(null);
     setTab("config");
     setOpen(true);
   }
@@ -132,13 +159,18 @@ export default function MCPPage() {
   }
 
   async function loadTools(id: number) {
+    const seq = ++toolsSeq.current;
     setToolsLoading(true);
+    setToolsError(null);
     try {
-      setTools(await api.mcpTools(id));
-    } catch {
-      setTools([]);
+      const list = await api.mcpTools(id);
+      if (toolsSeq.current !== seq) return;
+      setTools(list);
+    } catch (e) {
+      if (toolsSeq.current !== seq) return;
+      setToolsError((e as Error).message || "加载失败");
     } finally {
-      setToolsLoading(false);
+      if (toolsSeq.current === seq) setToolsLoading(false);
     }
   }
 
@@ -192,10 +224,14 @@ export default function MCPPage() {
 
   async function refreshTools() {
     if (!editing) return;
+    const seq = ++toolsSeq.current;
+    setToolsLoading(false); // 作废在途的 loadTools，其 finally 不再负责复位
     setRefreshing(true);
     try {
       const t = await api.refreshMcpServer(editing.id);
+      if (toolsSeq.current !== seq) return;
       setTools(t);
+      setToolsError(null);
       toast.success(`发现 ${t.length} 个工具`);
       load();
     } catch (e) {
@@ -342,6 +378,40 @@ export default function MCPPage() {
   }
 
   function renderTools() {
+    let body: React.ReactNode;
+    if (toolsLoading) {
+      body = <p className="text-muted-foreground text-sm">加载中…</p>;
+    } else if (toolsError) {
+      body = (
+        <div role="alert" className="flex flex-wrap items-center gap-2 text-destructive text-sm">
+          <span>工具列表加载失败：{toolsError}</span>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => { if (editing) void loadTools(editing.id); }}
+          >
+            重试
+          </Button>
+        </div>
+      );
+    } else if (tools.length === 0) {
+      body = <p className="text-muted-foreground text-sm">尚未发现工具，点击刷新重新获取。</p>;
+    } else {
+      body = (
+        <div className="flex flex-col divide-y">
+          {tools.map((t) => (
+            <div key={t.name} className="py-2.5">
+              <code className="font-mono text-sm">{t.name}</code>
+              {t.description && (
+                <p className="text-muted-foreground mt-0.5 text-xs leading-relaxed">
+                  {t.description}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      );
+    }
     return (
       <div className="flex flex-col gap-3 py-4">
         <div className="flex items-center justify-between">
@@ -350,24 +420,7 @@ export default function MCPPage() {
             <RefreshCwIcon className={refreshing ? "animate-spin" : ""} /> 刷新
           </Button>
         </div>
-        {toolsLoading ? (
-          <p className="text-muted-foreground text-sm">加载中…</p>
-        ) : tools.length === 0 ? (
-          <p className="text-muted-foreground text-sm">尚未发现工具，点击刷新重新获取。</p>
-        ) : (
-          <div className="flex flex-col divide-y">
-            {tools.map((t) => (
-              <div key={t.name} className="py-2.5">
-                <code className="font-mono text-sm">{t.name}</code>
-                {t.description && (
-                  <p className="text-muted-foreground mt-0.5 text-xs leading-relaxed">
-                    {t.description}
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
+        {body}
       </div>
     );
   }
@@ -441,17 +494,31 @@ export default function MCPPage() {
               </p>
               <div role="group" aria-label={`${s.name} 的 Agent 授权`} className="grid gap-2" onClick={(e) => e.stopPropagation()}>
                 <span className="text-muted-foreground text-xs">可见性（按 Agent 授权）</span>
-                <div className="flex flex-wrap gap-x-4 gap-y-2">
-                  {agents.map((a) => (
-                    <label key={a.key} className="flex items-center gap-2 text-sm">
-                      <Checkbox
-                        checked={(visibility[s.id] ?? []).includes(a.id)}
-                        onCheckedChange={() => toggleVisibility(s.id, a.id, a.name)}
-                      />
-                      {a.name}
-                    </label>
-                  ))}
-                </div>
+                {visibilityError ? (
+                  <div role="alert" className="flex flex-wrap items-center gap-2 text-destructive text-xs">
+                    <span>权限加载失败，暂无法查看或修改授权。</span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 px-2 text-xs"
+                      onClick={loadVisibility}
+                    >
+                      重试
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-x-4 gap-y-2">
+                    {agents.map((a) => (
+                      <label key={a.key} className="flex items-center gap-2 text-sm">
+                        <Checkbox
+                          checked={(visibility[s.id] ?? []).includes(a.id)}
+                          onCheckedChange={() => toggleVisibility(s.id, a.id, a.name)}
+                        />
+                        {a.name}
+                      </label>
+                    ))}
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

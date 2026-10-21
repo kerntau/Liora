@@ -478,6 +478,106 @@ func (d *DB) SetQueued(id int64, queued bool) error {
 	return d.Dequeue(id, true)
 }
 
+// TaskAdmissionResult is the row snapshot ApplyTaskAdmission committed. The
+// NullTime fields mirror the NULL-able columns; QueueMode is the committed
+// queue_mode.
+type TaskAdmissionResult struct {
+	QueuedAt    sql.NullTime
+	QueueMode   string
+	CompletedAt sql.NullTime
+	FirstRunAt  sql.NullTime
+	DeadlineAt  sql.NullTime
+}
+
+// ApplyTaskAdmission atomically commits the lifecycle fields controlled by the
+// concurrency scheduler. Keeping status, paused and queue metadata in one UPDATE
+// prevents a failed resume from leaving a task half-revived (for example running
+// but still user-paused, or dequeued without an Engine start).
+//
+// preservePosition applies only when the row is already queued. A repeated
+// admission keeps its FIFO timestamp; a task that was explicitly paused and is
+// now re-queued receives a fresh tail position.
+//
+// Any terminal -> non-terminal transition also clears first_run_at/deadline_at: a
+// revived run is a new run and must get a full timeout budget, not inherit the
+// previous run's expired clock (the Engine side mirrors this by dropping its
+// in-memory deadline/settle state).
+func (d *DB) ApplyTaskAdmission(id, expectedStatus, status string, queued bool, mode string, preservePosition bool) (TaskAdmissionResult, error) {
+	n, err := strconv.ParseInt(id, 10, 64)
+	if err != nil {
+		return TaskAdmissionResult{}, err
+	}
+	if queued {
+		if mode != "bootstrap" && mode != "resume" {
+			return TaskAdmissionResult{}, fmt.Errorf("invalid queue mode %q", mode)
+		}
+	} else {
+		mode = ""
+	}
+
+	var result TaskAdmissionResult
+	err = d.QueryRow(`UPDATE tasks
+	SET status=$2,
+	    completed_at=CASE
+	        WHEN $2 IN `+TerminalStatusSQLIn+` THEN COALESCE(completed_at, strftime('%Y-%m-%d %H:%M:%f','now'))
+	        ELSE NULL
+	    END,
+	    paused=false,
+	    queued=$3,
+	    queued_at=CASE
+	        WHEN NOT $3 THEN NULL
+	        WHEN $5 AND queued THEN COALESCE(queued_at, strftime('%Y-%m-%d %H:%M:%f','now'))
+	        ELSE strftime('%Y-%m-%d %H:%M:%f','now')
+	    END,
+	    queue_mode=CASE
+	        WHEN NOT $3 THEN ''
+	        WHEN ($5 AND queued AND queue_mode='bootstrap') OR $4='bootstrap' THEN 'bootstrap'
+	        ELSE 'resume'
+	    END,
+	    first_run_at=CASE
+	        WHEN $6 IN `+TerminalStatusSQLIn+` AND $2 NOT IN `+TerminalStatusSQLIn+` THEN NULL
+	        ELSE first_run_at
+	    END,
+	    deadline_at=CASE
+	        WHEN $6 IN `+TerminalStatusSQLIn+` AND $2 NOT IN `+TerminalStatusSQLIn+` THEN NULL
+	        ELSE deadline_at
+	    END
+	WHERE id=$1 AND deleted_at IS NULL AND status=$6
+	RETURNING queued_at, queue_mode, completed_at, first_run_at, deadline_at`, n, status, queued, mode, preservePosition, expectedStatus).
+		Scan(&result.QueuedAt, &result.QueueMode, &result.CompletedAt, &result.FirstRunAt, &result.DeadlineAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return TaskAdmissionResult{}, fmt.Errorf("task %s lifecycle changed before admission (expected status %q)", id, expectedStatus)
+	}
+	if err != nil {
+		return TaskAdmissionResult{}, err
+	}
+	return result, nil
+}
+
+// ApplyTaskPause atomically removes a task from the admission queue and records
+// the user pause. queue_mode is intentionally retained so resuming a never-run
+// bootstrap task still performs goal decomposition, but the next enqueue receives
+// a new queued_at timestamp and therefore moves to the FIFO tail.
+func (d *DB) ApplyTaskPause(id string) (string, error) {
+	n, err := strconv.ParseInt(id, 10, 64)
+	if err != nil {
+		return "", err
+	}
+	var mode string
+	err = d.QueryRow(`UPDATE tasks
+		SET paused=true, queued=false, queued_at=NULL
+		WHERE id=$1 AND deleted_at IS NULL AND paused=false
+		  AND status NOT IN `+TerminalStatusSQLIn+`
+		RETURNING COALESCE(queue_mode,'')`, n).Scan(&mode)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("task %s is unavailable for pause", id)
+	}
+	if err != nil {
+		return "", err
+	}
+	return mode, nil
+}
+
 // SetStatus updates a task's lifecycle status. Entering a terminal state
 // (done/failed/timeout) stamps completed_at once (COALESCE keeps the first stamp
 // stable); moving back to a non-terminal state clears it, so a re-run has no stale

@@ -389,35 +389,26 @@ func (i *Interceptor) GetJudgeConfig() JudgeConfig { return i.judgeConfig() }
 
 // SetJudgeConfig persists the judge configuration. An empty Prompt clears the
 // override (the built-in template is used again).
+//
+// The six keys describe one configuration, so they are written in a single
+// transaction: a partial write (say enabled=true with a stale fail action) would be a
+// configuration the user never chose, and there is no way for the UI to repair it.
 func (i *Interceptor) SetJudgeConfig(c JudgeConfig) error {
-	if err := i.db.SetBool(settingJudgeEnabled, c.Enabled); err != nil {
-		return err
-	}
-	if err := i.db.SetSetting(settingJudgeProfileID, strconv.FormatInt(c.ProfileID, 10)); err != nil {
-		return err
-	}
 	// Store the prompt only when it differs from the built-in template, so version
 	// updates to DefaultJudgePrompt flow through for users who never customized it.
 	promptToStore := ""
 	if strings.TrimSpace(c.Prompt) != "" && strings.TrimSpace(c.Prompt) != strings.TrimSpace(DefaultJudgePrompt) {
 		promptToStore = c.Prompt
 	}
-	if err := i.db.SetSetting(settingJudgePrompt, promptToStore); err != nil {
-		return err
-	}
-	if err := i.db.SetSetting(settingJudgeTimeoutSecs, strconv.Itoa(c.TimeoutSeconds)); err != nil {
-		return err
-	}
-	if err := i.db.SetSetting(settingJudgeFailAction, c.FailAction); err != nil {
-		return err
-	}
-	if err := i.db.SetSetting(settingJudgeAskTimeoutSecs, strconv.Itoa(c.AskTimeoutSeconds)); err != nil {
-		return err
-	}
-	if err := i.db.SetSetting(settingJudgeAskTimeoutAction, c.AskTimeoutAction); err != nil {
-		return err
-	}
-	return nil
+	return i.db.SetSettings(map[string]string{
+		settingJudgeEnabled:          strconv.FormatBool(c.Enabled),
+		settingJudgeProfileID:        strconv.FormatInt(c.ProfileID, 10),
+		settingJudgePrompt:           promptToStore,
+		settingJudgeTimeoutSecs:      strconv.Itoa(c.TimeoutSeconds),
+		settingJudgeFailAction:       c.FailAction,
+		settingJudgeAskTimeoutSecs:   strconv.Itoa(c.AskTimeoutSeconds),
+		settingJudgeAskTimeoutAction: c.AskTimeoutAction,
+	})
 }
 
 // Judge runs the LLM fallback judge for a tool call that matched no rule. It

@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -1837,7 +1836,12 @@ func (s *Server) frontier(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, []any{})
 		return
 	}
-	fr, _ := t.Store.Frontier(pageLimit(r.URL.Query().Get("limit"), 100))
+	fr, err := t.Store.Frontier(pageLimit(r.URL.Query().Get("limit"), 100))
+	if err != nil {
+		// A read failure must not look like "this task has no frontier".
+		writeErr(w, http.StatusInternalServerError, "读取探索前沿失败: "+err.Error())
+		return
+	}
 	writeJSON(w, 200, taskNodeDTOs(fr))
 }
 
@@ -1850,7 +1854,12 @@ func (s *Server) findings(w http.ResponseWriter, r *http.Request) {
 		// 带 page/limit → 服务端分页 {items,total,...}；不带 → 裸数组（dashboard 汇总用，
 		// 与 intents 端点的兼容策略一致）。筛选/排序统一下推到 SQL。
 		if q.Get("page") == "" && q.Get("limit") == "" {
-			fs, _ := s.m.pg.ListFindings(500)
+			fs, err := s.m.pg.ListFindings(500)
+			if err != nil {
+				// Same rule as the task report: a DB failure is a 500, never "no findings".
+				writeErr(w, http.StatusInternalServerError, "读取发现失败: "+err.Error())
+				return
+			}
 			assets := s.resolveFindingAssets(fs)
 			out := make([]FindingDTO, 0, len(fs))
 			for _, f := range fs {
@@ -2206,49 +2215,33 @@ func (s *Server) patchFinding(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "nothing to update: provide status/severity/name/vulnclass")
 		return
 	}
-	if body.Status != nil {
-		if !db.ValidFindingStatus(*body.Status) {
-			writeErr(w, 400, "bad status: "+*body.Status)
-			return
-		}
-		n, err := s.m.pg.SetFindingStatus(id, *body.Status)
-		if err != nil {
-			writeErr(w, 500, err.Error())
-			return
-		}
-		if n == 0 {
-			writeErr(w, 404, "finding not found")
-			return
-		}
+	// Apply the requested edits in field order. Each setter commits on its own
+	// (no shared transaction), exactly like the previous sequential writes: the
+	// first validation failure or 404/500 aborts the remaining fields.
+	edits := []struct {
+		value     *string
+		badPrefix string // non-empty when the field is validated; prefixes the 400
+		valid     func(string) bool
+		set       func(int64, string) (int64, error)
+	}{
+		{body.Status, "bad status: ", db.ValidFindingStatus, s.m.pg.SetFindingStatus},
+		{body.Severity, "bad severity: ", db.ValidSeverity, s.m.pg.SetFindingSeverity},
+		{body.Name, "", nil, func(id int64, v string) (int64, error) {
+			return s.m.pg.SetFindingName(id, strings.TrimSpace(v))
+		}},
+		{body.VulnClass, "", nil, func(id int64, v string) (int64, error) {
+			return s.m.pg.SetFindingVulnClass(id, strings.TrimSpace(v))
+		}},
 	}
-	if body.Severity != nil {
-		if !db.ValidSeverity(*body.Severity) {
-			writeErr(w, 400, "bad severity: "+*body.Severity)
+	for _, edit := range edits {
+		if edit.value == nil {
+			continue
+		}
+		if edit.valid != nil && !edit.valid(*edit.value) {
+			writeErr(w, 400, edit.badPrefix+*edit.value)
 			return
 		}
-		n, err := s.m.pg.SetFindingSeverity(id, *body.Severity)
-		if err != nil {
-			writeErr(w, 500, err.Error())
-			return
-		}
-		if n == 0 {
-			writeErr(w, 404, "finding not found")
-			return
-		}
-	}
-	if body.Name != nil {
-		n, err := s.m.pg.SetFindingName(id, strings.TrimSpace(*body.Name))
-		if err != nil {
-			writeErr(w, 500, err.Error())
-			return
-		}
-		if n == 0 {
-			writeErr(w, 404, "finding not found")
-			return
-		}
-	}
-	if body.VulnClass != nil {
-		n, err := s.m.pg.SetFindingVulnClass(id, strings.TrimSpace(*body.VulnClass))
+		n, err := edit.set(id, *edit.value)
 		if err != nil {
 			writeErr(w, 500, err.Error())
 			return
@@ -3682,110 +3675,4 @@ func (s *Server) getAudit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"entries": t.Guard.Audit(), "attributions": t.Guard.Attributions()})
-}
-
-// --- utils ---
-
-func cors(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
-		// Authorization must be listed explicitly: a cross-origin deployment (the
-		// frontend served from another origin, e.g. a separate SSE base) sends a
-		// preflight for the Bearer header, and omitting it fails the whole request.
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		w.Header().Set("Access-Control-Max-Age", "600")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(204)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-// recoverPanic turns a handler panic into a 500 JSON response instead of a
-// dropped connection. net/http already logs the panic, but the client then sees
-// a transport error indistinguishable from a network failure; this keeps the
-// failure explicit and lets the frontend surface the request path.
-func recoverPanic(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer func() {
-			rec := recover()
-			if rec == nil {
-				return
-			}
-			if rec == http.ErrAbortHandler {
-				panic(rec) // deliberate abort: let net/http handle it as before
-			}
-			log.Printf("[http] panic on %s %s id=%s: %v\n%s", r.Method, r.URL.Path, requestID(r.Context()), rec, debug.Stack())
-			writeErr(w, http.StatusInternalServerError, "服务器内部错误")
-		}()
-		next.ServeHTTP(w, r)
-	})
-}
-
-// maxJSONBodyBytes caps JSON request bodies. Upload endpoints take multipart
-// bodies and set their own MaxBytesReader, so they are exempt: an unbounded
-// JSON body on any other endpoint would be buffered into memory before the
-// handler can validate it.
-const maxJSONBodyBytes = 2 << 20 // 2 MiB
-
-func limitJSONBody(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Body != nil && strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "application/json") {
-			r.Body = http.MaxBytesReader(w, r.Body, maxJSONBodyBytes)
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-// securityHeaders are response-only and safe for both the JSON API and the
-// embedded SPA. No CSP is set: the build injects inline bootstrap data.
-func securityHeaders(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		h := w.Header()
-		h.Set("X-Content-Type-Options", "nosniff")
-		h.Set("Referrer-Policy", "same-origin")
-		h.Set("X-Frame-Options", "DENY")
-		next.ServeHTTP(w, r)
-	})
-}
-
-func writeJSON(w http.ResponseWriter, code int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeErr(w http.ResponseWriter, code int, msg string) {
-	writeJSON(w, code, map[string]any{"error": msg})
-}
-
-func atoiDefault(s string, d int) int {
-	if n, err := strconv.Atoi(s); err == nil {
-		return n
-	}
-	return d
-}
-
-// maxReadPageSize bounds a client-supplied ?limit/?size on the read endpoints.
-// Several handlers pass the raw query value straight into a SQL LIMIT, so without
-// a ceiling `?limit=1000000000` turns one request into a full-table scan that
-// materializes every row (and its DTO) in memory before the JSON is written —
-// enough to OOM the process on a long-lived task. Sibling endpoints already clamp
-// by hand (activityHistory, getLogsHistory); this keeps the rule in one place.
-const maxReadPageSize = 500
-
-// pageLimit parses a client page size and clamps it to [1, maxReadPageSize].
-// Missing/invalid/non-positive values fall back to def, matching the DB helpers
-// that treat limit<=0 as "use the default".
-func pageLimit(raw string, def int) int {
-	limit := atoiDefault(raw, def)
-	if limit <= 0 {
-		limit = def
-	}
-	if limit > maxReadPageSize {
-		limit = maxReadPageSize
-	}
-	return limit
 }

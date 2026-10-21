@@ -191,6 +191,24 @@ func FromEnv() (Config, bool) {
 	return c, true
 }
 
+// NormalizeBaseURL trims a UI-provided base URL and strips the provider's own
+// endpoint suffix, so callers receive the API base the provider expects (the
+// provider appends the endpoint path itself). A full endpoint URL is tolerated.
+func NormalizeBaseURL(provider, baseURL string) string {
+	b := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	switch strings.TrimSpace(provider) {
+	case "openai":
+		// provider appends "/chat/completions".
+		return strings.TrimRight(strings.TrimSuffix(b, "/chat/completions"), "/")
+	case "openai-responses":
+		// provider appends "/responses".
+		return strings.TrimRight(strings.TrimSuffix(b, "/responses"), "/")
+	default:
+		// provider appends "/v1/messages".
+		return strings.TrimRight(strings.TrimSuffix(b, "/v1/messages"), "/")
+	}
+}
+
 // ConfigFrom builds a Config from UI-provided strings (provider defaults to
 // anthropic; model defaults per provider). Inputs are trimmed and the base URL
 // is normalized to the API base the provider expects (the provider appends the
@@ -198,7 +216,7 @@ func FromEnv() (Config, bool) {
 func ConfigFrom(provider, model, baseURL, apiKey, proxy string) Config {
 	c := Config{
 		Model:   strings.TrimSpace(model),
-		BaseURL: strings.TrimRight(strings.TrimSpace(baseURL), "/"),
+		BaseURL: NormalizeBaseURL(provider, baseURL),
 		APIKey:  strings.TrimSpace(apiKey),
 		Proxy:   strings.TrimSpace(proxy),
 		Stream:  true, // 默认流式;调用方按 profile 覆盖
@@ -206,22 +224,16 @@ func ConfigFrom(provider, model, baseURL, apiKey, proxy string) Config {
 	switch strings.TrimSpace(provider) {
 	case "openai":
 		c.Format = llm.FormatOpenAI
-		// provider appends "/chat/completions"; tolerate a full endpoint URL.
-		c.BaseURL = strings.TrimRight(strings.TrimSuffix(c.BaseURL, "/chat/completions"), "/")
 		if c.Model == "" {
 			c.Model = "gpt-4o"
 		}
 	case "openai-responses":
 		c.Format = llm.FormatOpenAIResponses
-		// provider appends "/responses"; tolerate a full endpoint URL.
-		c.BaseURL = strings.TrimRight(strings.TrimSuffix(c.BaseURL, "/responses"), "/")
 		if c.Model == "" {
 			c.Model = "gpt-5"
 		}
 	default:
 		c.Format = llm.FormatAnthropic
-		// provider appends "/v1/messages".
-		c.BaseURL = strings.TrimRight(strings.TrimSuffix(c.BaseURL, "/v1/messages"), "/")
 		if c.Model == "" {
 			c.Model = "claude-opus-4-8"
 		}

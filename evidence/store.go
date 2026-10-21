@@ -387,7 +387,8 @@ func (s *Store) Collect(ctx context.Context, now time.Time) error {
 		return err
 	}
 	defer s.restoreMu.Unlock()
-	return s.DB.WithEvidenceTx(ctx, func(tx *sql.Tx) error {
+	var orphans []string
+	err := s.DB.WithEvidenceTx(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.Exec(`UPDATE traffic_evidence_snapshots SET unreferenced_at=$1
 WHERE unreferenced_at IS NULL AND NOT EXISTS(SELECT 1 FROM finding_traffic_bindings b WHERE b.snapshot_id=traffic_evidence_snapshots.id)`, now); err != nil {
 			return err
@@ -415,21 +416,53 @@ AND NOT EXISTS(SELECT 1 FROM finding_traffic_bindings b WHERE b.snapshot_id=traf
 			return err
 		}
 		for _, root := range []string{filepath.Join(s.Dir, "blobs"), filepath.Join(s.Dir, ".staging")} {
-			if err := sweepOrphans(root, refs, now, os.Remove); err != nil {
+			found, err := collectOrphans(root, refs, now)
+			if err != nil {
 				return err
 			}
+			orphans = append(orphans, found...)
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	// Blob files are removed only AFTER the metadata transaction commits. Deleting
+	// them inside the tx meant a rollback could resurrect snapshot rows whose blob
+	// was already gone, and the directory walk held SQLite's single writer lock for
+	// its whole duration. A failed removal is logged and retried next pass.
+	for _, path := range orphans {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			log.Printf("[evidence] GC 本轮跳过 %s：%v", path, err)
+		}
+	}
+	return nil
 }
 
 // sweepOrphans deletes unreferenced bodies under root that are older than the
-// 24h grace window. A file that cannot be removed is logged and skipped instead of
-// aborting the pass: Windows keeps a freshly written blob open for a moment, and
-// aborting would push every other orphan back by a full hour. remove is a
+// 24h grace window. It is the standalone form of the GC step; Collect uses
+// collectOrphans so removals happen after its transaction commits. remove is a
 // parameter so the "keep going" rule can be tested without an undeletable file.
 func sweepOrphans(root string, refs map[string]bool, now time.Time, remove func(string) error) error {
-	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+	paths, err := collectOrphans(root, refs, now)
+	if err != nil {
+		return err
+	}
+	for _, path := range paths {
+		if err := remove(path); err != nil && !os.IsNotExist(err) {
+			log.Printf("[evidence] GC 本轮跳过 %s：%v", path, err)
+		}
+	}
+	return nil
+}
+
+// collectOrphans lists unreferenced bodies older than the 24h grace window without
+// deleting anything, so the caller decides when it is safe to remove them. An
+// unreadable file is logged and skipped: aborting would push every other orphan
+// back by a full hour.
+func collectOrphans(root string, refs map[string]bool, now time.Time) ([]string, error) {
+	var out []string
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if os.IsNotExist(err) {
 			return nil
 		}
@@ -452,11 +485,10 @@ func sweepOrphans(root string, refs map[string]bool, now time.Time, remove func(
 		if now.Sub(info.ModTime()) < 24*time.Hour {
 			return nil
 		}
-		if err := remove(path); err != nil && !os.IsNotExist(err) {
-			log.Printf("[evidence] GC 本轮跳过 %s：%v", path, err)
-		}
+		out = append(out, path)
 		return nil
 	})
+	return out, err
 }
 
 func (s *Store) RunGC(ctx context.Context) {

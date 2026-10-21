@@ -137,6 +137,127 @@ function StatValue({ ready, children }: { ready: boolean; children: React.ReactN
   return <>{children}</>;
 }
 
+// ── polling ──────────────────────────────────────────────────────────────────
+
+type SourceKey = "tasks" | "fast" | "slow";
+type SourceState = "pending" | "ok" | "error";
+
+const SOURCE_KEYS: SourceKey[] = ["tasks", "fast", "slow"];
+
+// 面板中文名：顶部失败提示据此说明「哪些面板没加载出来」。
+const FAST_PANEL_LABELS: Record<string, string> = {
+  findings: "确认发现",
+  stats: "系统状态",
+  settings: "流量捕获状态",
+  pending: "待审批拦截",
+  activity: "活动流",
+  tokens: "Token 用量",
+  convTokens: "会话令牌",
+};
+
+const SLOW_PANEL_LABELS: Record<string, string> = {
+  traffic: "流量交互",
+  assetCounts: "资产节点",
+  agents: "代理",
+  mcpServers: "MCP 服务",
+  skills: "技能",
+  tools: "工具",
+  llmProfiles: "模型配置",
+  usageStats: "用量统计",
+};
+
+type SettledValues<T extends Record<string, () => Promise<unknown>>> = {
+  [K in keyof T]?: Awaited<ReturnType<T[K]>>;
+};
+
+/**
+ * 逐项 settle：单个接口失败只记入失败项，同一批里已经成功的数据照常返回，
+ * 不再出现「一个接口挂掉 = 整批面板都不更新」。
+ */
+async function settleAll<T extends Record<string, () => Promise<unknown>>>(
+  loaders: T,
+): Promise<{ values: SettledValues<T>; failed: (keyof T)[] }> {
+  const keys = Object.keys(loaders) as (keyof T)[];
+  const results = await Promise.allSettled(keys.map((key) => Promise.resolve().then(() => loaders[key]())));
+  const values: Partial<Record<keyof T, unknown>> = {};
+  const failed: (keyof T)[] = [];
+  results.forEach((result, index) => {
+    const key = keys[index];
+    if (result.status === "fulfilled") {
+      values[key] = result.value;
+    } else {
+      failed.push(key);
+    }
+  });
+  return { values: values as SettledValues<T>, failed };
+}
+
+/** 轮询回调上下文：代次用于手动刷新计数，isCurrent 用于丢弃已卸载/已重建的批次。 */
+type PollContext = {
+  generation: number;
+  isCurrent: () => boolean;
+};
+
+/**
+ * 三个数据源共用的轮询：标签页隐藏时暂停定时器（不再每 5s/15s 打后端），
+ * 回到前台先补一次再恢复；同一源串行，上一批没结束就不叠加请求。
+ */
+function usePollingEffect(revision: number, load: (ctx: PollContext) => Promise<void>, intervalMs: number): void {
+  const loadRef = React.useRef(load);
+  loadRef.current = load;
+
+  React.useEffect(() => {
+    let alive = true;
+    let loading = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    const stopTimer = () => {
+      if (timer === null) return;
+      clearInterval(timer);
+      timer = null;
+    };
+
+    const tick = async () => {
+      // 同一源串行：上一批还在飞就不再叠加。
+      if (!alive || loading) return;
+      loading = true;
+      try {
+        await loadRef.current({ generation: revision, isCurrent: () => alive });
+      } catch {
+        // 失败项已由各数据源自己记账；这里兜底，避免未捕获异常打断后续轮询。
+      } finally {
+        loading = false;
+      }
+    };
+
+    const startTimer = () => {
+      stopTimer();
+      timer = setInterval(() => void tick(), intervalMs);
+    };
+
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        // 后台标签页：停表，别在用户看不见的时候持续请求。
+        stopTimer();
+        return;
+      }
+      // 回到前台：立刻补一次，再恢复定时器。
+      void tick();
+      startTimer();
+    };
+
+    void tick();
+    if (!document.hidden) startTimer();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      alive = false;
+      stopTimer();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [revision, intervalMs]);
+}
+
 // ── page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
@@ -161,147 +282,159 @@ export default function DashboardPage() {
 
   // 三个数据源各自的首载/失败状态：首载前给骨架（不把 0 当真实数据），
   // 失败保留旧值并在顶部显式提示，避免「请求失败 = 页面全空」。
-  const [sources, setSources] = React.useState<Record<"tasks" | "fast" | "slow", "pending" | "ok" | "error">>({
+  const [sources, setSources] = React.useState<Record<SourceKey, SourceState>>({
     tasks: "pending",
     fast: "pending",
     slow: "pending",
   });
-  const setSource = React.useCallback((key: "tasks" | "fast" | "slow", next: "pending" | "ok" | "error") => {
+  // 每个源里失败的面板名（成功项照常更新）；只有整源全灭才把源标成 error。
+  const [failedPanels, setFailedPanels] = React.useState<Record<SourceKey, string[]>>({
+    tasks: [],
+    fast: [],
+    slow: [],
+  });
+  const reportSource = React.useCallback((key: SourceKey, failed: string[], total: number) => {
+    const next: SourceState = failed.length >= total ? "error" : "ok";
     setSources((prev) => (prev[key] === next ? prev : { ...prev, [key]: next }));
+    setFailedPanels((prev) => {
+      const current = prev[key];
+      if (current.length === failed.length && current.every((label, index) => label === failed[index])) return prev;
+      return { ...prev, [key]: failed };
+    });
   }, []);
   const tasksReady = sources.tasks === "ok";
   const fastReady = sources.fast === "ok";
   const slowReady = sources.slow === "ok";
-  const anyFailed = sources.tasks === "error" || sources.fast === "error" || sources.slow === "error";
+  const failedLabels = React.useMemo(() => {
+    const labels: string[] = [];
+    for (const key of SOURCE_KEYS) {
+      for (const label of failedPanels[key]) {
+        if (!labels.includes(label)) labels.push(label);
+      }
+    }
+    return labels;
+  }, [failedPanels]);
+  const anyFailed = failedLabels.length > 0;
+  const allFailed = SOURCE_KEYS.every((key) => sources[key] === "error");
+  const failedSummary =
+    failedLabels.length > 6
+      ? `${failedLabels.slice(0, 6).join("、")} 等 ${failedLabels.length} 项`
+      : failedLabels.join("、");
 
-  // 手动刷新：三个 effect 都跑完才收起转圈，按钮点下去有反馈。
+  // 手动刷新：三个数据源都结束（成功或失败）才收起转圈。
+  // 用「代次」区分批次：旧代次的请求（5s/15s 轮询里还在飞的）结束时直接忽略，
+  // 不会把本次刷新的计数多减，转圈不会提前停。
   const [refreshing, setRefreshing] = React.useState(false);
-  const refreshPending = React.useRef(0);
-  const startRefresh = () => {
-    refreshPending.current = 3;
+  const refreshGeneration = React.useRef(0);
+  const refreshOutstanding = React.useRef<Set<SourceKey>>(new Set());
+  const startRefresh = React.useCallback(() => {
+    refreshGeneration.current += 1;
+    refreshOutstanding.current = new Set(SOURCE_KEYS);
     setRefreshing(true);
     refresh();
-  };
-  const finishRefresh = React.useCallback(() => {
-    if (refreshPending.current <= 0) return;
-    refreshPending.current -= 1;
-    if (refreshPending.current === 0) setRefreshing(false);
+  }, []);
+  const finishRefresh = React.useCallback((generation: number, key: SourceKey) => {
+    // 旧代次的请求结束：不属于本次刷新，直接忽略。
+    if (generation !== refreshGeneration.current) return;
+    const outstanding = refreshOutstanding.current;
+    if (!outstanding.delete(key)) return;
+    if (outstanding.size === 0) setRefreshing(false);
   }, []);
 
-  // The task list is the most expensive dashboard source. Poll it independently
-  // so a large history cannot hold back every other dashboard panel.
-  React.useEffect(() => {
-    let alive = true;
-    let loading = false;
-    let signature = "";
-    const load = async () => {
-      if (loading) return;
-      loading = true;
+  // 任务列表最重，单独轮询：避免大历史拖住其他面板。
+  const tasksSignature = React.useRef("");
+  usePollingEffect(
+    refreshRevision,
+    async ({ generation, isCurrent }) => {
       try {
         const tr = await api.tasks();
-        if (!alive) return;
+        if (!isCurrent()) return;
         const nextSignature = JSON.stringify(tr.tasks);
-        if (nextSignature !== signature) {
-          signature = nextSignature;
+        if (nextSignature !== tasksSignature.current) {
+          tasksSignature.current = nextSignature;
           setTasks(tr.tasks);
         }
-        setSource("tasks", "ok");
+        reportSource("tasks", [], 1);
       } catch {
-        // 保留旧值，下一轮自动重试；失败态在顶部显式提示。
-        if (alive) setSource("tasks", "error");
+        // 保留旧值，下一轮自动重试；失败面板在顶部显式提示。
+        if (isCurrent()) reportSource("tasks", ["任务列表"], 1);
       } finally {
-        loading = false;
-        finishRefresh();
+        finishRefresh(generation, "tasks");
       }
-    };
-    void load();
-    const t = setInterval(load, 5000);
-    return () => {
-      alive = false;
-      clearInterval(t);
-    };
-  }, [refreshRevision, setSource, finishRefresh]);
+    },
+    5000,
+  );
 
-  // The remaining fast sources stay batched so one poll causes a single render.
-  React.useEffect(() => {
-    let alive = true;
-    let loading = false;
-    const load = async () => {
-      if (loading) return;
-      loading = true;
+  // 其余快源：逐项 settle，单个接口失败不再拖垮整批面板。
+  usePollingEffect(
+    refreshRevision,
+    async ({ generation, isCurrent }) => {
       try {
-        const [findings, stats, settings, pending, activity, tokens, conversationTokens] = await Promise.all([
-          api.findings(),
-          api.stats(),
-          api.settings(),
-          api.interceptPending(),
-          api.activity(undefined, { limit: 30 }),
-          api.tokenStats(),
-          api.conversationTokens(),
-        ]);
-        if (!alive) return;
-        setFindings(findings);
-        setStats(stats);
-        setSettings(settings);
-        setPending(pending);
-        setActivity(activity.items);
-        setTokens(tokens.total ?? null);
-        setConvTokens(conversationTokens);
-        setSource("fast", "ok");
-      } catch {
-        // 保留旧值，下一轮自动重试；失败态在顶部显式提示。
-        if (alive) setSource("fast", "error");
+        const { values, failed } = await settleAll({
+          findings: () => api.findings(),
+          stats: () => api.stats(),
+          settings: () => api.settings(),
+          pending: () => api.interceptPending(),
+          activity: () => api.activity(undefined, { limit: 30 }),
+          tokens: () => api.tokenStats(),
+          convTokens: () => api.conversationTokens(),
+        });
+        if (!isCurrent()) return;
+        if (values.findings !== undefined) setFindings(values.findings);
+        if (values.stats !== undefined) setStats(values.stats);
+        if (values.settings !== undefined) setSettings(values.settings);
+        if (values.pending !== undefined) setPending(values.pending);
+        if (values.activity !== undefined) setActivity(values.activity.items);
+        if (values.tokens !== undefined) setTokens(values.tokens.total ?? null);
+        if (values.convTokens !== undefined) setConvTokens(values.convTokens);
+        // total = 失败数 + 成功数：只有整批全灭才标 error。
+        reportSource(
+          "fast",
+          failed.map((panel) => FAST_PANEL_LABELS[panel]),
+          failed.length + Object.keys(values).length,
+        );
       } finally {
-        loading = false;
-        finishRefresh();
+        finishRefresh(generation, "fast");
       }
-    };
-    void load();
-    const timer = setInterval(load, 5000);
-    return () => {
-      alive = false;
-      clearInterval(timer);
-    };
-  }, [refreshRevision, setSource, finishRefresh]);
+    },
+    5000,
+  );
 
   // slow poll: traffic, assets, system-static (every 15s)
-  React.useEffect(() => {
-    let alive = true;
-    const load = async () => {
+  usePollingEffect(
+    refreshRevision,
+    async ({ generation, isCurrent }) => {
       try {
-        const [traf, counts, agentList, mcpList, skillList, toolList, profileList, usage] = await Promise.all([
-          api.traffic(0, 50),
-          api.assetCounts(),
-          api.agents(),
-          api.mcpServers(),
-          api.skills(),
-          api.tools(),
-          api.llmProfiles(),
-          api.usageStats(365),
-        ]);
-        if (!alive) return;
-        setTraffic(traf.exchanges ?? []);
-        setAssetCounts(counts ?? {});
-        setAgents(agentList);
-        setMcpServers(mcpList);
-        setSkills(skillList);
-        setTools(toolList);
-        setLLMProfiles(profileList);
-        setUsageStats(usage);
-        setSource("slow", "ok");
-      } catch {
-        if (alive) setSource("slow", "error");
+        const { values, failed } = await settleAll({
+          traffic: () => api.traffic(0, 50),
+          assetCounts: () => api.assetCounts(),
+          agents: () => api.agents(),
+          mcpServers: () => api.mcpServers(),
+          skills: () => api.skills(),
+          tools: () => api.tools(),
+          llmProfiles: () => api.llmProfiles(),
+          usageStats: () => api.usageStats(365),
+        });
+        if (!isCurrent()) return;
+        if (values.traffic !== undefined) setTraffic(values.traffic.exchanges ?? []);
+        if (values.assetCounts !== undefined) setAssetCounts(values.assetCounts ?? {});
+        if (values.agents !== undefined) setAgents(values.agents);
+        if (values.mcpServers !== undefined) setMcpServers(values.mcpServers);
+        if (values.skills !== undefined) setSkills(values.skills);
+        if (values.tools !== undefined) setTools(values.tools);
+        if (values.llmProfiles !== undefined) setLLMProfiles(values.llmProfiles);
+        if (values.usageStats !== undefined) setUsageStats(values.usageStats);
+        reportSource(
+          "slow",
+          failed.map((panel) => SLOW_PANEL_LABELS[panel]),
+          failed.length + Object.keys(values).length,
+        );
       } finally {
-        finishRefresh();
+        finishRefresh(generation, "slow");
       }
-    };
-    void load();
-    const t = setInterval(load, 15000);
-    return () => {
-      alive = false;
-      clearInterval(t);
-    };
-  }, [refreshRevision, setSource, finishRefresh]);
+    },
+    15000,
+  );
 
   // ── derived ───────────────────────────────────────────────────────────────
 
@@ -565,8 +698,12 @@ export default function DashboardPage() {
           role="alert"
           className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-muted-foreground"
         >
-          <AlertTriangleIcon className="size-3.5 text-amber-500" />
-          部分数据刷新失败，页面保留上次结果并自动重试
+          <AlertTriangleIcon className="size-3.5 shrink-0 text-amber-500" />
+          <span className="min-w-0 flex-1">
+            {allFailed ? "数据加载失败" : "部分面板加载失败"}：
+            <span className="font-medium text-foreground/80">{failedSummary}</span>
+            （已保留上次结果，将自动重试）
+          </span>
           <Button
             variant="ghost"
             size="sm"

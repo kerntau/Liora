@@ -2027,17 +2027,18 @@ func (s *Server) pgListModels(w http.ResponseWriter, r *http.Request) {
 	switch provider {
 	case "openai", "openai-responses":
 		// Responses API shares the OpenAI model list at /v1/models; tolerate a full
-		// endpoint URL of either format.
+		// endpoint URL of either format. This endpoint has always stripped both
+		// suffixes regardless of the selected variant, so keep that tolerance.
 		if baseURL == "" {
 			baseURL = "https://api.openai.com/v1"
 		}
-		b := strings.TrimRight(strings.TrimSuffix(strings.TrimSuffix(baseURL, "/chat/completions"), "/responses"), "/")
+		b := agent.NormalizeBaseURL("openai-responses", agent.NormalizeBaseURL("openai", baseURL))
 		candidates = append(candidates, candidate{b + "/models", bearerHdr()})
 	default: // anthropic
 		if baseURL == "" {
 			baseURL = "https://api.anthropic.com"
 		}
-		b := strings.TrimRight(strings.TrimSuffix(baseURL, "/v1/messages"), "/")
+		b := agent.NormalizeBaseURL(provider, baseURL)
 		candidates = append(candidates, candidate{b + "/v1/models", anthropicHdr()})
 		// Fallback for Anthropic-compatible third parties whose model list lives on
 		// the OpenAI path: strip a trailing /anthropic and try the OpenAI endpoint.

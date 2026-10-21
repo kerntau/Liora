@@ -466,3 +466,28 @@ func assertArchiveGlobalStats(t *testing.T, d *DB, profileName, skillName, toolN
 		t.Fatalf("archive finding class %q missing", vulnclass)
 	}
 }
+
+// TestRowExistsReportsQueryFailure ensures a broken transaction surfaces as an error
+// instead of a silent "row is gone": swallowing it would drop archive references and
+// emit a misleading 已删除 warning while the restore still committed.
+func TestRowExistsReportsQueryFailure(t *testing.T) {
+	d, err := Open(testDSN(t))
+	if err != nil {
+		t.Fatalf("SQLite unavailable (%v) — skipping", err)
+	}
+	defer d.Close()
+	tx, err := d.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	exists, err := rowExists(tx, "companies", 1)
+	if err == nil {
+		t.Fatalf("rowExists on a finished transaction: want error, got exists=%v", exists)
+	}
+	if !strings.Contains(err.Error(), "检查关联行是否存在失败") {
+		t.Fatalf("error message: %v", err)
+	}
+}

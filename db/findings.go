@@ -717,22 +717,41 @@ func (d *DB) SetFindingReportByNodeID(nodeID int64, report string) (int64, error
 // setFindingCol updates one text column on the standalone finding row AND mirrors
 // the new value into the originating exploration node's payload under jsonKey, so the
 // per-task 发现 Tab (which reads the node payload, not this table) stays in sync.
-// Returns rows affected (0 when no finding has that id); the node sync is best-effort.
+// Returns rows affected (0 when no finding has that id).
+//
+// Both writes MUST share one transaction: the findings table and the node payload are
+// two representations of the same field, and a half-applied update would leave the
+// 发现 Tab showing a stale value with no way to tell which copy is authoritative. A
+// failed node sync therefore rolls the findings update back and is returned to the
+// caller. A finding without a node (node_id NULL) or whose node row is gone is not an
+// error — the UPDATE simply affects 0 node rows.
 // col and jsonKey MUST be trusted constants (they are interpolated into SQL) — never
 // pass user input.
 func (d *DB) setFindingCol(id int64, col, jsonKey, val string) (int64, error) {
+	tx, err := d.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback() //nolint:errcheck
 	var nodeID *int64
-	err := d.QueryRow(`UPDATE findings SET `+col+`=$1 WHERE id=$2 RETURNING node_id`, val, id).Scan(&nodeID)
+	err = tx.QueryRow(`UPDATE findings SET `+col+`=$1 WHERE id=$2 RETURNING node_id`, val, id).Scan(&nodeID)
 	if err == sql.ErrNoRows {
+		// No such finding: the transaction performed no write, so rolling it back
+		// preserves the old (0, nil) contract.
 		return 0, nil
 	}
 	if err != nil {
 		return 0, err
 	}
 	if nodeID != nil {
-		_, _ = d.Exec(`UPDATE exploration_nodes
+		if _, err := tx.Exec(`UPDATE exploration_nodes
 			SET payload = json_set(payload, '$.`+jsonKey+`', $1)
-			WHERE id = $2`, val, *nodeID)
+			WHERE id = $2`, val, *nodeID); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
 	}
 	return 1, nil
 }

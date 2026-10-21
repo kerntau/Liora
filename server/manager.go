@@ -1134,68 +1134,12 @@ func (m *Manager) SetTaskPaused(id string, paused bool) error {
 	return nil
 }
 
-// ApplyTaskAdmission atomically commits the lifecycle fields controlled by the
-// concurrency scheduler. Keeping status, paused and queue metadata in one UPDATE
-// prevents a failed resume from leaving a task half-revived (for example running
-// but still user-paused, or dequeued without an Engine start).
-//
-// preservePosition applies only when the row is already queued. A repeated
-// admission keeps its FIFO timestamp; a task that was explicitly paused and is
-// now re-queued receives a fresh tail position.
-//
-// Any terminal -> non-terminal transition also clears first_run_at/deadline_at: a
-// revived run is a new run and must get a full timeout budget, not inherit the
-// previous run's expired clock (the Engine side mirrors this by dropping its
-// in-memory deadline/settle state).
+// ApplyTaskAdmission commits the scheduler-owned lifecycle fields through
+// db.ApplyTaskAdmission, then mirrors the committed row in memory under m.mu.
 func (m *Manager) ApplyTaskAdmission(id, expectedStatus, status string, queued bool, mode string, preservePosition bool) error {
 	m.taskStateMu.Lock()
 	defer m.taskStateMu.Unlock()
-	n, err := strconv.ParseInt(id, 10, 64)
-	if err != nil {
-		return err
-	}
-	if queued {
-		if mode != "bootstrap" && mode != "resume" {
-			return fmt.Errorf("invalid queue mode %q", mode)
-		}
-	} else {
-		mode = ""
-	}
-
-	var queuedAt, completedAt, firstRunAt, deadlineAt sql.NullTime
-	var committedMode string
-	err = m.pg.QueryRow(`UPDATE tasks
-	SET status=$2,
-	    completed_at=CASE
-	        WHEN $2 IN `+pgdb.TerminalStatusSQLIn+` THEN COALESCE(completed_at, strftime('%Y-%m-%d %H:%M:%f','now'))
-	        ELSE NULL
-	    END,
-	    paused=false,
-	    queued=$3,
-	    queued_at=CASE
-	        WHEN NOT $3 THEN NULL
-	        WHEN $5 AND queued THEN COALESCE(queued_at, strftime('%Y-%m-%d %H:%M:%f','now'))
-	        ELSE strftime('%Y-%m-%d %H:%M:%f','now')
-	    END,
-	    queue_mode=CASE
-	        WHEN NOT $3 THEN ''
-	        WHEN ($5 AND queued AND queue_mode='bootstrap') OR $4='bootstrap' THEN 'bootstrap'
-	        ELSE 'resume'
-	    END,
-	    first_run_at=CASE
-	        WHEN $6 IN `+pgdb.TerminalStatusSQLIn+` AND $2 NOT IN `+pgdb.TerminalStatusSQLIn+` THEN NULL
-	        ELSE first_run_at
-	    END,
-	    deadline_at=CASE
-	        WHEN $6 IN `+pgdb.TerminalStatusSQLIn+` AND $2 NOT IN `+pgdb.TerminalStatusSQLIn+` THEN NULL
-	        ELSE deadline_at
-	    END
-	WHERE id=$1 AND deleted_at IS NULL AND status=$6
-	RETURNING queued_at, queue_mode, completed_at, first_run_at, deadline_at`, n, status, queued, mode, preservePosition, expectedStatus).
-		Scan(&queuedAt, &committedMode, &completedAt, &firstRunAt, &deadlineAt)
-	if errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("task %s lifecycle changed before admission (expected status %q)", id, expectedStatus)
-	}
+	res, err := m.pg.ApplyTaskAdmission(id, expectedStatus, status, queued, mode, preservePosition)
 	if err != nil {
 		return err
 	}
@@ -1206,22 +1150,22 @@ func (m *Manager) ApplyTaskAdmission(id, expectedStatus, status string, queued b
 			state.Status = status
 			state.Paused = false
 			state.Queued = queued
-			state.QueueMode = committedMode
+			state.QueueMode = res.QueueMode
 			state.QueuedAt = 0
-			if queuedAt.Valid {
-				state.QueuedAt = queuedAt.Time.UnixNano()
+			if res.QueuedAt.Valid {
+				state.QueuedAt = res.QueuedAt.Time.UnixNano()
 			}
 			state.CompletedAt = 0
-			if completedAt.Valid {
-				state.CompletedAt = completedAt.Time.Unix()
+			if res.CompletedAt.Valid {
+				state.CompletedAt = res.CompletedAt.Time.Unix()
 			}
 			state.FirstRunAt = 0
-			if firstRunAt.Valid {
-				state.FirstRunAt = firstRunAt.Time.Unix()
+			if res.FirstRunAt.Valid {
+				state.FirstRunAt = res.FirstRunAt.Time.Unix()
 			}
 			state.DeadlineAt = 0
-			if deadlineAt.Valid {
-				state.DeadlineAt = deadlineAt.Time.Unix()
+			if res.DeadlineAt.Valid {
+				state.DeadlineAt = res.DeadlineAt.Time.Unix()
 			}
 		})
 	}
@@ -1229,26 +1173,12 @@ func (m *Manager) ApplyTaskAdmission(id, expectedStatus, status string, queued b
 	return nil
 }
 
-// ApplyTaskPause atomically removes a task from the admission queue and records
-// the user pause. queue_mode is intentionally retained so resuming a never-run
-// bootstrap task still performs goal decomposition, but the next enqueue receives
-// a new queued_at timestamp and therefore moves to the FIFO tail.
+// ApplyTaskPause records the user pause through db.ApplyTaskPause, then mirrors
+// the committed row in memory under m.mu.
 func (m *Manager) ApplyTaskPause(id string) error {
 	m.taskStateMu.Lock()
 	defer m.taskStateMu.Unlock()
-	n, err := strconv.ParseInt(id, 10, 64)
-	if err != nil {
-		return err
-	}
-	var mode string
-	err = m.pg.QueryRow(`UPDATE tasks
-		SET paused=true, queued=false, queued_at=NULL
-		WHERE id=$1 AND deleted_at IS NULL AND paused=false
-		  AND status NOT IN `+pgdb.TerminalStatusSQLIn+`
-		RETURNING COALESCE(queue_mode,'')`, n).Scan(&mode)
-	if errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("task %s is unavailable for pause", id)
-	}
+	mode, err := m.pg.ApplyTaskPause(id)
 	if err != nil {
 		return err
 	}

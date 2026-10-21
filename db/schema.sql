@@ -817,6 +817,11 @@ CREATE INDEX IF NOT EXISTS idx_act_result_usage ON activity(exploration_id)
 
 CREATE INDEX IF NOT EXISTS idx_act_latest ON activity(exploration_id, created_at DESC);
 
+-- TokenDailyAll (db/exploration.go) aggregates the global kind='result' rows over a
+-- created_at window. Every other activity index leads with exploration_id, so that
+-- scan had no usable path; (kind, created_at) turns it into a range search.
+CREATE INDEX IF NOT EXISTS idx_act_kind_created ON activity(kind, created_at);
+
 CREATE UNIQUE INDEX IF NOT EXISTS uq_llm_one_default ON llm_profiles(is_default) WHERE is_default;
 
 CREATE INDEX IF NOT EXISTS idx_task_categories_name ON task_categories(name, id);

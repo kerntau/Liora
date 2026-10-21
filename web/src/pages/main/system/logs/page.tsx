@@ -31,7 +31,10 @@ export default function LogsPage() {
   const [level, setLevel] = React.useState<"all" | LogLine["level"]>("all");
   const [paused, setPaused] = React.useState(false);
   const [loadingHistory, setLoadingHistory] = React.useState(false);
+  const [historyError, setHistoryError] = React.useState<string | null>(null);
   const [hasMore, setHasMore] = React.useState(false);
+  // SSE 连接态：首连成功前都算"重连中"，断线时 EventSource 会自动重试。
+  const [liveState, setLiveState] = React.useState<"live" | "reconnecting">("reconnecting");
   const bottom = React.useRef<HTMLDivElement>(null);
   const stick = React.useRef(true);
   const pausedRef = React.useRef(false);
@@ -50,6 +53,8 @@ export default function LogsPage() {
   // DB-restored history from the last 100 rows written before restart).
   React.useEffect(() => {
     const es = new EventSource(sseUrl("/api/logs/stream?since=0"));
+    es.onopen = () => setLiveState("live");
+    es.onerror = () => setLiveState("reconnecting");
     es.onmessage = (e) => {
       if (pausedRef.current) return;
       try {
@@ -70,10 +75,11 @@ export default function LogsPage() {
   async function loadOlderHistory() {
     if (loadingHistory) return;
     setLoadingHistory(true);
+    setHistoryError(null);
     try {
       const params = minDbId > 0 ? `?before=${minDbId}&limit=200` : `?limit=200`;
       const res = await fetch(`/api/logs/history${params}`);
-      if (!res.ok) return;
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json() as { items: LogLine[]; has_more: boolean };
       if (data.items?.length) {
         // Assign synthetic seq numbers below current minimum to keep dedup working.
@@ -96,6 +102,8 @@ export default function LogsPage() {
         });
       }
       setHasMore(data.has_more ?? false);
+    } catch (e) {
+      setHistoryError((e as Error).message || "请求失败");
     } finally {
       setLoadingHistory(false);
     }
@@ -127,7 +135,27 @@ export default function LogsPage() {
   return (
     <div className="flex flex-1 flex-col gap-3">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight">系统日志</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-xl font-semibold tracking-tight">系统日志</h1>
+          <span
+            role="status"
+            aria-live="polite"
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]",
+              liveState === "live"
+                ? "text-emerald-600 dark:text-emerald-400"
+                : "text-amber-600 dark:text-amber-400",
+            )}
+          >
+            <span
+              className={cn(
+                "size-1.5 rounded-full",
+                liveState === "live" ? "bg-emerald-500" : "bg-amber-500",
+              )}
+            />
+            {liveState === "live" ? "实时" : "重连中"}
+          </span>
+        </div>
         <p className="text-muted-foreground text-sm">后端实时日志流(planner / worker / 数据库 / 流量 …)</p>
       </div>
       <div className="flex flex-1 flex-col gap-3">
@@ -178,7 +206,7 @@ export default function LogsPage() {
           className="h-[calc(100vh-14rem)] overflow-auto rounded-lg border bg-card p-2 font-mono text-xs leading-relaxed"
         >
           {hasMore && (
-            <div className="flex justify-center py-2">
+            <div className="flex flex-col items-center gap-1 py-2">
               <Button
                 size="sm"
                 variant="outline"
@@ -188,6 +216,11 @@ export default function LogsPage() {
               >
                 {loadingHistory ? "加载中…" : "加载更早日志"}
               </Button>
+              {historyError && (
+                <p role="alert" className="text-destructive text-xs">
+                  更早日志加载失败：{historyError}
+                </p>
+              )}
             </div>
           )}
           {filtered.length === 0 ? (

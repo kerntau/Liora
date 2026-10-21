@@ -143,6 +143,7 @@ function Composer({
               onClick={() => fileInputRef.current?.click()}
               disabled={disabled || uploading}
               title="上传文件"
+              aria-label="上传文件"
             >
               {uploading ? <Loader2Icon className="size-4 animate-spin" /> : <PaperclipIcon className="size-4" />}
             </Button>
@@ -165,7 +166,14 @@ function Composer({
         {running ? (
           // while a run is in flight the send button becomes a stop button —
           // aborts just this session (the trigger queue keeps going).
-          <Button size="icon" variant="destructive" onClick={onStop} disabled={stopDisabled} title="停止本次运行">
+          <Button
+            size="icon"
+            variant="destructive"
+            onClick={onStop}
+            disabled={stopDisabled}
+            title="停止本次运行"
+            aria-label="停止本次运行"
+          >
             <Square className="size-3.5 fill-current" />
           </Button>
         ) : (

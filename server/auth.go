@@ -84,8 +84,10 @@ func verifyJWT(tokenStr string, key []byte) bool {
 	return err == nil && t.Valid
 }
 
-// extractToken reads the JWT from Authorization: Bearer header,
-// liora_token cookie, or ?token= query param (for SSE connections).
+// extractToken reads the JWT from the Authorization header or the liora_token
+// cookie. The ?token= query param is accepted ONLY on streaming endpoints:
+// EventSource cannot send headers, but a token in a URL leaks into proxy logs,
+// browser history and Referer headers, so it must not work anywhere else.
 func extractToken(r *http.Request) string {
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
 		return strings.TrimPrefix(h, "Bearer ")
@@ -93,7 +95,15 @@ func extractToken(r *http.Request) string {
 	if c, err := r.Cookie("liora_token"); err == nil && c.Value != "" {
 		return c.Value
 	}
-	return r.URL.Query().Get("token")
+	if isStreamEndpoint(r.URL.Path) {
+		return r.URL.Query().Get("token")
+	}
+	return ""
+}
+
+// isStreamEndpoint reports whether path is one of the long-lived SSE endpoints.
+func isStreamEndpoint(path string) bool {
+	return strings.HasSuffix(path, "/stream") || strings.HasSuffix(path, "/events")
 }
 
 // requireAuth wraps h with JWT validation.

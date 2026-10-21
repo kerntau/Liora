@@ -45,6 +45,9 @@ CREATE TABLE IF NOT EXISTS llm_usage (
 CREATE INDEX IF NOT EXISTS idx_llm_usage_task  ON llm_usage(task_id);
 CREATE INDEX IF NOT EXISTS idx_llm_usage_model ON llm_usage(task_id, model);
 CREATE INDEX IF NOT EXISTS idx_llm_usage_exp   ON llm_usage(exploration_id);
+-- UsageDaily (db/llm_usage.go) filters the whole ledger by ts only; the indexes
+-- above all lead with task_id/exploration_id and cannot serve that window scan.
+CREATE INDEX IF NOT EXISTS idx_llm_usage_ts    ON llm_usage(ts);
 `
 
 // EnsureLLMUsageTable creates the llm_usage metering table if it does not exist.

@@ -87,8 +87,13 @@ func Open(path string) (*DB, error) {
 		return nil, err
 	}
 	// Post-v1 schema additions: existing databases never replay schema.sql, so the
-	// scheduler's incremental-scan index is ensured here on every open.
+	// scheduler's incremental-scan index and the aggregation read-path indexes are
+	// ensured here on every open (all idempotent, additive).
 	if err := d.EnsureSchedulerIndexes(); err != nil {
+		sqlDB.Close()
+		return nil, err
+	}
+	if err := d.EnsureQueryIndexes(); err != nil {
 		sqlDB.Close()
 		return nil, err
 	}
