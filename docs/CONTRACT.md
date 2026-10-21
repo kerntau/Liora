@@ -373,3 +373,23 @@ GET /api/report?task=<task_id>
 - db/bench_hot_paths_test.go：KindStateCounts、TaskListMetricsAll、ListFindingsPage、FindingGroups，各自独立临时库、单事务 fixture。
 - 运行：go test ./db -bench 'Benchmark(KindStateCounts|TaskListMetricsAll|ListFindingsPage|FindingGroups)$' -benchmem -run '^$'
 - 本机 1x 基线（Ryzen 7 7840HS）：KindStateCounts 404µs/op（2000 intent）、TaskListMetricsAll 8.07ms/op（20 任务）、ListFindingsPage 4.37ms/op（5000 发现）、FindingGroups 10.86ms/op。
+
+---
+
+## 14. 2026-10-21 第九轮（运维可见性与保留）【已实现】
+
+### 14.1 server_logs 保留上限
+
+- 启动时 db.PruneServerLogs 保留最新 100000 行，删除更早的行；删除数 >0 才写日志。
+- 使用一次范围删除（id <= 第 keep+1 新的 id），行数不足时不做任何删除；重复执行为 no-op。
+- 历史日志页仍按 id 向前分页，只依赖最近的行。
+
+### 14.2 健康检查数据库状态
+
+- GET /api/health 增加 database 字段：ok / error / unavailable。
+- 以 1 秒超时 Ping 数据库；状态码保持 200（进程仍可提供 SPA 与诊断，503 会让负载均衡误摘节点）。
+
+### 14.3 LLM 用量与录制保留期
+
+- 启动时 llm_usage 删除 365 天前的行（仪表盘最多查询一年）；llm_records 删除 30 天前的行（默认关闭的调试录制，正文体积大）。
+- 删除数 >0 才写日志；days<=0 的调用为 no-op；边界测试覆盖旧行删除、新行保留、禁用保留期。

@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"fmt"
 	"time"
 )
 
@@ -160,4 +161,19 @@ func nullIfEmpty(s string) any {
 		return nil
 	}
 	return s
+}
+
+// PruneLLMRecordsOlderThan deletes raw request/response records older than days.
+// Raw recording is opt-in and meant for debugging; the bodies are large, so a
+// bounded window keeps the table from growing forever. days <= 0 disables it.
+func (d *DB) PruneLLMRecordsOlderThan(days int) (int64, error) {
+	if days <= 0 {
+		return 0, nil
+	}
+	res, err := d.Exec(`DELETE FROM llm_records
+WHERE ts < strftime('%Y-%m-%d %H:%M:%f','now',$1)`, fmt.Sprintf("-%d days", days))
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }

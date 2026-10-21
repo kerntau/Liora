@@ -256,6 +256,25 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		// seeded browser MCP on first run). Async so it never blocks startup.
 		go s.discoverEmptyMCPsOnStartup()
 		logSink.SetDB(ctx, m.pg) // restore last 100 log rows and enable async persistence
+		// server_logs is append-only; keep the table bounded without touching the
+		// in-memory ring (the history page pages backwards and needs only recent rows).
+		if n, err := m.pg.PruneServerLogs(0); err != nil {
+			log.Printf("[logs] 清理历史日志失败: %v", err)
+		} else if n > 0 {
+			log.Printf("[logs] 已清理 %d 条历史日志（保留最近 100000 条）", n)
+		}
+		// Metering rows are append-only; the dashboard never reads more than a year.
+		if n, err := m.pg.PruneLLMUsageOlderThan(365); err != nil {
+			log.Printf("[llm] 清理历史用量失败: %v", err)
+		} else if n > 0 {
+			log.Printf("[llm] 已清理 %d 条一年前的用量记录", n)
+		}
+		// Raw request/response bodies are opt-in debug data; keep a 30-day window.
+		if n, err := m.pg.PruneLLMRecordsOlderThan(30); err != nil {
+			log.Printf("[llm] 清理历史录制失败: %v", err)
+		} else if n > 0 {
+			log.Printf("[llm] 已清理 %d 条 30 天前的 LLM 录制", n)
+		}
 	}
 	// precedence: persisted DB config > env.
 	if cfg, ok := s.loadLLMConfig(); ok {
@@ -905,7 +924,24 @@ func (s *Server) Handler() http.Handler {
 // --- handlers ---
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"ok": true, "service": "liora", "version": BuildVersion})
+	out := map[string]any{"ok": true, "service": "liora", "version": BuildVersion}
+	// Readiness probes need to distinguish "process is up" from "database is
+	// reachable". The status code stays 200 either way: the process still serves
+	// the SPA and diagnostics, and a 503 would make load balancers drop a node
+	// whose only problem is a transient SQLite lock.
+	switch {
+	case s.m == nil || s.m.pg == nil:
+		out["database"] = "unavailable"
+	default:
+		ctx, cancel := context.WithTimeout(r.Context(), time.Second)
+		defer cancel()
+		if err := s.m.pg.PingContext(ctx); err != nil {
+			out["database"] = "error"
+		} else {
+			out["database"] = "ok"
+		}
+	}
+	writeJSON(w, 200, out)
 }
 
 func (s *Server) stats(w http.ResponseWriter, r *http.Request) {

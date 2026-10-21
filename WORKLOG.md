@@ -90,3 +90,16 @@
 [T14.3][16:12] 热点基准｜四个 benchmark 统一到 bench_hot_paths_test.go｜1x 基线记录｜已合并
 [T14.4][16:13] 前端构建复测｜仍因主机提交内存耗尽失败（os error 1455）｜记录环境限制｜待重启
 [T14.5][16:14] traffic/agent 审计｜首个会话被中断无产出，已重新发起只读审计｜等待结论
+
+[T15][16:30] 第九轮：运维可见性与保留（主会话直提，审计会话连续中断）
+[T15.1][16:32] 日志保留｜PruneServerLogs 保留 10 万行 + 边界测试｜db 测试全绿｜提交 e8eb732
+[T15.2][16:34] 健康检查｜/api/health 增加 database ok/error/unavailable｜db/server 测试全绿｜提交 7b592c7
+[T15.3][16:40] 全量复验｜go build/vet/test -p 1 15 包全绿｜命令输出｜前端构建仍受主机内存阻塞
+
+[T16][16:45] 第十轮：LLM 保留期｜llm_usage 365 天、llm_records 30 天，启动清理 + 边界测试｜go test -p 1 ./... 全绿｜提交 5e80136
+[T16.1][16:50] 收尾｜清理调试产物（web/*-debug.txt），工作区仅剩 10 个既有未跟踪文件｜git status｜本轮结束
+
+[T17][17:00] 项目收尾｜删除 3 个已合并分支；10 个本地残留写入 .gitignore；工作区干净｜git branch/worktree/status｜待 gc
+[T17.1][17:02] 仓库整理｜git gc --prune=now；fsck 无错误；松散对象打包｜git count-objects/fsck｜Git 记录规整完成
+
+[T17.2][17:05] 收尾复验｜npm run build 成功；build:embed 成功；e2e embedded 36/36、rsbuild 36/36｜命令输出｜此前内存阻塞已消除

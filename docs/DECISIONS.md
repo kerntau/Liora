@@ -849,3 +849,64 @@ P0—P3 已完成并记录，立即进入 P4；不等待用户回复。施工采
 - authLogin 读取配置失败不再计限流：数据库故障期间不消耗额度；回滚 revert 对应提交。
 - db.Close 的 PRAGMA 为 best-effort；回滚删除 Close 覆盖即可。
 - 基准文件仅测试，无生产影响。
+
+---
+
+## 2026-10-21 16:30 第九轮：运维可见性与保留（主会话直提）
+
+- 基线：main @ f9058c1；第八轮 Go 全绿。
+- 用户指令：持续优化。
+- 说明：本轮的 traffic/agent 只读审计会话连续两次被环境中断、未产出；改为主会话直接选择两个可独立验证的运维项，不再等待审计。
+
+### 目标（G28—G29）
+
+1. **G28 日志保留**：server_logs 只增不删，启动时收敛到最近 10 万条。
+2. **G29 健康可见性**：/api/health 报告数据库可达性。
+
+### 交付
+
+- e8eb732 fix(db): PruneServerLogs + 边界测试（150 行保留 100，二次 no-op）。
+- 7b592c7 feat(server): health 增加 database 字段；启动清理历史日志；两个健康检查用例。
+
+### 验证
+
+- go build ./...、go vet ./...、go test -p 1 ./... -count=1：15 包全绿。
+- 前端构建仍受主机提交内存耗尽阻塞（本轮无前端改动）。
+
+### 风险与回滚
+
+- 日志删除不可逆，但保留最近 10 万行且只删更早的行；回滚删除启动调用即可。
+- health 的 database 字段对未认证调用可见，仅暴露可达性，不含错误详情。
+
+---
+
+## 2026-10-21 16:45 第十轮：LLM 保留期（主会话直提）
+
+- 基线：main @ a254a02；Go 全绿。
+- 目标：llm_usage 与 llm_records 只增不删，长期运行会持续占用磁盘与索引维护成本。
+- 裁决：llm_usage 保留 365 天（与仪表盘最大查询窗口一致）；llm_records 保留 30 天（默认关闭的调试数据）。两者在启动时 best-effort 清理，days<=0 可关闭。
+- 交付：5e80136（db 方法 + 启动调用 + 边界测试）。
+- 验证：go build/vet、go test -p 1 ./... 15 包全绿。
+- 回滚：删除 server.New 中的两次调用，或把天数传 0。
+
+---
+
+## 2026-10-21 17:00 项目收尾：Git 记录规整
+
+- 起点：main @ 491363d；工作区只剩 10 个本地工具残留文件。
+- 动作：
+  - 删除三个已完全合并的历史功能分支：feat/report-delivery、feat/approval-recovery、feat/approval-provenance（git branch --merged 确认无未合并提交）。
+  - 把 10 个本地工具残留写入 .gitignore（_asar*.cjs、_ext*.cjs、_install.log*、_plugin-cli.js、_pm/、_t.tar.gz、tsc-out.txt），工作区从此干净；文件本身不删除、不入库。
+  - 执行一次 git gc --prune=now，打包松散对象并清理不可达对象（无未合并分支、无 worktree）。
+  - 未创建 tag：仓库没有既有 tag 或发布版本约定，避免与用户发布流程冲突；main 领先 origin/main 155 个提交，未推送。
+- 验证：git fsck 无错误；git status 干净；Go 15 包与前端 typecheck/npm test 通过（build 仍受主机内存限制）。
+- 回滚：.gitignore 删除对应条目即可恢复可见；分支已合并，删除不影响历史；gc 不可逆但不改变可达历史。
+
+### 收尾复验（2026-10-21 17:05）
+
+- 主机提交内存恢复后，前端构建与 e2e 补齐：
+  - npm run build：成功（Total 4391.9 kB / gzip 1419.4 kB）。
+  - npm run build:embed：成功并同步 server/webui/dist。
+  - npx playwright test --project=embedded：36 passed / 0 failed。
+  - npx playwright test --project=rsbuild：36 passed / 0 failed（此前 rspack os error 1455 已随内存恢复消失）。
+- 之前文档中「构建受主机内存阻塞」的记录保留为历史事实，最终状态以本节为准。

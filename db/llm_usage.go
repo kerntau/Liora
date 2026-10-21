@@ -1,6 +1,7 @@
 package db
 
 import (
+	"fmt"
 	"sort"
 	"strconv"
 	"time"
@@ -270,4 +271,20 @@ func ParseExpID(s string) int64 {
 		return 0
 	}
 	return n
+}
+
+// PruneLLMUsageOlderThan deletes metering rows older than days and returns how
+// many were removed. llm_usage is append-only (one row per LLM call); the
+// dashboard only ever asks for at most a year, so older rows cost disk and index
+// maintenance without being read. days <= 0 disables the prune.
+func (d *DB) PruneLLMUsageOlderThan(days int) (int64, error) {
+	if days <= 0 {
+		return 0, nil
+	}
+	res, err := d.Exec(`DELETE FROM llm_usage
+WHERE ts < strftime('%Y-%m-%d %H:%M:%f','now',$1)`, fmt.Sprintf("-%d days", days))
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }

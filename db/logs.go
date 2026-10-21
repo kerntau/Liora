@@ -102,3 +102,23 @@ func (d *DB) ListLogsBeforeContext(ctx context.Context, beforeID int64, limit in
 	}
 	return out, nil
 }
+
+// PruneServerLogs keeps only the newest keep rows and returns how many were
+// deleted. server_logs is append-only (every backend log line is persisted), so a
+// long-lived instance would otherwise grow without bound; the history page only
+// pages backwards and never needs the whole table. A keep <= 0 falls back to the
+// default cap. With fewer rows than keep the OFFSET subquery yields NULL and the
+// DELETE matches nothing.
+func (d *DB) PruneServerLogs(keep int) (int64, error) {
+	if keep <= 0 {
+		keep = 100000
+	}
+	// OFFSET keep selects the (keep+1)-th newest row; deleting "<= that id" leaves
+	// exactly keep rows. With fewer rows the subquery is NULL and nothing matches.
+	res, err := d.Exec(`DELETE FROM server_logs
+WHERE id <= (SELECT id FROM server_logs ORDER BY id DESC LIMIT 1 OFFSET $1)`, keep)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}

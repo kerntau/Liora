@@ -61,3 +61,15 @@ Thumbs.db
 # Browser regression artifacts
 web/test-results/
 web/playwright-report/
+
+# 本地工具残留（非项目文件，工作区清理用；不入库）
+/_asar.cjs
+/_asar2.cjs
+/_ext.cjs
+/_ext2.cjs
+/_install.log
+/_install.log.err
+/_plugin-cli.js
+/_pm/
+/_t.tar.gz
+/tsc-out.txt
