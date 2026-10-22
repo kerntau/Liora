@@ -1,7 +1,7 @@
 // Centralised status → color/label semantics, reused across the whole app.
 // Spec §8.3: 意图 / 覆盖 / 任务 / 严重度 each have a consistent color set.
 
-export type Tone = "neutral" | "blue" | "green" | "amber" | "red" | "rose" | "violet" | "slate";
+export type Tone = "neutral" | "blue" | "green" | "amber" | "red" | "rose" | "violet" | "slate" | "teal";
 
 export const toneClasses: Record<Tone, string> = {
   neutral: "bg-muted text-muted-foreground border-transparent",
@@ -9,10 +9,11 @@ export const toneClasses: Record<Tone, string> = {
   green: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
   amber: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/20",
   red: "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/20",
-  // rose 用作「严重」——实心高强调,视觉上明显高于「高危」的软红描边。
-  rose: "bg-rose-600 text-white border-rose-600 dark:bg-rose-600 dark:text-white",
+  // rose 用作「严重」——比「高危」更深的红，但仍保持浅色胶囊，避免表格里过于抢眼。
+  rose: "bg-rose-500/15 text-rose-700 border-rose-500/25 dark:text-rose-300",
   violet: "bg-violet-500/15 text-violet-600 dark:text-violet-400 border-violet-500/20",
   slate: "bg-slate-500/15 text-slate-600 dark:text-slate-400 border-slate-500/20",
+  teal: "bg-teal-500/15 text-teal-600 dark:text-teal-300 border-teal-500/20",
 };
 
 export const toneDot: Record<Tone, string> = {
@@ -21,9 +22,10 @@ export const toneDot: Record<Tone, string> = {
   green: "bg-emerald-500",
   amber: "bg-amber-500",
   red: "bg-red-500",
-  rose: "bg-white",
+  rose: "bg-rose-500",
   violet: "bg-violet-500",
   slate: "bg-slate-500",
+  teal: "bg-teal-500",
 };
 
 interface StatusMeta {
@@ -60,10 +62,15 @@ const severity: Record<string, StatusMeta> = {
   critical: { label: "严重", tone: "rose" },
   high: { label: "高危", tone: "red" },
   medium: { label: "中危", tone: "amber" },
-  low: { label: "低危", tone: "slate" },
+  // 低危用青绿而非灰蓝，与严重度分布卡的参考图语义色保持一致。
+  low: { label: "低危", tone: "teal" },
 };
 
 const finding: Record<string, StatusMeta> = {
+  // open 是后端「待处理」的初始态，缺这一项时 StatusBadge 会回落成原始英文 "open"。
+  open: { label: "待处理", tone: "amber" },
+  // retesting = 复测中；缺这一项时徽章会漏英文枚举。
+  retesting: { label: "复测中", tone: "blue" },
   pending: { label: "待处理", tone: "amber" },
   in_progress: { label: "处理中", tone: "blue" },
   confirmed: { label: "已确认", tone: "red" },
@@ -113,5 +120,9 @@ const maps = {
 export type StatusDomain = keyof typeof maps;
 
 export function statusMeta(domain: StatusDomain, key: string): StatusMeta {
-  return maps[domain][key] ?? { label: key, tone: "neutral" };
+  const hit = maps[domain][key];
+  if (hit) return hit;
+  // 未知枚举不要把英文原值直接漏到界面上（之前 "open" 就这么漏出来过）。
+  // 展示"未知"并保留原值在 title 里，便于排查。
+  return { label: "未知", tone: "neutral" };
 }

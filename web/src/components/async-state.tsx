@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import { Loader2Icon, XIcon } from "lucide-react";
+import { Loader2Icon, TriangleAlertIcon, XIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -29,7 +29,7 @@ function DefaultSkeleton() {
   return (
     <div className="space-y-2 py-4" aria-hidden="true">
       {[0, 1, 2].map((i) => (
-        <Skeleton key={i} className="h-9 w-full" />
+        <Skeleton key={i} className="h-9 w-full rounded-lg" />
       ))}
     </div>
   );
@@ -63,12 +63,21 @@ export function AsyncState({
       <div
         role="alert"
         className={cn(
-          "flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-12 text-muted-foreground text-sm",
+          "animate-fade-in flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border px-6 py-12 text-center",
           className,
         )}
       >
-        <div className="text-foreground">加载失败</div>
-        {error ? <div className="max-w-md text-center text-xs">{error.message}</div> : null}
+        <span className="grid size-10 place-items-center rounded-lg bg-destructive/10 text-destructive">
+          <TriangleAlertIcon className="size-5" aria-hidden="true" />
+        </span>
+        <div className="space-y-1">
+          <div className="text-[13px] font-semibold text-foreground">加载失败</div>
+          {error ? (
+            <div className="mx-auto max-w-md text-xs leading-5 text-muted-foreground [overflow-wrap:anywhere]">
+              {error.message}
+            </div>
+          ) : null}
+        </div>
         {onRetry && (
           <Button size="sm" variant="outline" onClick={onRetry}>
             重试
@@ -80,7 +89,12 @@ export function AsyncState({
 
   if (view.showSkeleton) {
     return (
-      <div role="status" aria-live="polite" aria-busy="true" className={cn(className)}>
+      <div
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+        className={cn("animate-fade-in", className)}
+      >
         {skeleton ?? <DefaultSkeleton />}
       </div>
     );
@@ -97,22 +111,27 @@ export function AsyncState({
         <div
           aria-live="polite"
           aria-atomic="true"
-          className="pointer-events-none absolute -top-5 right-0 z-10 flex items-center gap-1 rounded bg-background/90 px-1.5 py-0.5 text-muted-foreground text-xs shadow-sm"
+          className="pointer-events-none absolute -top-6 right-0 z-10 flex items-center gap-1.5 rounded-full border border-border bg-card px-2 py-0.5 text-[11px] text-muted-foreground shadow-[var(--shadow-card)]"
         >
-          <Loader2Icon aria-hidden="true" className="size-3 animate-spin" />
+          <Loader2Icon aria-hidden="true" className="size-3 animate-spin text-primary" />
           更新中
         </div>
       )}
       {staleError && (
         <div
           role="alert"
-          className="mb-2 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs"
+          className="mb-3 flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-foreground"
         >
+          <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden="true" />
           <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
             刷新失败：{staleError.message}（当前显示上次成功的数据）
           </span>
           {onRetry && (
-            <button type="button" onClick={onRetry} className="shrink-0 text-foreground underline underline-offset-2">
+            <button
+              type="button"
+              onClick={onRetry}
+              className="shrink-0 font-medium text-foreground underline underline-offset-2"
+            >
               重试
             </button>
           )}
@@ -120,7 +139,7 @@ export function AsyncState({
             type="button"
             onClick={() => setDismissedError(staleError)}
             aria-label="关闭刷新失败提示"
-            className="shrink-0 text-muted-foreground hover:text-foreground"
+            className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
           >
             <XIcon aria-hidden="true" className="size-3.5" />
           </button>

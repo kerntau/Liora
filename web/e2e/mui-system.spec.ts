@@ -196,7 +196,8 @@ test("model profiles preserve model picking, advanced parameters, connection tes
     await route.fulfill({ json: { ok: true, latency_ms: 1, reply: "Fixture connected" } });
   });
   await page.goto("/system/llm");
-  await page.getByRole("button", { name: "新建", exact: true }).click();
+  // 重构后页头的唯一主操作是「新建配置」（旧版叫「新建」）。
+  await page.getByRole("button", { name: "新建配置", exact: true }).click();
   const drawer = page.getByRole("dialog", { name: "新建模型配置", exact: true });
   await drawer.getByRole("textbox", { name: "名称", exact: true }).fill("Fixture profile");
   await drawer.getByRole("combobox", { name: "格式", exact: true }).click();

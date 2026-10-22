@@ -105,7 +105,12 @@ test("task assets preserve scoped pagination, DSL typing, registration and detac
   await search.fill("domain ???");
   await search.press("Escape");
   await expect(page.getByText("fixture DSL syntax error", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "清除", exact: true }).click();
+  // 新框架：DSL 搜索框的清除入口改成行内小图标（aria-label="清除搜索"），
+  // 不再是抢占输入区的「清除」文字按钮。
+  const clearSearch = search.locator("xpath=..").getByRole("button", { name: "清除搜索", exact: true });
+  await expect(clearSearch).toBeVisible();
+  await clearSearch.click();
+  await expect(search).toHaveValue("");
   await page.getByRole("tab", { name: /^IP / }).click();
   await expect(table.getByText("192.0.2.1", { exact: true })).toBeVisible();
   await expect(search).toHaveValue("");
@@ -136,6 +141,14 @@ test("task assets preserve scoped pagination, DSL typing, registration and detac
   await expect(table.getByText("registered.fixture.invalid", { exact: true })).toHaveCount(0);
   expect(globalDeletes).toBe(0);
   expect(queries.every((url) => url.searchParams.get("task_id") === id)).toBe(true);
+
+  // 新框架导航：任务详情页由底部 Dock 高亮「测试任务」，旧左侧固定侧栏不再渲染。
+  const dock = page.locator('nav[aria-label="主导航"]');
+  await expect(dock).toBeVisible();
+  await expect(dock.locator('a[aria-current="page"]')).toHaveCount(1);
+  await expect(dock.locator('a[aria-current="page"]')).toHaveAttribute("href", "/function/tasks");
+  await expect(page.locator('[data-slot="sidebar"]')).toHaveCount(0);
+
   await page.setViewportSize({ width: 390, height: 844 });
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({
@@ -262,6 +275,14 @@ test("broadcast preserves node relationships, filters, pagination and the live-p
   const panelId = await first.getAttribute("aria-controls");
   expect(panelId).toBeTruthy();
   await expect(page.locator(`[id="${panelId}"]`)).toBeVisible();
+
+  // 新框架导航：播报板所在的任务详情页高亮底部 Dock 的「测试任务」。
+  const dock = page.locator('nav[aria-label="主导航"]');
+  await expect(dock).toBeVisible();
+  await expect(dock.locator('a[aria-current="page"]')).toHaveCount(1);
+  await expect(dock.locator('a[aria-current="page"]')).toHaveAttribute("href", "/function/tasks");
+  await expect(page.locator('[data-slot="sidebar"]')).toHaveCount(0);
+
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: testInfo.outputPath("broadcast-desktop.png"), fullPage: true, animations: "disabled" });
   await page.setViewportSize({ width: 390, height: 844 });

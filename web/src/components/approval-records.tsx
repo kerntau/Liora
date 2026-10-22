@@ -15,14 +15,13 @@ import {
 } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 
+import { SectionCard } from "@/components/app/section-card";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { TablePagination } from "@/components/table-pagination";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -91,12 +90,19 @@ function ApprovalOrigin({ row, detail = false }: { row: InterceptApprovalRow; de
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const labels: Record<string, string> = { pending: "待审批", allowed: "已允许", denied: "已拒绝", timeout: "已超时" };
-  let variant: "default" | "destructive" | "secondary" | "outline" = "outline";
-  if (status === "allowed") variant = "default";
-  if (status === "denied") variant = "destructive";
-  if (status === "pending") variant = "secondary";
-  return <Badge variant={variant}>{labels[status] ?? status}</Badge>;
+  const meta: Record<string, { label: string; cls: string; dot: string }> = {
+    pending: { label: "待审批", cls: "border-warning/25 bg-warning/10 text-warning", dot: "bg-warning" },
+    allowed: { label: "已允许", cls: "border-success/20 bg-success/10 text-success", dot: "bg-success" },
+    denied: { label: "已拒绝", cls: "border-destructive/20 bg-destructive/10 text-destructive", dot: "bg-destructive" },
+    timeout: { label: "已超时", cls: "border-border bg-surface-muted text-muted-foreground", dot: "bg-muted-foreground" },
+  };
+  const current = meta[status] ?? { label: status, cls: "border-border bg-surface-muted text-muted-foreground", dot: "bg-muted-foreground" };
+  return (
+    <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap", current.cls)}>
+      <span className={cn("size-1.5 rounded-full", current.dot)} aria-hidden="true" />
+      {current.label}
+    </span>
+  );
 }
 
 function MatchCell({ row, showReason = true }: { row: InterceptApprovalRow; showReason?: boolean }) {
@@ -104,12 +110,12 @@ function MatchCell({ row, showReason = true }: { row: InterceptApprovalRow; show
   return (
     <div className="flex min-w-0 flex-col gap-1">
       {source(row) === "model" ? (
-        <Badge variant="outline">
-          <BotIcon />
+        <span className="inline-flex w-fit items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+          <BotIcon className="size-3" aria-hidden="true" />
           模型判定
-        </Badge>
+        </span>
       ) : (
-        <span className="truncate">{row.rule_name || "规则未记录或已删除"}</span>
+        <span className="truncate text-[12px]">{row.rule_name || "规则未记录或已删除"}</span>
       )}
       {showReason ? (
         <p className="truncate text-muted-foreground text-xs" title={reason}>
@@ -139,7 +145,7 @@ function CodeBlock({ label, text, truncated = false }: { label: string; text: st
           </Button>
         ) : null}
       </div>
-      <pre className="max-h-80 min-w-0 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted/60 p-3 font-mono text-xs leading-6 [overflow-wrap:anywhere]">
+      <pre className="max-h-80 min-w-0 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border/70 bg-surface-muted p-3 font-mono text-[11px] leading-6 [overflow-wrap:anywhere]">
         {text || "未记录"}
       </pre>
       {truncated ? <p className="text-muted-foreground text-xs">内容已截断，以上为保存的片段。</p> : null}
@@ -352,7 +358,7 @@ export function ApprovalDetail({
 
   return (
     <div className="flex min-w-0 flex-col gap-4 p-3 sm:p-5">
-      <div className="grid min-w-0 gap-5 rounded-xl border bg-muted/20 p-4 lg:grid-cols-2">
+      <div className="grid min-w-0 gap-5 rounded-lg border border-border/70 bg-surface-muted/40 p-4 lg:grid-cols-2">
         <div className="flex min-w-0 flex-col gap-3">
           <CodeBlock
             label={`${current.agent_name || current.conv_agent_key || "Agent"} · 工具请求`}
@@ -617,9 +623,9 @@ function ApprovalTable({
                     {open ? <ChevronDownIcon /> : <ChevronRightIcon />}
                   </Button>
                 </TableCell>
-                <TableCell className="hidden text-muted-foreground sm:table-cell">{row.id}</TableCell>
+                <TableCell className="hidden tabular-nums text-muted-foreground sm:table-cell">{row.id}</TableCell>
                 <TableCell>
-                  <code className="block truncate text-xs">{row.tool_name}</code>
+                  <code className="inline-block max-w-[140px] truncate rounded-md border border-border/70 bg-surface-muted px-2 py-1 font-mono text-[11px]">{row.tool_name}</code>
                 </TableCell>
                 <TableCell className="hidden md:table-cell">
                   <div className="flex flex-col gap-1">
@@ -640,10 +646,10 @@ function ApprovalTable({
                 <TableCell>
                   <StatusBadge status={row.status} />
                 </TableCell>
-                <TableCell className="hidden text-muted-foreground text-xs lg:table-cell">
+                <TableCell className="hidden text-[11px] tabular-nums text-muted-foreground lg:table-cell">
                   {fmtTime(row.created_at, "seconds")}
                 </TableCell>
-                <TableCell className="hidden text-muted-foreground text-xs xl:table-cell">
+                <TableCell className="hidden text-[11px] tabular-nums text-muted-foreground xl:table-cell">
                   {fmtTime(row.decided_at, "seconds")}
                 </TableCell>
               </TableRow>
@@ -664,7 +670,16 @@ function ApprovalTable({
   );
 }
 
-export function ApprovalRecords({ taskId }: { taskId?: string }) {
+export function ApprovalRecords({
+  taskId,
+  embedded = false,
+  refreshSignal,
+}: {
+  taskId?: string;
+  /** 系统审批页自带 PageHeader：隐藏组件内标题，由页面提供标题与刷新入口。 */
+  embedded?: boolean;
+  refreshSignal?: number;
+}) {
   const [rows, setRows] = React.useState<InterceptApprovalRow[]>([]);
   const [pendingRows, setPendingRows] = React.useState<InterceptPending[]>([]);
   const [page, setPage] = React.useState(1);
@@ -730,6 +745,15 @@ export function ApprovalRecords({ taskId }: { taskId?: string }) {
   const latestLoad = React.useRef(load);
   latestLoad.current = load;
 
+  // 页面级刷新入口：信号变化时手动拉取一次，不改变 5s 轮询节奏。
+  const externalRefresh = React.useRef(refreshSignal);
+  React.useEffect(() => {
+    if (!embedded || refreshSignal === undefined) return;
+    if (externalRefresh.current === refreshSignal) return;
+    externalRefresh.current = refreshSignal;
+    void latestLoad.current(true);
+  }, [embedded, refreshSignal]);
+
   React.useEffect(() => {
     void load();
     const timer = setInterval(() => void load(), 5000);
@@ -786,6 +810,10 @@ export function ApprovalRecords({ taskId }: { taskId?: string }) {
   };
 
   const historyById = new Map(rows.map((row) => [row.id, row]));
+  // 待处理的记录已经在上面的「待处理」区渲染过；历史表里再排一遍等于同一条出现两次。
+  const pendingIds = new Set(pendingRows.map((row) => row.id));
+  const historyRows = rows.filter((row) => !pendingIds.has(row.id));
+
   const pending: InterceptApprovalRow[] = pendingRows
     .filter((row) => !taskId || row.task_id === taskId)
     .map((row) => ({
@@ -797,22 +825,36 @@ export function ApprovalRecords({ taskId }: { taskId?: string }) {
     }));
   const title = taskId ? "拦截审批" : "审批记录";
   return (
-    <div className="flex min-w-0 flex-col gap-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <ClipboardListIcon className="size-5 text-muted-foreground" />
-          <h1 className="font-semibold text-xl">{title}</h1>
-          {pending.length ? <Badge variant="secondary">{pending.length} 待审批</Badge> : null}
-        </div>
-        <Button variant="outline" size="sm" onClick={() => void load(true)} disabled={loading || refreshing}>
-          <RefreshCwIcon data-icon="inline-start" className={cn(refreshing && "animate-spin")} />
-          刷新
-        </Button>
-      </div>
-      <p className="text-muted-foreground text-sm">展开记录查看工具请求和审批裁决，以及当时的上下文与执行结果。</p>
-      <FieldGroup className="flex-row flex-wrap items-end gap-3" aria-label="审批记录筛选">
-        <Field className="w-full sm:w-40">
-          <FieldLabel htmlFor={`${filterID}-status`}>审批状态</FieldLabel>
+    <div className="flex min-w-0 flex-col gap-4">
+      {!embedded ? (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="grid size-8 place-items-center rounded-lg bg-primary/10 text-primary">
+                <ClipboardListIcon className="size-4" aria-hidden="true" />
+              </span>
+              <h1 className="text-[18px] font-semibold">{title}</h1>
+              {pending.length ? (
+                <span className="rounded-full border border-warning/25 bg-warning/10 px-2.5 py-1 text-[11px] font-semibold text-warning">
+                  {pending.length} 待审批
+                </span>
+              ) : null}
+            </div>
+            <Button variant="outline" size="sm" onClick={() => void load(true)} disabled={loading || refreshing}>
+              <RefreshCwIcon data-icon="inline-start" className={cn(refreshing && "animate-spin")} />
+              刷新
+            </Button>
+          </div>
+          <p className="text-[13px] text-muted-foreground">展开记录查看工具请求和审批裁决，以及当时的上下文与执行结果。</p>
+        </>
+      ) : null}
+
+      {/* 工具栏：筛选与计数同一行、同一高度 */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-card px-4 py-3 shadow-[var(--shadow-card)]">
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="审批记录筛选">
+          <label htmlFor={`${filterID}-status`} className="sr-only">
+            审批状态
+          </label>
           <Select
             value={filter.status ?? "all"}
             onValueChange={(value) =>
@@ -822,7 +864,7 @@ export function ApprovalRecords({ taskId }: { taskId?: string }) {
               })
             }
           >
-            <SelectTrigger id={`${filterID}-status`}>
+            <SelectTrigger id={`${filterID}-status`} className="h-8 w-full sm:w-36">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -835,9 +877,9 @@ export function ApprovalRecords({ taskId }: { taskId?: string }) {
               </SelectGroup>
             </SelectContent>
           </Select>
-        </Field>
-        <Field className="w-full sm:w-40">
-          <FieldLabel htmlFor={`${filterID}-source`}>判定来源</FieldLabel>
+          <label htmlFor={`${filterID}-source`} className="sr-only">
+            判定来源
+          </label>
           <Select
             value={filter.decision_source ?? "all"}
             onValueChange={(value) =>
@@ -847,7 +889,7 @@ export function ApprovalRecords({ taskId }: { taskId?: string }) {
               })
             }
           >
-            <SelectTrigger id={`${filterID}-source`}>
+            <SelectTrigger id={`${filterID}-source`} className="h-8 w-full sm:w-36">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -859,13 +901,17 @@ export function ApprovalRecords({ taskId }: { taskId?: string }) {
               </SelectGroup>
             </SelectContent>
           </Select>
-        </Field>
-        {filtered ? (
-          <Button variant="ghost" size="sm" onClick={() => changeFilter({})}>
-            清除筛选
-          </Button>
-        ) : null}
-      </FieldGroup>
+          {filtered ? (
+            <Button variant="ghost" size="sm" className="h-8" onClick={() => changeFilter({})}>
+              清除筛选
+            </Button>
+          ) : null}
+        </div>
+        <div className="ml-auto flex flex-wrap items-center gap-3">
+          <span className="text-xs text-muted-foreground tabular-nums">{total} 条记录</span>
+        </div>
+      </div>
+
       {error ? (
         <Alert variant="destructive">
           <AlertDescription>记录加载失败：{error}。请点击刷新重试。</AlertDescription>
@@ -876,43 +922,48 @@ export function ApprovalRecords({ taskId }: { taskId?: string }) {
           <AlertDescription>待审批加载失败：{pendingError}。请点击刷新重试。</AlertDescription>
         </Alert>
       ) : null}
+
       {pending.length ? (
-        <section className="overflow-hidden rounded-xl border">
-          <div className="flex items-center gap-2 border-b bg-muted/40 px-4 py-3 font-medium text-sm">
-            <ShieldAlertIcon className="size-4" />
-            待处理（{pending.length}）<span className="text-muted-foreground text-xs">展开后允许或拒绝</span>
-          </div>
+        <SectionCard
+          icon={ShieldAlertIcon}
+          title={`待处理（${pending.length}）`}
+          description="展开记录后可直接允许或拒绝"
+          bodyClassName="px-0 pb-0"
+        >
           <ApprovalTable rows={pending} busy={deciding} decide={decide} revision={revision} label="待处理审批" />
-        </section>
+        </SectionCard>
       ) : null}
-      <section className="overflow-hidden rounded-xl border">
-        <div className="border-b px-4 py-3 font-medium text-sm">
-          {filtered ? "筛选结果" : "全部记录"}（{total}）
-        </div>
+
+      <SectionCard
+        icon={ClipboardListIcon}
+        title={filtered ? "筛选结果" : "历史记录"}
+        description="已处理的审批记录；展开行可查看完整上下文。"
+        bodyClassName="px-0 pb-0"
+      >
         {loading ? (
-          <div className="flex flex-col gap-3 p-4">
+          <div className="flex flex-col gap-3 px-5 py-4">
             <Skeleton className="h-10 w-full" />
             <Skeleton className="h-10 w-full" />
             <Skeleton className="h-10 w-full" />
           </div>
         ) : null}
         {!loading && !rows.length && !error ? (
-          <Empty>
+          <Empty className="py-8">
             <EmptyHeader>
               <EmptyMedia variant="icon">
-                <ClipboardListIcon />
+                <ClipboardListIcon className="size-6" />
               </EmptyMedia>
-              <EmptyTitle>{filtered ? "没有符合筛选条件的审批记录" : "暂无审批记录"}</EmptyTitle>
+              <EmptyTitle>{filtered ? "没有符合筛选条件的审批记录" : "暂无历史审批记录"}</EmptyTitle>
               <EmptyDescription>
                 {filtered
                   ? "请调整审批状态或判定来源，或清除筛选查看全部记录。"
-                  : "规则或模型作出审批决定后，记录将显示在这里。"}
+                  : "规则或模型作出审批决定后，历史记录会显示在这里；待处理的请求见上方区域。"}
               </EmptyDescription>
             </EmptyHeader>
           </Empty>
         ) : null}
-        {rows.length ? (
-          <ApprovalTable rows={rows} busy={deciding} decide={decide} revision={revision} label="审批记录列表" />
+        {historyRows.length ? (
+          <ApprovalTable rows={historyRows} busy={deciding} decide={decide} revision={revision} label="审批记录列表" />
         ) : null}
         {!loading && !error ? (
           <TablePagination
@@ -924,7 +975,7 @@ export function ApprovalRecords({ taskId }: { taskId?: string }) {
             pageSizeOptions={[10, 20, 50]}
           />
         ) : null}
-      </section>
+      </SectionCard>
     </div>
   );
 }

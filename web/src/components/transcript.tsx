@@ -7,6 +7,7 @@ import {
   ChevronRight,
   CrosshairIcon,
   Flag,
+  Loader2,
   MessageSquare,
   PaperclipIcon,
   ShieldAlertIcon,
@@ -27,23 +28,25 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import type { Activity, InterceptPending } from "@/lib/types";
 
 // ---- per-agent lane color (planner + work#1/#2/#3 …) ---------------------------
+// 车道色块是白字小胶囊，必须用 700 档才能保证对比度（600 档只有 3:1 左右）；
+// 深色下也用同一组实色，不跟随主题变浅。
 const workerColors = [
-  "bg-sky-600",
-  "bg-violet-600",
-  "bg-teal-600",
-  "bg-pink-600",
-  "bg-orange-600",
+  "bg-sky-700",
+  "bg-violet-700",
+  "bg-teal-700",
+  "bg-pink-700",
+  "bg-orange-700",
 ];
 function workerColor(name: string): string {
-  if (name === "planner") return "bg-amber-600"; // the intent generator, distinct
-  if (name === "mainagent") return "bg-primary";
+  if (name === "planner") return "bg-amber-700"; // the intent generator, distinct
+  if (name === "mainagent") return "bg-blue-700";
   const m = /#(\d+)/.exec(name);
   const i = m ? (parseInt(m[1], 10) - 1) % workerColors.length : 0;
   return workerColors[Math.max(0, i)];
 }
 
 const chip = (worker: string) =>
-  "mt-0.5 shrink-0 rounded px-1 text-[9px] font-medium text-white " + workerColor(worker);
+  "mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] leading-none font-medium text-white " + workerColor(worker);
 
 // useInView latches true when the ref'd element first comes within `rootMargin` of
 // the enclosing scroll viewport. Blocks that always show their full body (user
@@ -140,7 +143,7 @@ function ActivityTime({ ts }: { ts: string }) {
     <time
       dateTime={date.toISOString()}
       title={date.toLocaleString("zh-CN")}
-      className="text-[10px] text-muted-foreground tabular-nums"
+      className="text-[11px] text-muted-foreground tabular-nums"
       suppressHydrationWarning
     >
       {date.toLocaleString("zh-CN", {
@@ -206,7 +209,9 @@ function InterceptCard({
 
   const [detail, setDetail] = React.useState<Record<string, unknown> | null>(null);
   const [decided, setDecided] = React.useState<"allowed" | "denied" | "timeout" | null>(null);
-  const [deciding, setDeciding] = React.useState(false);
+  // 记住在提交哪个决定：两个按钮同时转圈会让人以为点错了，只有被点的那个显示进行中。
+  const [deciding, setDeciding] = React.useState<"allowed" | "denied" | null>(null);
+  const busy = deciding !== null;
   const [confirming, setConfirming] = React.useState(false);
   const [expanded, setExpanded] = React.useState(false);
   const [pending, setPending] = React.useState<InterceptPending | null>(null);
@@ -242,8 +247,8 @@ function InterceptCard({
   }, [pendingId, retry]);
 
   async function decide(decision: "allowed" | "denied") {
-    if (step.inherited || !pendingId || deciding) return;
-    setDeciding(true);
+    if (step.inherited || !pendingId || busy) return;
+    setDeciding(decision);
     try {
       await api.interceptDecide(pendingId, decision);
       setDecided(decision);
@@ -251,7 +256,7 @@ function InterceptCard({
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
-      setDeciding(false);
+      setDeciding(null);
     }
   }
 
@@ -262,14 +267,14 @@ function InterceptCard({
   const row = pending ? { ...pending, status: decided || pending.status, conv_title: "", conv_agent_key: "", rule_name: "" } : null;
 
   return (
-    <div className="my-2 rounded-lg border border-amber-400/50 bg-amber-50/40 dark:bg-amber-950/15 p-3 text-xs">
+    <div className="my-2 rounded-lg border border-warning/40 bg-warning/5 p-3 text-[12px] leading-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-start gap-2 min-w-0">
-          <ShieldAlertIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+          <ShieldAlertIcon className="mt-0.5 size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
           <div className="min-w-0 space-y-0.5">
             <div className="flex items-center gap-1.5 font-medium">
               <span className="text-amber-700 dark:text-amber-400">审批请求</span>
-              <code className="rounded bg-amber-100 dark:bg-amber-900/50 px-1 font-mono text-amber-800 dark:text-amber-300">
+              <code className="rounded bg-warning/10 px-1 font-mono text-amber-800 dark:text-amber-300">
                 {toolName}
               </code>
               {pendingId && (
@@ -286,12 +291,12 @@ function InterceptCard({
           <Badge variant="outline">历史记录 · 只读</Badge>
         ) : decided ? (
           <span className={
-            "shrink-0 rounded px-2 py-0.5 text-[11px] font-medium " +
+            "inline-flex h-5 shrink-0 items-center rounded px-2 text-[11px] font-medium " +
             (decided === "allowed"
-              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400"
+              ? "bg-success/10 text-success"
               : decided === "timeout"
-                ? "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
-                : "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400")
+                ? "bg-muted text-muted-foreground"
+                : "bg-destructive/10 text-destructive")
           }>
             {decided === "allowed" ? "已允许" : decided === "timeout" ? "已超时" : "已拒绝"}
           </span>
@@ -301,21 +306,29 @@ function InterceptCard({
             <Button
               size="sm"
               variant="destructive"
-              className="h-6 px-2 text-xs"
-              disabled={deciding || !pendingId}
+              disabled={busy || !pendingId}
+              aria-busy={deciding === "allowed" || undefined}
               onClick={() => setConfirming(true)}
             >
-              <CheckIcon className="h-3 w-3" />
+              {deciding === "allowed" ? (
+                <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+              ) : (
+                <CheckIcon className="h-3 w-3" />
+              )}
               允许
             </Button>
             <Button
               size="sm"
               variant="outline"
-              className="h-6 px-2 text-xs"
-              disabled={deciding || !pendingId}
+              disabled={busy || !pendingId}
+              aria-busy={deciding === "denied" || undefined}
               onClick={() => decide("denied")}
             >
-              <XIcon className="h-3 w-3" />
+              {deciding === "denied" ? (
+                <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+              ) : (
+                <XIcon className="h-3 w-3" />
+              )}
               拒绝
             </Button>
           </div>
@@ -333,7 +346,7 @@ function InterceptCard({
             {expanded && row ? (
               <ApprovalDetail
                 row={row}
-                busy={deciding}
+                busy={busy}
                 decide={(_id, decision) => decide(decision)}
                 revision={retry}
                 readOnly={Boolean(step.inherited)}
@@ -345,7 +358,7 @@ function InterceptCard({
                 <span>{statusError}</span>
                 <Button variant="outline" size="sm" onClick={() => setRetry((value) => value + 1)}>重试详情</Button>
               </div>
-            ) : <p className="p-3 text-muted-foreground">正在加载审批详情…</p>}
+            ) : <p className="p-3 text-[12px] text-muted-foreground">正在加载审批详情…</p>}
           </CollapsibleContent>
         </Collapsible>
       ) : null}
@@ -356,7 +369,7 @@ function InterceptCard({
         description={`放行后「${toolName}」将直达目标并立即执行，可能产生不可撤销的副作用。`}
         confirmLabel="允许并放行"
         destructive
-        pending={deciding}
+        pending={busy}
         onConfirm={() => decide("allowed")}
       />
     </div>
@@ -390,11 +403,12 @@ function ToolBlock({
   const ToolIcon = toolName === "Bash" ? Terminal : Wrench;
   const running = !result;
   const ok = !!result && !result.is_error;
+  // 状态文字是 13px 小字：浅色下用 700 档才够 4.5:1（600 档只有 3.8 左右）。
   const statusTone = running
     ? "text-muted-foreground"
     : ok
-      ? "text-emerald-600 dark:text-emerald-400"
-      : "text-red-600 dark:text-red-400";
+      ? "text-emerald-700 dark:text-emerald-400"
+      : "text-red-700 dark:text-red-400";
   const rawCmd =
     use && use.summary.startsWith(toolName) ? use.summary.slice(toolName.length).trimStart() : (use?.summary ?? "");
   const cmd = toolInputText(toolName, rawCmd);
@@ -474,20 +488,26 @@ function ToolBlock({
     <section
       ref={targetRef}
       aria-label={focused ? `定位的工具调用 #${use?.seq}` : undefined}
-      className={focused ? "rounded-lg border-2 border-primary bg-primary/5 p-3 text-xs" : "text-xs"}
+      className={focused ? "rounded-lg border-2 border-primary bg-primary/5 p-3 text-[13px]" : "text-[13px]"}
     >
-      <button type="button" onClick={toggle} aria-expanded={open} aria-controls={open ? detailId : undefined} className="flex w-full items-start gap-2 py-1 text-left hover:bg-muted/40">
+      <button
+        type="button"
+        onClick={toggle}
+        aria-expanded={open}
+        aria-controls={open ? detailId : undefined}
+        className="-mx-2 flex w-[calc(100%+1rem)] items-start gap-2 rounded-md px-2 py-1 text-left outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/40"
+      >
         <span className="mt-0.5 text-muted-foreground">
           {open ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
         </span>
-        <ToolIcon className={"mt-0.5 size-3.5 shrink-0 " + (running ? "text-sky-600 dark:text-sky-400" : statusTone)} />
+        <ToolIcon className={"mt-0.5 size-3.5 shrink-0 " + (running ? "text-sky-700 dark:text-sky-400" : statusTone)} />
         {showWorker && <span className={chip(group.worker)}>{group.worker}</span>}
-        <span className="shrink-0 font-medium text-sky-600 dark:text-sky-400">{toolName}</span>
+        <span className="shrink-0 font-medium text-sky-700 dark:text-sky-400">{toolName}</span>
         {cmd && <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground">{cmd}</span>}
         <span className={"ml-auto shrink-0 font-medium " + statusTone}>{statusText}</span>
       </button>
       {open && (
-        <pre id={detailId} className="ml-7 mb-1 max-h-72 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/50 p-2 font-mono text-[11px] leading-relaxed">
+        <pre id={detailId} className="ml-10 mb-1 max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 p-2 font-mono text-[11px] leading-relaxed">
           {detail ?? "加载中…"}
         </pre>
       )}
@@ -517,7 +537,7 @@ function MessageBlock({
   const isError = group.steps.some((s) => s.is_error);
   const body = (speak.length ? speak : group.steps).map((s) => s.summary).join("  ") || "…";
   const Icon = isError ? Flag : MessageSquare;
-  const tone = isError ? "text-red-600 dark:text-red-400" : "text-foreground";
+  const tone = isError ? "text-red-700 dark:text-red-400" : "text-foreground";
 
   const detailKey = group.steps.map((s) => s.seq).join(",");
   React.useEffect(() => {
@@ -544,8 +564,14 @@ function MessageBlock({
   }
 
   return (
-    <div className="text-xs">
-      <button type="button" onClick={toggle} aria-expanded={open} aria-controls={open ? detailId : undefined} className="flex w-full items-start gap-2 py-1 text-left hover:bg-muted/40">
+    <div className="text-[13px]">
+      <button
+        type="button"
+        onClick={toggle}
+        aria-expanded={open}
+        aria-controls={open ? detailId : undefined}
+        className="-mx-2 flex w-[calc(100%+1rem)] items-start gap-2 rounded-md px-2 py-1 text-left outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/40"
+      >
         <span className="mt-0.5 text-muted-foreground">
           {open ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
         </span>
@@ -557,7 +583,7 @@ function MessageBlock({
         </span>
       </button>
       {open && (
-        <pre id={detailId} className="ml-7 mb-1 max-h-72 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/50 p-2 font-mono text-[11px] leading-relaxed">
+        <pre id={detailId} className="ml-10 mb-1 max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 p-2 font-mono text-[11px] leading-relaxed">
           {detail ?? "加载中…"}
         </pre>
       )}
@@ -613,14 +639,14 @@ function UserRow({ step, intent, getDetail }: { step: Activity; intent?: boolean
   }, [inView, step.seq, getDetail, step.summary, inline]);
   const { text, attachments } = parseUserBody(full ?? step.summary);
   return (
-    <div ref={ref} className="mt-3 mb-2 flex min-w-0 justify-end gap-2">
-      <div className="flex min-w-0 max-w-[85%] flex-col items-end gap-1.5">
+    <div ref={ref} className="my-3 flex min-w-0 justify-end gap-2">
+      <div className="flex min-w-0 max-w-[85%] flex-col items-end gap-1">
         {attachments.length > 0 && (
           <div className="flex min-w-0 max-w-full flex-wrap justify-end gap-1.5">
             {attachments.map((a) => (
               <div
                 key={a.path}
-                className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md border bg-card px-2 py-1 text-xs shadow-sm"
+                className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-border/60 bg-card px-2 py-1 text-[12px]"
                 title={a.path}
               >
                 <PaperclipIcon className="size-3 shrink-0 text-primary" />
@@ -631,7 +657,7 @@ function UserRow({ step, intent, getDetail }: { step: Activity; intent?: boolean
           </div>
         )}
         {text && (
-          <div className="min-w-0 max-w-full whitespace-pre-wrap rounded-lg rounded-tr-sm bg-primary px-3 py-1.5 text-sm text-primary-foreground [overflow-wrap:anywhere]">
+          <div className="min-w-0 max-w-full rounded-lg rounded-tr-sm bg-primary px-3 py-2 text-[13px] leading-5 whitespace-pre-wrap text-primary-foreground [overflow-wrap:anywhere]">
             {text}
           </div>
         )}
@@ -665,11 +691,12 @@ function AnswerBlock({ step, getDetail }: { step: Activity; getDetail: (seq: num
     };
   }, [inView, step.seq, getDetail, step.summary]);
   return (
-    <div ref={ref} className="mb-2 mt-1 flex min-w-0 flex-col gap-1">
+    <div ref={ref} className="my-2 flex min-w-0 flex-col gap-1">
       <div
         className={
-          "min-w-0 flex-1 break-words rounded-lg bg-muted px-3 py-2 " +
-          (step.is_error ? "text-sm text-red-600 dark:text-red-400" : "")
+          // Markdown 组件自带 text-sm，这里把回答正文压回 13px，和消息气泡/执行行同一档。
+          "min-w-0 flex-1 rounded-lg bg-muted px-3 py-2 text-[13px] leading-5 break-words [&>div]:text-[13px] " +
+          (step.is_error ? "text-destructive" : "")
         }
       >
         {step.is_error ? (
@@ -711,7 +738,7 @@ function ExecView({
     <div className="flex flex-col">
       {groupSteps(activity, !!chat).map((g) =>
         g.type === "round" ? (
-          <div key={"r" + g.key} className="my-2 flex items-center gap-2 text-[10px] font-medium text-muted-foreground">
+          <div key={"r" + g.key} className="my-2 flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
             <span className="h-px flex-1 bg-border" />
             {g.label}
             <span className="h-px flex-1 bg-border" />

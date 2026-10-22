@@ -7,6 +7,7 @@ import {
   ArrowUpIcon,
   ArrowUpToLineIcon,
   BugIcon,
+  CalendarDaysIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   CompassIcon,
@@ -17,14 +18,17 @@ import {
   type LucideIcon,
   PauseIcon,
   PlayIcon,
+  RadioIcon,
+  RefreshCwIcon,
   SearchIcon,
   TargetIcon,
 } from "lucide-react";
 
 import { AsyncState } from "@/components/async-state";
+import { SectionCard } from "@/components/app/section-card";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardFooter } from "@/components/ui/card";
+import { CardFooter } from "@/components/ui/card";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -349,11 +353,16 @@ function BroadcastRow({
   const downstream = edges.filter((e) => e.src === node.id).map((e) => ({ rel: e.rel, id: e.dst }));
 
   return (
-    <div className={cn("relative grid grid-cols-[4.5rem_1.75rem_1fr] gap-x-2", fresh && "bg-primary/5")}>
+    <div
+      className={cn(
+        "relative grid grid-cols-[3.25rem_1.5rem_minmax(0,1fr)] gap-x-1.5 sm:grid-cols-[4.5rem_1.75rem_minmax(0,1fr)] sm:gap-x-2",
+        fresh && "bg-primary/[0.04]",
+      )}
+    >
       {/* 时间列 */}
-      <div className="py-3 text-right text-xs text-muted-foreground tabular-nums">
+      <div className="pt-3 pr-0.5 text-right text-[11px] leading-4 text-muted-foreground tabular-nums">
         <div>{Number.isNaN(ts) ? "--:--:--" : clockFmt.format(ts)}</div>
-        <div className="text-[11px] opacity-70">{relTime(ts, now)}</div>
+        <div className="text-[10px] opacity-70">{relTime(ts, now)}</div>
       </div>
 
       {/* 时间轴:竖线 + 类型圆点 */}
@@ -361,76 +370,89 @@ function BroadcastRow({
         <span className="absolute inset-y-0 w-px bg-border" />
         <span
           className={cn(
-            "relative mt-3.5 flex size-6 items-center justify-center rounded-full text-white ring-4 ring-background",
+            "relative mt-2.5 flex size-5 items-center justify-center rounded-full text-white ring-4 ring-background sm:size-6",
             meta.dot,
           )}
         >
-          <Icon className="size-3.5" />
+          <Icon className="size-3 sm:size-3.5" />
         </span>
       </div>
 
       {/* 内容列 */}
-      <div className="min-w-0 border-b py-3 pr-1 last:border-b-0">
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
-          aria-controls={open ? detailId : undefined}
-          className="flex w-full min-w-0 items-start gap-2 text-left"
-        >
-          <ChevronRightIcon
-            className={cn("mt-0.5 size-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")}
-          />
-          <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-              <KindChip kind={kind} />
-              <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">#{node.id}</code>
-              <NodeStateBadge node={node} />
-              {node.priority > 0 && (kind === "goal" || kind === "intent") && (
-                <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">P{node.priority}</span>
-              )}
-              {fresh && (
-                <span className="rounded bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
-                  新
-                </span>
-              )}
-              <span className="ml-auto shrink-0 text-xs text-muted-foreground">{node.origin || "system"}</span>
+      <div className="min-w-0 py-1.5 pr-3 sm:pr-4">
+        <div className="rounded-xl border border-border/70 bg-card px-2.5 py-2 transition-colors hover:border-border hover:bg-surface-muted/50 sm:px-3 sm:py-2.5">
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+            aria-controls={open ? detailId : undefined}
+            className="flex w-full min-w-0 items-start gap-1.5 text-left"
+          >
+            <ChevronRightIcon
+              className={cn("mt-0.5 size-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")}
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                <KindChip kind={kind} />
+                <code className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+                  #{node.id}
+                </code>
+                <NodeStateBadge node={node} />
+                {node.priority > 0 && (kind === "goal" || kind === "intent") && (
+                  <span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                    P{node.priority}
+                  </span>
+                )}
+                {fresh && (
+                  <span className="rounded-sm bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
+                    新
+                  </span>
+                )}
+                <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">{node.origin || "system"}</span>
+              </div>
+              <p className={cn("mt-1 text-[13px] leading-5 text-foreground", !open && "line-clamp-2")}>
+                {summary || `节点 #${node.id}`}
+              </p>
             </div>
-            <p className={cn("mt-1 text-sm", !open && "line-clamp-2")}>{summary || `节点 #${node.id}`}</p>
-          </div>
-        </button>
+          </button>
 
-        {open && (
-          <div id={detailId} role="region" aria-label={`节点 #${node.id} 详情`} className="mt-2 ml-5 flex flex-col gap-3 rounded-md border bg-muted/30 p-3">
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-              <span>
-                节点 <code className="font-mono">#{node.id}</code>
-              </span>
-              <span>类型 {meta.label}</span>
-              <span>来源 {node.origin || "system"}</span>
-              <span>{Number.isNaN(ts) ? node.ts : new Date(ts).toLocaleString("zh-CN")}</span>
-            </div>
-            {node.state === "deleted" && node.delete_reason && (
-              <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs">
-                <span className="font-medium text-destructive">删除原因</span>
-                <span className="ml-2 break-words text-muted-foreground">{node.delete_reason}</span>
+          {open && (
+            <div
+              id={detailId}
+              role="region"
+              aria-label={`节点 #${node.id} 详情`}
+              className="mt-2 ml-4 flex flex-col gap-3 rounded-lg border border-border/70 bg-surface-muted/60 p-3"
+            >
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+                <span>
+                  节点 <code className="font-mono">#{node.id}</code>
+                </span>
+                <span>类型 {meta.label}</span>
+                <span>来源 {node.origin || "system"}</span>
+                <span>{Number.isNaN(ts) ? node.ts : new Date(ts).toLocaleString("zh-CN")}</span>
               </div>
-            )}
-            <AssetList assets={assets[node.id] ?? []} />
-            {(upstream.length > 0 || downstream.length > 0) && (
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <RelatedList title="上游 · 由此而来" rows={upstream} refs={refs} assets={assets} />
-                <RelatedList title="下游 · 由此产生" rows={downstream} refs={refs} assets={assets} />
+              {node.state === "deleted" && node.delete_reason && (
+                <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-[11px]">
+                  <span className="font-medium text-destructive">删除原因</span>
+                  <span className="ml-2 break-words text-muted-foreground">{node.delete_reason}</span>
+                </div>
+              )}
+              <AssetList assets={assets[node.id] ?? []} />
+              {(upstream.length > 0 || downstream.length > 0) && (
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <RelatedList title="上游 · 由此而来" rows={upstream} refs={refs} assets={assets} />
+                  <RelatedList title="下游 · 由此产生" rows={downstream} refs={refs} assets={assets} />
+                </div>
+              )}
+              <div>
+                <div className="mb-1.5 text-[11px] font-medium text-muted-foreground">payload</div>
+                <pre className="max-h-64 overflow-auto rounded-lg border border-border/70 bg-card p-3 font-mono text-[11px] whitespace-pre-wrap">
+                  {prettyPayload(node.payload)}
+                </pre>
               </div>
-            )}
-            <div>
-              <div className="mb-1.5 text-xs font-medium text-muted-foreground">payload</div>
-              <pre className="max-h-64 overflow-auto rounded-md border bg-background p-3 font-mono text-xs whitespace-pre-wrap">
-                {prettyPayload(node.payload)}
-              </pre>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );
@@ -577,16 +599,22 @@ export function BroadcastTab({ taskId }: { taskId: string }) {
   }
 
   return (
-    <Card className="overflow-hidden py-0">
+    <SectionCard
+      icon={RadioIcon}
+      title="播报板"
+      description="按时间回放探索节点：意图、事实、漏洞与压缩记录，可逐条展开上下游。"
+      dense
+      bodyClassName="px-0 pb-0"
+    >
       {/* 工具条 */}
-      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2.5">
+      <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-4 py-2.5 lg:px-5">
         <div className="relative w-full sm:w-64">
           <SearchIcon className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={queryInput}
             onChange={(e) => setQueryInput(e.target.value)}
             placeholder="搜索内容 / 来源 / 节点 id"
-            className="h-8 pl-8"
+            className="h-9 pl-8"
             aria-label="搜索播报"
           />
           {queryInput && <Button type="button" variant="ghost" size="icon-sm" className="absolute top-0 right-0" aria-label="清除播报搜索" onClick={() => setQueryInput("")}>×</Button>}
@@ -602,7 +630,7 @@ export function BroadcastTab({ taskId }: { taskId: string }) {
                 onClick={() => toggleKind(kind)}
                 aria-pressed={active}
                 className={cn(
-                  "rounded-md border px-2 py-0.5 text-xs font-medium transition-colors",
+                  "rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors",
                   active ? meta.chip : "border-transparent text-muted-foreground hover:bg-accent",
                 )}
               >
@@ -625,6 +653,9 @@ export function BroadcastTab({ taskId }: { taskId: string }) {
           )}
         </div>
         <div className="ml-auto flex items-center gap-2">
+          <span className="hidden text-[11px] whitespace-nowrap text-muted-foreground tabular-nums sm:inline">
+            {total} 条
+          </span>
           <Button
             variant="outline"
             size="sm"
@@ -681,7 +712,7 @@ export function BroadcastTab({ taskId }: { taskId: string }) {
         </div>
       )}
 
-      <CardContent className="px-4 py-0">
+      <div className="px-0">
         {!loaded || (error && items.length === 0) ? (
           <AsyncState
             status={error ? "error" : "loading"}
@@ -698,13 +729,46 @@ export function BroadcastTab({ taskId }: { taskId: string }) {
             {null}
           </AsyncState>
         ) : items.length === 0 ? (
-          <p className="py-10 text-center text-sm text-muted-foreground">
-            {query || kinds.length > 0 ? "没有符合条件的播报。" : "这个任务还没有产生探索节点。"}
-          </p>
+          <div className="flex flex-col items-center justify-center gap-2 px-4 py-14 text-center">
+            <span className="grid size-10 place-items-center rounded-md border border-border/70 bg-surface-muted text-muted-foreground/60">
+              <RadioIcon className="size-5" aria-hidden="true" />
+            </span>
+            <p className="text-[13px] font-medium text-foreground">
+              {query || kinds.length > 0 ? "没有符合条件的播报" : "这个任务还没有产生探索节点"}
+            </p>
+            <p className="max-w-sm text-[11px] leading-5 text-muted-foreground">
+              {query || kinds.length > 0
+                ? "换个关键词或类型，或清除筛选查看全部播报。"
+                : "任务开始探索后，每条意图、事实与漏洞会按时间出现在这里。"}
+            </p>
+            {query || kinds.length > 0 ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setKinds([]);
+                  setQueryInput("");
+                  setQuery("");
+                  setPage(1);
+                }}
+              >
+                清除筛选
+              </Button>
+            ) : (
+              <Button size="sm" variant="outline" onClick={() => setReloadTick((n) => n + 1)}>
+                刷新
+              </Button>
+            )}
+          </div>
         ) : (
           groups.map((group) => (
-            <div key={group.day}>
-              <div className="py-2 pl-[6.25rem] text-xs font-medium text-muted-foreground">{group.day}</div>
+            <div key={group.day} className="pb-1">
+              <div className="flex items-center gap-2 px-4 pt-3 pb-1 pl-[4.75rem] sm:pl-[6.25rem] lg:px-5 lg:pl-[6.25rem]">
+                <CalendarDaysIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="text-[11px] font-medium text-muted-foreground">{group.day}</span>
+                <span className="h-px flex-1 bg-border/70" />
+                <span className="text-[10px] tabular-nums text-muted-foreground">{group.rows.length} 条</span>
+              </div>
               {group.rows.map((node) => (
                 <BroadcastRow
                   key={node.id}
@@ -719,9 +783,9 @@ export function BroadcastTab({ taskId }: { taskId: string }) {
             </div>
           ))
         )}
-      </CardContent>
+      </div>
 
-      <CardFooter className="flex flex-wrap items-center gap-2 border-t px-4 py-2.5 text-xs text-muted-foreground">
+      <CardFooter className="flex flex-wrap items-center gap-2 border-t border-border/70 bg-surface-muted/40 px-4 py-2.5 text-[11px] text-muted-foreground lg:px-5">
         <Select
           value={String(size)}
           onValueChange={(v) => {
@@ -769,6 +833,6 @@ export function BroadcastTab({ taskId }: { taskId: string }) {
           </Button>
         </div>
       </CardFooter>
-    </Card>
+    </SectionCard>
   );
 }

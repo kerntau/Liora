@@ -3,12 +3,14 @@
 import * as React from "react";
 
 import { Skeleton } from "@/components/ui/skeleton";
+import { SECTION_TITLE_CLASS } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 
 export function LiveDot({ className }: { className?: string }) {
   return <span className={cn("inline-block size-1.5 shrink-0 animate-pulse rounded-full bg-blue-400", className)} />;
 }
 
+/** 卡片内小节标题：13px/600 + 12px 右侧说明，两者同基线。 */
 export function SectionTitle({
   icon: Icon,
   children,
@@ -19,12 +21,12 @@ export function SectionTitle({
   sub?: React.ReactNode;
 }) {
   return (
-    <div className="mb-3 flex items-center justify-between">
-      <div className="flex items-center gap-1.5 text-xs font-semibold">
-        <Icon className="size-3.5 text-muted-foreground" />
-        {children}
+    <div className="mb-3 flex items-baseline justify-between gap-2">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <span className={cn("truncate", SECTION_TITLE_CLASS)}>{children}</span>
       </div>
-      {sub && <span className="text-[10px] text-muted-foreground">{sub}</span>}
+      {sub ? <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{sub}</span> : null}
     </div>
   );
 }

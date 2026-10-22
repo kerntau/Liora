@@ -156,7 +156,8 @@ export function intentToSession(n: TaskNode): Session {
   return {
     id: n.id,
     role: "worker",
-    title: label || `Intent ${n.id}`,
+    // 没有摘要时用中文兜底，别把内部类型名（Intent …）漏到界面上。
+    title: label || "未命名意图",
     status: state,
     live: !n.inherited && state === "running",
     last_activity: n.ts,

@@ -6,12 +6,15 @@ import Link from "@/lib/router-compat";
 
 import {
   ArrowUpRightIcon,
+  BugIcon,
   ChevronRightIcon,
   FileTextIcon,
   FlaskConicalIcon,
   RotateCcwIcon,
-  ShieldAlertIcon,
+  SearchXIcon,
+  TerminalIcon,
   Trash2Icon,
+  TriangleAlertIcon,
 } from "lucide-react";
 
 import { CopyButton } from "@/components/copy-button";
@@ -28,7 +31,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -40,6 +42,8 @@ import { fmtTime } from "@/lib/format";
 import { statusMeta } from "@/lib/status";
 import type { ActiveFindingRetest, Finding, FindingStatus, Severity } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+import { StateBlock } from "./state-block";
 
 export const SEVERITIES: Severity[] = ["critical", "high", "medium", "low"];
 
@@ -78,8 +82,6 @@ export function isSameFinding(left: Finding, right: Finding): boolean {
   return findingRowKey(left) === findingRowKey(right);
 }
 
-
-
 const COLUMN_COUNT = 9;
 
 interface FindingsTableProps {
@@ -109,6 +111,8 @@ interface FindingsTableProps {
   /** 列表为空时是否处于筛选状态,决定空态是否给「清除筛选」。 */
   hasFilters?: boolean;
   onClearFilters?: () => void;
+  /** 资产视图左侧已有资产树，隐藏重复的「资产」列以在 1440 内放下表格。 */
+  hideAssetColumn?: boolean;
 }
 
 // FindingsTable 是发现列表的表格主体,平铺视图与按任务分组视图共用同一份行渲染
@@ -135,6 +139,7 @@ export function FindingsTable({
   onRetry,
   hasFilters = false,
   onClearFilters,
+  hideAssetColumn = false,
 }: FindingsTableProps) {
   const selectableIds = items.map((finding) => finding.finding_id).filter((id): id is string => Boolean(id));
   const selectedCount = selectableIds.filter((id) => selectedIds.has(id)).length;
@@ -149,51 +154,67 @@ export function FindingsTable({
   let emptyContent: React.ReactNode;
   if (error) {
     emptyContent = (
-      <div className="flex flex-col items-center gap-2">
-        <span className="text-foreground">加载失败</span>
-        <span className="max-w-md break-words text-xs">{error}</span>
-        {onRetry && (
-          <Button size="sm" variant="outline" onClick={onRetry}>
-            重试
-          </Button>
-        )}
-      </div>
+      <StateBlock
+        icon={TriangleAlertIcon}
+        tone="error"
+        title="加载失败"
+        description={error}
+        action={
+          onRetry && (
+            <Button size="sm" variant="outline" onClick={onRetry}>
+              重试
+            </Button>
+          )
+        }
+      />
     );
   } else if (hasFilters) {
     emptyContent = (
-      <div className="flex flex-col items-center gap-2">
-        <span>没有匹配的发现。</span>
-        {onClearFilters && (
-          <Button size="sm" variant="outline" onClick={onClearFilters}>
-            清除筛选
-          </Button>
-        )}
-      </div>
+      <StateBlock
+        icon={SearchXIcon}
+        title="没有匹配的发现。"
+        description="当前筛选条件下没有结果，放宽等级、状态或关键词后再试。"
+        action={
+          onClearFilters && (
+            <Button size="sm" variant="outline" onClick={onClearFilters}>
+              清除筛选
+            </Button>
+          )
+        }
+      />
     );
   } else {
-    emptyContent = <span>暂无发现。运行任务后，发现的漏洞会汇总到这里。</span>;
+    emptyContent = (
+      <StateBlock
+        icon={BugIcon}
+        title="暂无发现。"
+        description="运行任务后，发现的漏洞会汇总到这里。"
+      />
+    );
   }
 
   return (
     /* 固定列宽保证展开内容不撑开表格；窄屏只在表格内部横向滚动。 */
-    <Table className="min-w-[60rem] table-fixed">
+    <Table className={cn("table-fixed", hideAssetColumn ? "min-w-[53rem]" : "min-w-[64rem]")}>
       <TableHeader>
-        <TableRow>
-          <TableHead className="w-8">
+        <TableRow className="hover:bg-transparent">
+          <TableHead className="w-9 pl-4">
             <Checkbox
               checked={headerChecked}
               onCheckedChange={(checked) => onToggleSelectedPage(selectableIds, checked === true)}
               aria-label={selectAllLabel}
             />
           </TableHead>
-          <TableHead className="w-8" />
-          <TableHead className="w-20">严重度</TableHead>
+          <TableHead className="w-7" />
+          <TableHead className="w-[5.5rem]">严重度</TableHead>
           <TableHead>漏洞名称</TableHead>
-          <TableHead className="w-44">资产</TableHead>
+          {!hideAssetColumn && <TableHead className="w-44">资产</TableHead>}
           <TableHead className="w-28">状态</TableHead>
           <TableHead className="w-32">所属任务</TableHead>
           <TableHead className="w-24">时间</TableHead>
-          <TableHead className="w-48">操作</TableHead>
+          <TableHead className="sticky right-0 z-20 w-52 border-l border-border/70 bg-surface-muted pr-4 text-right">
+            操作
+          </TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -204,7 +225,10 @@ export function FindingsTable({
           return (
             <React.Fragment key={rowKey}>
               <TableRow
-                className="cursor-pointer"
+                className={cn(
+                  "group/row cursor-pointer align-top focus-visible:outline-2 focus-visible:outline-ring",
+                  open && "bg-surface-muted/60",
+                )}
                 role="button"
                 tabIndex={0}
                 aria-expanded={open}
@@ -215,7 +239,7 @@ export function FindingsTable({
                   onToggleRow(f);
                 }}
               >
-                <TableCell onClick={(e) => e.stopPropagation()}>
+                <TableCell className="pt-3.5 pl-4">
                   {f.finding_id && (
                     <Checkbox
                       checked={selectedIds.has(f.finding_id)}
@@ -224,56 +248,72 @@ export function FindingsTable({
                     />
                   )}
                 </TableCell>
-                <TableCell>
+                <TableCell className="pt-3.5">
                   <ChevronRightIcon
                     className={cn("size-4 text-muted-foreground transition-transform", open && "rotate-90")}
+                    aria-hidden="true"
                   />
                 </TableCell>
-                <TableCell>
+                <TableCell className="pt-3.5">
                   <StatusBadge domain="severity" value={f.severity} dot />
                 </TableCell>
-                <TableCell className="max-w-md">
-                  <div className="flex min-w-0 flex-col gap-0.5">
-                    {f.finding_id ? (
-                      <Link
-                        href={`/function/findings/detail?id=${f.finding_id}`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="truncate font-medium hover:text-primary hover:underline"
-                        title="查看发现详情"
-                      >
-                        {f.name || f.vulnclass || "未分类"}
-                      </Link>
-                    ) : (
-                      <span className="truncate font-medium">{f.name || f.vulnclass || "未分类"}</span>
-                    )}
-                    <span className="truncate text-xs text-muted-foreground">{f.summary}</span>
-                    <Badge variant="outline">流量证据 {f.traffic_count ?? 0} 条</Badge>
+                <TableCell className="max-w-md py-3 whitespace-normal">
+                  {/* 两行封顶：标题行尾挂证据条数，摘要单行截断，行高从 98px 收到 ~68px。 */}
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <div className="flex min-w-0 items-center gap-2">
+                      {f.finding_id ? (
+                        <Link
+                          href={`/function/findings/detail?id=${f.finding_id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="min-w-0 truncate text-[13px] leading-5 font-semibold text-foreground hover:text-primary hover:underline"
+                          title="查看发现详情"
+                        >
+                          {f.name || f.vulnclass || "未分类"}
+                        </Link>
+                      ) : (
+                        <span className="min-w-0 truncate text-[13px] leading-5 font-semibold text-foreground">
+                          {f.name || f.vulnclass || "未分类"}
+                        </span>
+                      )}
+                      <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/70 px-2 py-0.5 text-[11px] text-muted-foreground tabular-nums">
+                        <FileTextIcon className="size-3" aria-hidden="true" />
+                        流量证据 {f.traffic_count ?? 0} 条
+                      </span>
+                    </div>
+                    {f.summary ? (
+                      <p className="line-clamp-1 text-xs leading-5 break-words text-muted-foreground">{f.summary}</p>
+                    ) : null}
                   </div>
                 </TableCell>
-                <TableCell>
+                {!hideAssetColumn && (
+                <TableCell className="py-3 whitespace-normal">
                   {f.assets && f.assets.length > 0 ? (
                     <div className="flex flex-wrap gap-1">
                       {f.assets.slice(0, 3).map((a) => (
                         <code
                           key={a.id}
-                          className="max-w-full truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs"
+                          className="max-w-full truncate rounded-md bg-surface-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
                           title={`${a.type} · ${a.label}`}
                         >
                           {a.label}
                         </code>
                       ))}
                       {f.assets.length > 3 && (
-                        <span className="text-xs text-muted-foreground">+{f.assets.length - 3}</span>
+                        <span className="text-[11px] text-muted-foreground tabular-nums">+{f.assets.length - 3}</span>
                       )}
                     </div>
                   ) : (
                     <span className="text-muted-foreground">—</span>
                   )}
                 </TableCell>
-                <TableCell onClick={(e) => e.stopPropagation()}>
+                )}
+                <TableCell className="pt-3" onClick={(e) => e.stopPropagation()}>
                   {f.finding_id ? (
                     <Select value={f.status} onValueChange={(v) => onStatusChange(f, v as FindingStatus)}>
-                      <SelectTrigger size="sm" className="h-7 w-full border-none px-1 shadow-none focus-visible:ring-0">
+                      <SelectTrigger
+                        size="sm"
+                        className="h-7 w-full border-none bg-transparent px-1 shadow-none hover:bg-surface-muted"
+                      >
                         <StatusBadge domain="finding" value={f.status} dot />
                       </SelectTrigger>
                       <SelectContent position="popper" align="end">
@@ -288,7 +328,7 @@ export function FindingsTable({
                     <StatusBadge domain="finding" value={f.status} dot />
                   )}
                 </TableCell>
-                <TableCell>
+                <TableCell className="pt-3.5">
                   {f.task_id ? (
                     <Link
                       href={`/function/tasks/detail?id=${f.task_id}`}
@@ -297,18 +337,26 @@ export function FindingsTable({
                       title={f.task_description}
                     >
                       <span className="truncate">{f.task_description}</span>
-                      <ArrowUpRightIcon className="size-3 shrink-0" />
+                      <ArrowUpRightIcon className="size-3 shrink-0" aria-hidden="true" />
                     </Link>
                   ) : (
                     <span className="text-muted-foreground">—</span>
                   )}
                 </TableCell>
-                <TableCell className="text-xs text-muted-foreground tabular-nums">{fmtTime(f.ts, "short")}</TableCell>
-                <TableCell onClick={(e) => e.stopPropagation()}>
-                  <div className="flex items-center gap-1">
+                <TableCell className="pt-3.5 font-mono text-xs text-muted-foreground tabular-nums">
+                  {fmtTime(f.ts, "short")}
+                </TableCell>
+                <TableCell
+                  className="sticky right-0 z-10 border-l border-border/70 bg-card py-2.5 pr-4 group-hover/row:bg-[color-mix(in_srgb,var(--muted)_55%,transparent)]"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-center justify-end gap-0.5">
                     {retest ? (
                       <Button asChild size="sm" variant="ghost">
-                        <Link href={`/function/conversations/detail?c=${retest.conversation_id}`} title="查看正在进行的复测会话">
+                        <Link
+                          href={`/function/conversations/detail?c=${retest.conversation_id}`}
+                          title="查看正在进行的复测会话"
+                        >
                           <Spinner data-icon="inline-start" />
                           复测中
                         </Link>
@@ -324,6 +372,22 @@ export function FindingsTable({
                       <Button size="sm" variant="ghost" onClick={() => onDeepen(f)}>
                         <FlaskConicalIcon data-icon="inline-start" />
                         深入
+                      </Button>
+                    )}
+                    {f.finding_id && (
+                      <Button
+                        asChild
+                        size="icon"
+                        variant="ghost"
+                        className="size-7 text-muted-foreground"
+                      >
+                        <Link
+                          href={`/function/findings/detail?id=${f.finding_id}`}
+                          aria-label="查看漏洞详情"
+                          title="查看漏洞详情"
+                        >
+                          <ArrowUpRightIcon className="size-4" />
+                        </Link>
                       </Button>
                     )}
                     {f.finding_id && (
@@ -363,13 +427,13 @@ export function FindingsTable({
                 <TableRow className="hover:bg-transparent">
                   {/* whitespace-normal 覆盖 TableCell 默认的 nowrap,否则展开区文字
                       被强制单行、直接溢出单元格。 */}
-                  <TableCell colSpan={COLUMN_COUNT} className="bg-muted/30 whitespace-normal">
-                    <div className="flex flex-col gap-2 px-2 py-1">
+                  <TableCell colSpan={COLUMN_COUNT} className="bg-surface-muted/50 px-4 py-4 whitespace-normal">
+                    <div className="flex flex-col gap-3">
                       {/* 行内编辑:名称/类别/严重等级,可改并保存(仅独立 finding 行)。 */}
                       {f.finding_id && edit && (
-                        <div className="flex flex-wrap items-end gap-3 rounded-md border bg-background px-3 py-2.5">
+                        <div className="flex flex-wrap items-end gap-3 rounded-lg border border-border/70 bg-card px-3.5 py-3">
                           <div className="flex min-w-[12rem] flex-1 flex-col gap-1">
-                            <Label className="text-xs text-muted-foreground">漏洞名称</Label>
+                            <Label className="text-[11px] text-muted-foreground">漏洞名称</Label>
                             <Input
                               value={edit.name}
                               onChange={(e) => onEditChange((s) => (s ? { ...s, name: e.target.value } : s))}
@@ -377,7 +441,7 @@ export function FindingsTable({
                             />
                           </div>
                           <div className="flex min-w-[10rem] flex-col gap-1">
-                            <Label className="text-xs text-muted-foreground">类别</Label>
+                            <Label className="text-[11px] text-muted-foreground">类别</Label>
                             <Input
                               value={edit.vulnclass}
                               onChange={(e) => onEditChange((s) => (s ? { ...s, vulnclass: e.target.value } : s))}
@@ -385,7 +449,7 @@ export function FindingsTable({
                             />
                           </div>
                           <div className="flex flex-col gap-1">
-                            <Label className="text-xs text-muted-foreground">严重等级</Label>
+                            <Label className="text-[11px] text-muted-foreground">严重等级</Label>
                             <Select
                               value={edit.severity}
                               onValueChange={(v) => onEditChange((s) => (s ? { ...s, severity: v as Severity } : s))}
@@ -407,37 +471,48 @@ export function FindingsTable({
                           </Button>
                         </div>
                       )}
-                      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                        <ShieldAlertIcon className="size-3.5" />
-                        证据
-                        {f.vulnclass && (
-                          <span>
-                            · 类型：
-                            <code className="rounded bg-muted px-1.5 py-0.5 font-mono">{f.vulnclass}</code>
+
+                      <div className="rounded-lg border border-border/70 bg-card p-3.5">
+                        <div className="mb-2 flex flex-wrap items-center gap-2">
+                          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+                            <TerminalIcon className="size-3.5" aria-hidden="true" />
+                            证据
                           </span>
-                        )}
-                        {f.param_id && <code className="rounded bg-muted px-1.5 py-0.5 font-mono">{f.param_id}</code>}
-                        {f.assets && f.assets.length > 0 && (
-                          <span className="flex flex-wrap items-center gap-1">
-                            · 资产：
-                            {f.assets.map((a) => (
-                              <code key={a.id} className="rounded bg-muted px-1.5 py-0.5 font-mono" title={a.type}>
-                                {a.label}
-                              </code>
-                            ))}
-                          </span>
-                        )}
+                          {f.vulnclass && (
+                            <code className="rounded-md bg-surface-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+                              {f.vulnclass}
+                            </code>
+                          )}
+                          {f.param_id && (
+                            <code className="rounded-md bg-surface-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+                              {f.param_id}
+                            </code>
+                          )}
+                          {f.assets && f.assets.length > 0 && (
+                            <span className="flex flex-wrap items-center gap-1">
+                              {f.assets.map((a) => (
+                                <code
+                                  key={a.id}
+                                  className="rounded-md bg-surface-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
+                                  title={a.type}
+                                >
+                                  {a.label}
+                                </code>
+                              ))}
+                            </span>
+                          )}
+                        </div>
+                        <pre className="max-h-72 overflow-auto rounded-lg border border-border/60 bg-surface-muted px-3 py-2.5 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words text-foreground/90">
+                          {f.evidence}
+                        </pre>
                       </div>
-                      <pre className="overflow-x-auto rounded-md bg-muted px-3 py-2 font-mono text-xs whitespace-pre-wrap">
-                        {f.evidence}
-                      </pre>
 
                       {/* 详细报告(Markdown):展开时按 finding_id 懒加载,免进详情页即可查看。 */}
                       {f.finding_id && (
-                        <div className="flex flex-col gap-1.5">
-                          <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                            <span className="flex items-center gap-2">
-                              <FileTextIcon className="size-3.5" />
+                        <div className="rounded-lg border border-border/70 bg-card p-3.5">
+                          <div className="mb-2 flex items-center justify-between gap-2">
+                            <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+                              <FileTextIcon className="size-3.5" aria-hidden="true" />
                               详细报告
                             </span>
                             {reports[rowKey]?.status === "done" && reports[rowKey]?.text.trim() && (
@@ -460,7 +535,7 @@ export function FindingsTable({
                               // break-words 会继承到段落/列表,pre 另加
                               // whitespace-pre-wrap 让代码块也换行——否则长代码行/长 URL
                               // 会撑宽 colSpan 单元格,把整张表挤出横向滚动条。
-                              <div className="min-w-0 break-words rounded-md border bg-background px-3 py-2 [&_pre]:whitespace-pre-wrap">
+                              <div className="min-w-0 text-[13px] break-words [&_pre]:whitespace-pre-wrap">
                                 <Markdown text={rep.text} />
                               </div>
                             );
@@ -476,7 +551,7 @@ export function FindingsTable({
         })}
         {items.length === 0 && (
           <TableRow className="hover:bg-transparent">
-            <TableCell colSpan={COLUMN_COUNT} className="py-12 text-center text-sm text-muted-foreground">
+            <TableCell colSpan={COLUMN_COUNT} className="p-0 text-center whitespace-normal">
               {emptyContent}
             </TableCell>
           </TableRow>

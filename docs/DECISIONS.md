@@ -910,3 +910,51 @@ P0—P3 已完成并记录，立即进入 P4；不等待用户回复。施工采
   - npx playwright test --project=embedded：36 passed / 0 failed。
   - npx playwright test --project=rsbuild：36 passed / 0 failed（此前 rspack os error 1455 已随内存恢复消失）。
 - 之前文档中「构建受主机内存阻塞」的记录保留为历史事实，最终状态以本节为准。
+
+---
+
+## 2026-10-21 17:15 第十一轮：UI 交互细节（多会话并行）
+
+- 基线：main @ 525c55f；build 与 e2e 72/72 通过。
+- 用户指令：检查 UI 交互细节，多开会话仔细操作，自设目标。
+
+### 目标（G30—G33）
+
+1. **G30 异步交互**：提交中锁定关闭、防重复提交、失败保持可重试、无未处理拒绝。
+2. **G31 焦点与键盘**：对话框回焦、搜索/列表/会话/日志键盘可达、旁路问答焦点。
+3. **G32 列表边界**：分页收敛、筛选/删除后的空表与错误态、失败保留旧数据。
+4. **G33 移动端与页签**：侧栏自动收起、页签保活、表单内联错误与输入法守卫。
+
+### 分工（4 个实施会话，文件所有权互不重叠）
+
+| 会话 | 分支 | 范围 | 提交数 |
+| --- | --- | --- | --- |
+| ui1 | fix/ui-primitives-tasks | 共享原语 + 任务列表/归档 | 3 |
+| ui2 | fix/ui-assets-findings | 资产/发现（含详情、导出、流量） | 4 |
+| ui3 | fix/ui-system-layout | 系统页 + 侧栏 | 4 |
+| ui4 | fix/ui-task-detail | 任务详情/会话/旁路/转录 | 4 |
+
+共修复约 40 处交互缺陷；主会话另修登录/初始化表单的错误播报（6d65198）。
+
+### 合并
+
+| 分支 | 合并 |
+| --- | --- |
+| fix/ui-primitives-tasks | d6e5aeb |
+| fix/ui-assets-findings | 3480e2e |
+| fix/ui-task-detail | 2a61b25 |
+| fix/ui-system-layout | 0d6a9bf |
+
+### 验证
+
+- npm run typecheck：exit 0；npm test：33/33；npm run build：成功（4401.7 kB）。
+- npm run build:embed：成功并同步。
+- e2e：72 passed / 0 failed（embedded 36/36、rsbuild 36/36）。
+
+### 未修与风险
+
+- 批量操作成功后工具条整体卸载导致焦点落到 body；批量暂停时其它批量按钮仍可点；新建任务抽屉提交中仍可 Esc（已记录）。
+- agent-editor 的保存/预览/恢复无 pending、版本加载不检查未保存修改（越界未改）。
+- MCP/技能可见性与拦截启停缺 per-item pending；技能删除确认框 deleting 时 Esc 仍可关。
+- 发现筛选栏 Select 的可访问名依赖当前值（补固定名会破坏 e2e，未改）。
+- 375px 仅类名/构建验证，未做真实浏览器截图。

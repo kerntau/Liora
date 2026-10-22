@@ -63,6 +63,13 @@ test("sessions preserve mention focus, attachments, conversation creation and wo
     await route.fulfill({ json: { reply: "Fixture accepted", mode: "fixture" } });
   });
   await page.goto(`/function/tasks/detail?id=${id}`);
+
+  // 新框架的任务详情页头：返回箭头 + 任务名 + 状态徽章 + #ID（不再有旧的小 logo）。
+  await expect(page.getByRole("heading", { name: "MUI 执行会话回归" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "返回上一页" })).toBeVisible();
+  await expect(page.getByText(`#${id}`, { exact: true })).toBeVisible();
+  await expect(page.locator('[data-slot="sidebar"]')).toHaveCount(0);
+
   const composer = page.getByRole("textbox", { name: "给主 Agent 发消息" });
   await expect(composer).toBeVisible();
   await composer.pressSequentially("@");
@@ -133,6 +140,13 @@ test("sessions preserve mention focus, attachments, conversation creation and wo
   await expect(deletion).toBeHidden();
   await expect(page.locator('[data-slot="alert-dialog-content"]')).toHaveCount(0);
   expect(controls[1]).toEqual({ action: "cancel", reason: "Fixture complete", mode: "soft" });
+
+  // 新框架导航：任务详情页由底部 Dock 高亮「测试任务」，旧左侧固定侧栏不再渲染。
+  const dock = page.locator('nav[aria-label="主导航"]');
+  await expect(dock).toBeVisible();
+  await expect(dock.locator('a[aria-current="page"]')).toHaveCount(1);
+  await expect(dock.locator('a[aria-current="page"]')).toHaveAttribute("href", "/function/tasks");
+
   await page.setViewportSize({ width: 390, height: 844 });
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath("sessions-mobile.png"), fullPage: true });

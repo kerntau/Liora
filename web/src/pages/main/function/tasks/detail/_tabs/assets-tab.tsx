@@ -3,6 +3,7 @@
 import * as React from "react";
 
 import {
+  BoxesIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   GlobeIcon,
@@ -12,11 +13,14 @@ import {
   type LucideIcon,
   NetworkIcon,
   PlusIcon,
+  RefreshCwIcon,
+  SearchXIcon,
   SmartphoneIcon,
   Trash2Icon,
 } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 
+import { SectionCard } from "@/components/app/section-card";
 import { assetLabel, Chips, firstText, MethodBadge, PAGE_SIZES, statusTone } from "@/components/asset-cells";
 import { AssetDslSearch } from "@/components/asset-dsl-search";
 import { ScopeTextEditor } from "@/components/scope-text-editor";
@@ -35,6 +39,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -88,6 +93,9 @@ function SourceCell({ asset }: { asset: Asset }) {
 function AssetCard({
   children,
   cols,
+  emptyAction,
+  emptyDescription = "切换分类、调整搜索条件，或把新的域名 / IP 登记到当前任务。",
+  emptyTitle = "当前分类暂无测试资产",
   error = "",
   loaded,
   onPage,
@@ -99,6 +107,9 @@ function AssetCard({
 }: {
   children: React.ReactNode;
   cols: string[];
+  emptyAction?: React.ReactNode;
+  emptyDescription?: string;
+  emptyTitle?: string;
   error?: string;
   loaded: boolean;
   onPage: (page: number) => void;
@@ -115,11 +126,15 @@ function AssetCard({
   let tableRows: React.ReactNode;
   if (!loaded) {
     tableRows = (
-      <TableRow>
-        <TableCell colSpan={cols.length} className="py-14 text-center">
-          <Spinner className="mx-auto" />
-        </TableCell>
-      </TableRow>
+      <>
+        {[0, 1, 2, 3, 4].map((row) => (
+          <TableRow key={`skeleton-${row}`}>
+            <TableCell colSpan={cols.length} className="py-2.5">
+              <Skeleton className="h-4 w-full" />
+            </TableCell>
+          </TableRow>
+        ))}
+      </>
     );
   } else if (rows.length > 0) {
     tableRows = rows;
@@ -127,9 +142,13 @@ function AssetCard({
     // 没有旧行可留时，也要把「失败」和「暂无资产」区分开，并给一次重试。
     tableRows = (
       <TableRow>
-        <TableCell colSpan={cols.length} className="py-10 text-center text-destructive text-sm">
-          <div className="flex flex-col items-center gap-2">
-            <span className="[overflow-wrap:anywhere]">搜索失败：{error}</span>
+        <TableCell colSpan={cols.length} className="py-12 text-center">
+          <div className="mx-auto flex max-w-sm flex-col items-center gap-2">
+            <span className="grid size-10 place-items-center rounded-md border border-destructive/25 bg-destructive/5 text-destructive/70">
+              <SearchXIcon className="size-5" aria-hidden="true" />
+            </span>
+            <p className="text-[13px] font-medium text-foreground">搜索失败</p>
+            <p className="text-[11px] text-muted-foreground [overflow-wrap:anywhere]">{error}</p>
             {onRetry ? (
               <Button size="sm" variant="outline" onClick={onRetry}>
                 重试
@@ -142,14 +161,21 @@ function AssetCard({
   } else {
     tableRows = (
       <TableRow>
-        <TableCell colSpan={cols.length} className="py-10 text-center text-muted-foreground text-sm">
-          当前分类暂无测试资产
+        <TableCell colSpan={cols.length} className="py-12 text-center">
+          <div className="mx-auto flex max-w-sm flex-col items-center gap-2">
+            <span className="grid size-10 place-items-center rounded-md border border-border/70 bg-surface-muted text-muted-foreground/60">
+              <BoxesIcon className="size-5" aria-hidden="true" />
+            </span>
+            <p className="text-[13px] font-medium text-foreground">{emptyTitle}</p>
+            <p className="text-[11px] leading-5 text-muted-foreground">{emptyDescription}</p>
+            {emptyAction}
+          </div>
         </TableCell>
       </TableRow>
     );
   }
   return (
-    <Card className="flex min-h-0 flex-1 flex-col py-0">
+    <Card className="flex min-h-0 flex-1 flex-col overflow-hidden py-0">
       <CardContent className="scrollbar-thin scrollbar-track-transparent min-h-0 flex-1 overflow-auto p-0">
         <Table aria-label="测试资产列表">
           <TableHeader className="sticky top-0 z-10 bg-card">
@@ -163,7 +189,7 @@ function AssetCard({
         </Table>
       </CardContent>
       {total > 0 ? (
-        <CardFooter className="gap-2 px-3 py-1.5 text-muted-foreground text-xs">
+        <CardFooter className="gap-2 border-t border-border/70 bg-surface-muted/40 px-3 py-2 text-[11px] text-muted-foreground">
           <Select
             value={String(size)}
             onValueChange={(value) => {
@@ -171,7 +197,7 @@ function AssetCard({
               onPage(0);
             }}
           >
-            <SelectTrigger aria-label="每页数量" size="sm" className="w-24">
+            <SelectTrigger aria-label="每页数量" size="sm" className="h-7 w-24 bg-card">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -412,6 +438,7 @@ export function AssetsTab({ taskId }: { taskId: string }) {
       onClick={() => setRemoveTarget(asset)}
       aria-label={`将资产 ${assetLabel(asset)} 移出任务`}
       title="移出任务"
+      className="text-muted-foreground hover:text-destructive"
     >
       <Trash2Icon />
     </Button>
@@ -426,6 +453,20 @@ export function AssetsTab({ taskId }: { taskId: string }) {
     page,
     size,
     total,
+    emptyTitle: dslMode ? "没有匹配的资产" : "当前分类暂无测试资产",
+    emptyDescription: dslMode
+      ? "换个 DSL 关键词，或清除搜索回到当前分类的全部资产。"
+      : "切换分类，或把新的域名 / IP 登记到当前任务。",
+    emptyAction: dslMode ? (
+      <Button size="sm" variant="outline" onClick={() => setQuery("")}>
+        清除搜索
+      </Button>
+    ) : (
+      <Button size="sm" variant="outline" onClick={() => setAddOpen(true)}>
+        <PlusIcon data-icon="inline-start" />
+        新增测试资产
+      </Button>
+    ),
   };
   const totalAll = TABS.reduce((sum, item) => sum + (counts[item.key] ?? 0), 0);
 
@@ -440,214 +481,236 @@ export function AssetsTab({ taskId }: { taskId: string }) {
   );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="font-medium text-sm">测试资产</h2>
-          <p className="text-muted-foreground text-xs">当前任务共关联 {totalAll} 项资产</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {refreshing ? (
-            <span role="status" className="flex items-center gap-1.5 text-muted-foreground text-xs">
-              <Spinner className="size-3.5" />
-              刷新中
-            </span>
-          ) : null}
-          <Button size="sm" onClick={() => setAddOpen(true)}>
-            <PlusIcon data-icon="inline-start" />
-            新增测试资产
-          </Button>
-        </div>
-      </div>
-
-      <Tabs
-        value={tab}
-        onValueChange={(value) => setTab(value as NewAssetType)}
-        className="flex min-h-0 flex-1 flex-col gap-2"
+    <div className="flex min-h-0 flex-1 flex-col">
+      <SectionCard
+        icon={BoxesIcon}
+        title="测试资产"
+        description={
+          <span className="hidden sm:inline">
+            当前任务共关联 {totalAll} 项资产；按类型筛选，或用 DSL 搜索域名、IP、接口。
+          </span>
+        }
+        dense
+        bodyClassName="px-0 pb-0"
+        actions={
+          <>
+            {refreshing ? (
+              <span role="status" className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <Spinner className="size-3.5" />
+                刷新中
+              </span>
+            ) : null}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={refresh}
+              aria-label="刷新测试资产"
+              title="刷新测试资产"
+              disabled={refreshing}
+            >
+              <RefreshCwIcon data-icon="inline-start" />
+              刷新
+            </Button>
+            <Button size="sm" onClick={() => setAddOpen(true)}>
+              <PlusIcon data-icon="inline-start" />
+              新增测试资产
+            </Button>
+          </>
+        }
       >
-        <div className="overflow-x-auto overflow-y-hidden">
-          <TabsList className="w-max">
-            {TABS.map((item) => (
-              <TabsTrigger key={item.key} value={item.key}>
-                <item.icon data-icon="inline-start" />
-                {item.label}
-                <span className="text-muted-foreground tabular-nums">{counts[item.key] ?? 0}</span>
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </div>
+        <Tabs
+          value={tab}
+          onValueChange={(value) => setTab(value as NewAssetType)}
+          className="flex min-h-0 flex-1 flex-col gap-0"
+        >
+          <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-4 py-3 lg:px-5">
+            <div className="w-full min-w-0 sm:max-w-md sm:flex-1">{searchBox}</div>
+            <div className="w-full min-w-0 overflow-x-auto sm:w-auto">
+              <TabsList className="w-max">
+                {TABS.map((item) => (
+                  <TabsTrigger key={item.key} value={item.key}>
+                    <item.icon data-icon="inline-start" />
+                    {item.label}
+                    <span className="text-muted-foreground tabular-nums">{counts[item.key] ?? 0}</span>
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </div>
+            <span className="text-[11px] whitespace-nowrap text-muted-foreground tabular-nums sm:ml-auto">
+              {dslMode ? `匹配 ${total} 项` : `共 ${total} 项`}
+            </span>
+          </div>
 
-        {searchBox}
-
-        <TabsContent value="root_domain" className="mt-0 flex min-h-0 flex-1 flex-col">
-          <AssetCard cols={["域名", "ICP 备案", "来源", "操作"]} {...commonCardProps}>
-            {rows.map((asset) => (
-              <TableRow key={asset.id}>
-                <TableCell className="font-medium font-mono text-xs">{asset.domain}</TableCell>
-                <TableCell className="text-xs">{asset.icp || "—"}</TableCell>
-                <TableCell>
-                  <SourceCell asset={asset} />
-                </TableCell>
-                <TableCell className="w-16">{removeButton(asset)}</TableCell>
-              </TableRow>
-            ))}
-          </AssetCard>
-        </TabsContent>
-
-        <TabsContent value="ip" className="mt-0 flex min-h-0 flex-1 flex-col">
-          <AssetCard cols={["IP", "C段", "绑定域名", "开放端口", "来源", "操作"]} {...commonCardProps}>
-            {rows.map((asset) => (
-              <TableRow key={asset.id}>
-                <TableCell className="font-medium font-mono text-xs">{asset.ip}</TableCell>
-                <TableCell className="font-mono text-xs">{asset.c_segment || "—"}</TableCell>
-                <TableCell>
-                  <Chips items={asset.bound_domains ?? []} mono />
-                </TableCell>
-                <TableCell>
-                  <Chips
-                    items={(asset.open_ports ?? []).map((item) =>
-                      item.service ? `${item.port}/${item.service}` : String(item.port),
-                    )}
-                    mono
-                  />
-                </TableCell>
-                <TableCell>
-                  <SourceCell asset={asset} />
-                </TableCell>
-                <TableCell className="w-16">{removeButton(asset)}</TableCell>
-              </TableRow>
-            ))}
-          </AssetCard>
-        </TabsContent>
-
-        <TabsContent value="subdomain" className="mt-0 flex min-h-0 flex-1 flex-col">
-          <AssetCard cols={["域名", "根域名", "解析类型", "解析值", "来源", "操作"]} {...commonCardProps}>
-            {rows.map((asset) => (
-              <TableRow key={asset.id}>
-                <TableCell className="font-medium font-mono text-xs">{asset.domain}</TableCell>
-                <TableCell className="font-mono text-xs">{asset.root_domain || "—"}</TableCell>
-                <TableCell className="text-xs">{asset.record_type || "—"}</TableCell>
-                <TableCell className="max-w-xs truncate font-mono text-xs">
-                  {(Array.isArray(asset.record_value) ? asset.record_value.join(", ") : asset.record_value) || "—"}
-                </TableCell>
-                <TableCell>
-                  <SourceCell asset={asset} />
-                </TableCell>
-                <TableCell className="w-16">{removeButton(asset)}</TableCell>
-              </TableRow>
-            ))}
-          </AssetCard>
-        </TabsContent>
-
-        <TabsContent value="app" className="mt-0 flex min-h-0 flex-1 flex-col">
-          <AssetCard cols={["应用", "地址", "分类", "标题", "指纹", "来源", "操作"]} {...commonCardProps}>
-            {rows.map((asset) => (
-              <TableRow key={asset.id}>
-                <TableCell className="max-w-48 truncate font-medium text-xs">{asset.app_name || "—"}</TableCell>
-                <TableCell className="max-w-xs truncate font-mono text-xs" title={asset.url}>
-                  {asset.url || "—"}
-                </TableCell>
-                <TableCell className="text-xs">{asset.category || "—"}</TableCell>
-                <TableCell className="max-w-48 truncate text-xs">{asset.page_title || "—"}</TableCell>
-                <TableCell>
-                  <Chips items={asset.technologies ?? []} />
-                </TableCell>
-                <TableCell>
-                  <SourceCell asset={asset} />
-                </TableCell>
-                <TableCell className="w-16">{removeButton(asset)}</TableCell>
-              </TableRow>
-            ))}
-          </AssetCard>
-        </TabsContent>
-
-        <TabsContent value="service" className="mt-0 flex min-h-0 flex-1 flex-col">
-          <AssetCard
-            cols={["地址 / 服务", "状态码", "标题", "响应长度", "指纹", "认证", "来源", "操作"]}
-            {...commonCardProps}
-          >
-            {rows.map((asset) => {
-              const isHttp = asset.service_type === "http";
-              const address = isHttp
-                ? asset.url || ""
-                : asset.service_name || [asset.ip || asset.domain, asset.port].filter(Boolean).join(":");
-              return (
+          <TabsContent value="root_domain" className="mt-0 flex min-h-0 flex-1 flex-col px-4 pt-3 pb-4 lg:px-5">
+            <AssetCard cols={["域名", "ICP 备案", "来源", "操作"]} {...commonCardProps}>
+              {rows.map((asset) => (
                 <TableRow key={asset.id}>
-                  <TableCell className="max-w-xs truncate font-mono text-xs" title={address}>
-                    {address || "—"}
+                  <TableCell className="font-medium font-mono text-xs">{asset.domain}</TableCell>
+                  <TableCell className="text-xs">{asset.icp || "—"}</TableCell>
+                  <TableCell>
+                    <SourceCell asset={asset} />
+                  </TableCell>
+                  <TableCell className="w-16">{removeButton(asset)}</TableCell>
+                </TableRow>
+              ))}
+            </AssetCard>
+          </TabsContent>
+
+          <TabsContent value="ip" className="mt-0 flex min-h-0 flex-1 flex-col px-4 pt-3 pb-4 lg:px-5">
+            <AssetCard cols={["IP", "C段", "绑定域名", "开放端口", "来源", "操作"]} {...commonCardProps}>
+              {rows.map((asset) => (
+                <TableRow key={asset.id}>
+                  <TableCell className="font-medium font-mono text-xs">{asset.ip}</TableCell>
+                  <TableCell className="font-mono text-xs">{asset.c_segment || "—"}</TableCell>
+                  <TableCell>
+                    <Chips items={asset.bound_domains ?? []} mono />
                   </TableCell>
                   <TableCell>
-                    {asset.status_code != null ? (
-                      <span
-                        className={cn("font-mono font-semibold text-xs tabular-nums", statusTone(asset.status_code))}
-                      >
-                        {asset.status_code}
-                      </span>
-                    ) : (
-                      "—"
-                    )}
-                  </TableCell>
-                  <TableCell className="max-w-48 truncate text-xs">{asset.page_title || "—"}</TableCell>
-                  <TableCell className="text-xs tabular-nums">{fmtBytes(asset.content_length)}</TableCell>
-                  <TableCell>
-                    <Chips items={asset.technologies ?? []} />
-                  </TableCell>
-                  <TableCell>
-                    {(asset.auth ?? []).length === 0 ? (
-                      <span className="text-muted-foreground text-xs">—</span>
-                    ) : (
-                      (asset.auth ?? []).map((authItem) => {
-                        const item = authItem as Record<string, string>;
-                        return (
-                          <span
-                            key={`${asset.id}-${item.type ?? ""}-${item.username ?? ""}-${JSON.stringify(item)}`}
-                            className="inline-flex items-center gap-1 text-[11px]"
-                          >
-                            <KeyRoundIcon className="size-3 text-muted-foreground" />
-                            <span className="font-mono">{item.type || item.username || "认证"}</span>
-                          </span>
-                        );
-                      })
-                    )}
+                    <Chips
+                      items={(asset.open_ports ?? []).map((item) =>
+                        item.service ? `${item.port}/${item.service}` : String(item.port),
+                      )}
+                      mono
+                    />
                   </TableCell>
                   <TableCell>
                     <SourceCell asset={asset} />
                   </TableCell>
                   <TableCell className="w-16">{removeButton(asset)}</TableCell>
                 </TableRow>
-              );
-            })}
-          </AssetCard>
-        </TabsContent>
+              ))}
+            </AssetCard>
+          </TabsContent>
 
-        <TabsContent value="endpoint" className="mt-0 flex min-h-0 flex-1 flex-col">
-          <AssetCard cols={["方法", "完整地址", "参数", "来源", "操作"]} {...commonCardProps}>
-            {rows.map((asset) => (
-              <TableRow key={asset.id}>
-                <TableCell className="w-16">
-                  <MethodBadge method={asset.method || ""} />
-                </TableCell>
-                <TableCell className="max-w-sm truncate font-mono text-xs" title={asset.url}>
-                  {asset.url || "—"}
-                </TableCell>
-                <TableCell>
-                  <Chips
-                    items={(asset.params ?? []).map((param) => {
-                      const item = param as Record<string, string>;
-                      return item.name ? `${item.name}(${item.location || item.in || "?"})` : "?";
-                    })}
-                    mono
-                  />
-                </TableCell>
-                <TableCell>
-                  <SourceCell asset={asset} />
-                </TableCell>
-                <TableCell className="w-16">{removeButton(asset)}</TableCell>
-              </TableRow>
-            ))}
-          </AssetCard>
-        </TabsContent>
-      </Tabs>
+          <TabsContent value="subdomain" className="mt-0 flex min-h-0 flex-1 flex-col px-4 pt-3 pb-4 lg:px-5">
+            <AssetCard cols={["域名", "根域名", "解析类型", "解析值", "来源", "操作"]} {...commonCardProps}>
+              {rows.map((asset) => (
+                <TableRow key={asset.id}>
+                  <TableCell className="font-medium font-mono text-xs">{asset.domain}</TableCell>
+                  <TableCell className="font-mono text-xs">{asset.root_domain || "—"}</TableCell>
+                  <TableCell className="text-xs">{asset.record_type || "—"}</TableCell>
+                  <TableCell className="max-w-xs truncate font-mono text-xs">
+                    {(Array.isArray(asset.record_value) ? asset.record_value.join(", ") : asset.record_value) || "—"}
+                  </TableCell>
+                  <TableCell>
+                    <SourceCell asset={asset} />
+                  </TableCell>
+                  <TableCell className="w-16">{removeButton(asset)}</TableCell>
+                </TableRow>
+              ))}
+            </AssetCard>
+          </TabsContent>
+
+          <TabsContent value="app" className="mt-0 flex min-h-0 flex-1 flex-col px-4 pt-3 pb-4 lg:px-5">
+            <AssetCard cols={["应用", "地址", "分类", "标题", "指纹", "来源", "操作"]} {...commonCardProps}>
+              {rows.map((asset) => (
+                <TableRow key={asset.id}>
+                  <TableCell className="max-w-48 truncate font-medium text-xs">{asset.app_name || "—"}</TableCell>
+                  <TableCell className="max-w-xs truncate font-mono text-xs" title={asset.url}>
+                    {asset.url || "—"}
+                  </TableCell>
+                  <TableCell className="text-xs">{asset.category || "—"}</TableCell>
+                  <TableCell className="max-w-48 truncate text-xs">{asset.page_title || "—"}</TableCell>
+                  <TableCell>
+                    <Chips items={asset.technologies ?? []} />
+                  </TableCell>
+                  <TableCell>
+                    <SourceCell asset={asset} />
+                  </TableCell>
+                  <TableCell className="w-16">{removeButton(asset)}</TableCell>
+                </TableRow>
+              ))}
+            </AssetCard>
+          </TabsContent>
+
+          <TabsContent value="service" className="mt-0 flex min-h-0 flex-1 flex-col px-4 pt-3 pb-4 lg:px-5">
+            <AssetCard
+              cols={["地址 / 服务", "状态码", "标题", "响应长度", "指纹", "认证", "来源", "操作"]}
+              {...commonCardProps}
+            >
+              {rows.map((asset) => {
+                const isHttp = asset.service_type === "http";
+                const address = isHttp
+                  ? asset.url || ""
+                  : asset.service_name || [asset.ip || asset.domain, asset.port].filter(Boolean).join(":");
+                return (
+                  <TableRow key={asset.id}>
+                    <TableCell className="max-w-xs truncate font-mono text-xs" title={address}>
+                      {address || "—"}
+                    </TableCell>
+                    <TableCell>
+                      {asset.status_code != null ? (
+                        <span
+                          className={cn("font-mono font-semibold text-xs tabular-nums", statusTone(asset.status_code))}
+                        >
+                          {asset.status_code}
+                        </span>
+                      ) : (
+                        "—"
+                      )}
+                    </TableCell>
+                    <TableCell className="max-w-48 truncate text-xs">{asset.page_title || "—"}</TableCell>
+                    <TableCell className="text-xs tabular-nums">{fmtBytes(asset.content_length)}</TableCell>
+                    <TableCell>
+                      <Chips items={asset.technologies ?? []} />
+                    </TableCell>
+                    <TableCell>
+                      {(asset.auth ?? []).length === 0 ? (
+                        <span className="text-muted-foreground text-xs">—</span>
+                      ) : (
+                        (asset.auth ?? []).map((authItem) => {
+                          const item = authItem as Record<string, string>;
+                          return (
+                            <span
+                              key={`${asset.id}-${item.type ?? ""}-${item.username ?? ""}-${JSON.stringify(item)}`}
+                              className="inline-flex items-center gap-1 text-[11px]"
+                            >
+                              <KeyRoundIcon className="size-3 text-muted-foreground" />
+                              <span className="font-mono">{item.type || item.username || "认证"}</span>
+                            </span>
+                          );
+                        })
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <SourceCell asset={asset} />
+                    </TableCell>
+                    <TableCell className="w-16">{removeButton(asset)}</TableCell>
+                  </TableRow>
+                );
+              })}
+            </AssetCard>
+          </TabsContent>
+
+          <TabsContent value="endpoint" className="mt-0 flex min-h-0 flex-1 flex-col px-4 pt-3 pb-4 lg:px-5">
+            <AssetCard cols={["方法", "完整地址", "参数", "来源", "操作"]} {...commonCardProps}>
+              {rows.map((asset) => (
+                <TableRow key={asset.id}>
+                  <TableCell className="w-16">
+                    <MethodBadge method={asset.method || ""} />
+                  </TableCell>
+                  <TableCell className="max-w-sm truncate font-mono text-xs" title={asset.url}>
+                    {asset.url || "—"}
+                  </TableCell>
+                  <TableCell>
+                    <Chips
+                      items={(asset.params ?? []).map((param) => {
+                        const item = param as Record<string, string>;
+                        return item.name ? `${item.name}(${item.location || item.in || "?"})` : "?";
+                      })}
+                      mono
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <SourceCell asset={asset} />
+                  </TableCell>
+                  <TableCell className="w-16">{removeButton(asset)}</TableCell>
+                </TableRow>
+              ))}
+            </AssetCard>
+          </TabsContent>
+        </Tabs>
+      </SectionCard>
 
       <AddTaskAssetsSheet onAttached={refresh} onOpenChange={setAddOpen} open={addOpen} taskId={taskId} />
 

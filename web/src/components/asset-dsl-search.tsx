@@ -2,10 +2,9 @@
 
 import * as React from "react";
 
-import { SearchIcon } from "lucide-react";
+import { SearchIcon, XIcon } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 // ── DSL autocomplete ──────────────────────────────────────────────────────────
@@ -278,9 +277,17 @@ export function AssetDslSearch({
   count?: number;
 }) {
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const listRef = React.useRef<HTMLDivElement>(null);
   const [suggestions, setSuggestions] = React.useState<DslSuggestion[]>([]);
   const [selIdx, setSelIdx] = React.useState(0);
   const [open, setOpen] = React.useState(false);
+
+  // 键盘上下移动时把当前项滚进可视区;否则候选超过列表高度后,选中项会跑出视野。
+  React.useEffect(() => {
+    if (!open) return;
+    const active = listRef.current?.querySelector<HTMLElement>(`[data-index="${selIdx}"]`);
+    active?.scrollIntoView?.({ block: "nearest" });
+  }, [open, selIdx]);
 
   const refresh = React.useCallback((val: string, pos: number) => {
     const suggs = getDslSuggestions(val, pos);
@@ -339,7 +346,7 @@ export function AssetDslSearch({
   return (
     <div className="flex flex-col gap-1">
       <div className="relative max-w-lg">
-        <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+        <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
         <Input
           ref={inputRef}
           aria-label="DSL 资产搜索"
@@ -350,15 +357,33 @@ export function AssetDslSearch({
           onFocus={() => refresh(query, cursorPos())}
           onClick={() => refresh(query, cursorPos())}
           onBlur={() => setTimeout(() => setOpen(false), 120)}
-          className="h-8 pr-12 pl-8 font-mono text-xs"
+          className="h-8 pr-8 pl-8 font-mono text-[13px]"
         />
-        {query && <Button type="button" variant="ghost" size="sm" className="absolute top-0 right-0 h-8 px-2 text-xs" onClick={() => { onChange(""); setOpen(false); inputRef.current?.focus(); }}>清除</Button>}
+        {/* 与任务列表的搜索框同一种清除样式（行内小图标），不再用「清除」文字按钮挤占输入区。 */}
+        {query ? (
+          <button
+            type="button"
+            aria-label="清除搜索"
+            className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2 rounded-sm focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
+            onClick={() => {
+              onChange("");
+              setOpen(false);
+              inputRef.current?.focus();
+            }}
+          >
+            <XIcon className="size-4" aria-hidden="true" />
+          </button>
+        ) : null}
         {open && suggestions.length > 0 && (
-          <div className="absolute top-full left-0 z-50 mt-1 w-max min-w-full max-w-sm rounded-md border bg-popover py-1 shadow-md">
+          <div
+            ref={listRef}
+            className="absolute top-full left-0 z-50 mt-1 max-h-64 w-max min-w-full max-w-sm overflow-y-auto rounded-md border bg-popover py-1 shadow-md"
+          >
             {suggestions.map((s, i) => (
               <button
                 type="button"
                 key={i}
+                data-index={i}
                 className={cn(
                   "flex w-full cursor-pointer items-center gap-3 px-3 py-1.5 text-left",
                   i === selIdx ? "bg-accent" : "hover:bg-accent/50",
@@ -369,15 +394,15 @@ export function AssetDslSearch({
                   apply(s);
                 }}
               >
-                <span className={cn("shrink-0 font-mono text-xs font-semibold", KIND_STYLE[s.kind])}>{s.label}</span>
-                <span className="text-xs text-muted-foreground">{s.desc}</span>
+                <span className={cn("shrink-0 font-mono text-[12px] font-semibold", KIND_STYLE[s.kind])}>{s.label}</span>
+                <span className="text-[12px] text-muted-foreground">{s.desc}</span>
               </button>
             ))}
           </div>
         )}
       </div>
       {query.trim() && !open && (
-        <p className="pl-1 text-[11px] text-muted-foreground">
+        <p className="pl-1 text-[12px] text-muted-foreground">
           {loading ? "搜索中…" : error ? <span className="text-destructive">{error}</span> : `找到 ${count ?? 0} 条`}
         </p>
       )}

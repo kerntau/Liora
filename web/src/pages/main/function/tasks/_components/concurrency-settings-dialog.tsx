@@ -60,7 +60,7 @@ export function ConcurrencySettingsDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="sm" variant="outline" className="ml-auto" aria-label="任务并发设置">
+        <Button size="sm" variant="ghost" className="w-full justify-start" aria-label="任务并发设置">
           <SlidersHorizontalIcon /> 并发设置
         </Button>
       </DialogTrigger>

@@ -1,4 +1,4 @@
-import { ClockIcon, Trash2Icon } from "lucide-react";
+import { BotIcon, BrainIcon, ClockIcon, HistoryIcon, RadioIcon, Trash2Icon } from "lucide-react";
 
 import {
   ApprovalExecutionFocus,
@@ -28,6 +28,15 @@ function truncateWorkerAssetLabel(value: string, maxChars = 30): string {
   if (chars.length <= maxChars) return chars.join("");
   return `${chars.slice(0, Math.max(0, maxChars - 1)).join("")}…`;
 }
+
+// Role identity for the transcript header: the icon tile plus a quiet role label
+// keeps a worker session distinguishable from the main console at a glance.
+const ROLE_META = {
+  mainagent: { label: "主 Agent", icon: BotIcon },
+  planner: { label: "规划 Planner", icon: BrainIcon },
+  worker: { label: "Worker", icon: RadioIcon },
+  system: { label: "系统审计", icon: HistoryIcon },
+} as const;
 
 function WorkerAssetBadge({ assets }: { assets: IntentAsset[] }) {
   const displayAssets = assets.filter(
@@ -64,8 +73,8 @@ function WorkerAssetBadge({ assets }: { assets: IntentAsset[] }) {
   );
 }
 
-// Top of the transcript panel: session title, LLM/asset badges, per-session token
-// total + run duration, the 假删除 banner, and the approval-locate banner.
+// Top of the transcript panel: session identity, LLM/asset badges, per-session
+// token total + run duration, the 假删除 banner, and the approval-locate banner.
 export function SessionHeader({
   active,
   meta,
@@ -100,92 +109,122 @@ export function SessionHeader({
     any:
       tokens.input_tokens + tokens.output_tokens + tokens.cache_read_tokens + tokens.cache_write_tokens > 0,
   };
+  const role = ROLE_META[active.role] ?? ROLE_META.worker;
+  const RoleIcon = role.icon;
+  const isWorker = active.role === "worker";
+  const workerMeta = isWorker ? meta : undefined;
+  // Worker: the intent moved into the transcript as a message, so the header
+  // shows a stable generic label (intent JSON stays on hover).
+  const title = isWorker ? "Worker 执行会话" : active.title;
+  const titleEl = (
+    <span className="min-w-0 truncate text-[13px] leading-5 font-semibold text-foreground">{title}</span>
+  );
 
   return (
     <>
-      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 border-b px-3 py-2 sm:px-4 sm:py-2.5">
-        {(() => {
-          const isWorker = active.role === "worker";
-          const workerMeta = isWorker ? meta : undefined;
-          // Worker: the intent moved into the transcript as a message, so the
-          // header shows a stable generic label (intent JSON stays on hover).
-          const title = isWorker ? "Worker 执行会话" : active.title;
-          const titleEl = <span className="min-w-0 truncate text-sm font-medium">{title}</span>;
-          return workerMeta?.json ? (
-            <Tooltip>
-              <TooltipTrigger asChild>{titleEl}</TooltipTrigger>
-              <TooltipContent side="bottom" align="start" className="max-h-80 max-w-sm overflow-auto p-0">
-                <pre className="p-2 text-[10px] leading-relaxed">{JSON.stringify(workerMeta.json, null, 2)}</pre>
-              </TooltipContent>
-            </Tooltip>
-          ) : (
-            titleEl
-          );
-        })()}
-        <SideQuestionButton side={side} />
-        {resolution && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Badge
-                variant="outline"
-                className="max-w-28 shrink-0 font-normal"
-                aria-label={resolution.available ? `当前配置：${resolutionLabel(resolution)}` : "模型不可用"}
-              >
-                <span className="truncate">{resolution.available ? resolutionLabel(resolution) : "模型不可用"}</span>
-              </Badge>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="max-w-xs [overflow-wrap:anywhere]">
-              {resolution.available
-                ? [resolutionLabel(resolution), resolution.model].filter(Boolean).join(" / ")
-                : resolution.reason || "没有可用的 LLM 配置"}
-            </TooltipContent>
-          </Tooltip>
-        )}
-        {assets && assets.length > 0 && <WorkerAssetBadge assets={assets} />}
-        {active.inherited && active.source_task_id && (
-          <Badge variant="outline">来源任务 #{active.source_task_id} · 只读历史</Badge>
-        )}
-        {active.live && (
-          <span className="inline-flex items-center gap-1 rounded bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">
-            <span className="size-1 animate-pulse rounded-full bg-blue-500" />
-            实时
+      <div className="flex flex-col gap-2 border-b border-border/70 bg-card px-3 py-2.5 sm:px-5">
+        <div className="flex min-w-0 flex-wrap items-start gap-x-2.5 gap-y-2">
+          <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+            <RoleIcon className="size-4" aria-hidden="true" />
           </span>
-        )}
-        {hasMore && (
-          <span className="text-[10px] text-muted-foreground" title="向上滚动加载更早历史">
-            ↑ 更早历史
-          </span>
-        )}
-        <div className="ml-auto flex min-w-0 max-w-full items-center justify-end gap-x-3 gap-y-1 text-xs text-muted-foreground max-sm:w-full max-sm:flex-wrap">
-          {tokenTotal.any && (
-            <Tooltip>
-              {/* 手机端用短标签（入/缓/出）：长标签会把这一行撑成两行，进一步压缩记录区。 */}
-              <TooltipTrigger asChild>
-                <span className="inline-flex min-w-0 items-center">
-                  <TokenMetrics input={tokenTotal.i} cache={tokenTotal.cr} output={tokenTotal.o} labels="short" className="sm:hidden" />
-                  <TokenMetrics input={tokenTotal.i} cache={tokenTotal.cr} output={tokenTotal.o} labels="long" className="max-sm:hidden" />
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+              {workerMeta?.json ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>{titleEl}</TooltipTrigger>
+                  <TooltipContent side="bottom" align="start" className="max-h-80 max-w-sm overflow-auto p-0">
+                    <pre className="p-2 text-[10px] leading-relaxed">{JSON.stringify(workerMeta.json, null, 2)}</pre>
+                  </TooltipContent>
+                </Tooltip>
+              ) : (
+                titleEl
+              )}
+              {active.live && (
+                <span className="inline-flex h-5 items-center gap-1 rounded-md border border-primary/20 bg-primary/10 px-1.5 text-[11px] leading-none font-medium text-primary">
+                  <span className="size-1 animate-pulse rounded-full bg-primary" />
+                  实时
                 </span>
-              </TooltipTrigger>
-              <TooltipContent>
-                输入 {tokens.input_tokens.toLocaleString()} · 输出 {tokens.output_tokens.toLocaleString()} · 缓存读取{" "}
-                {tokens.cache_read_tokens.toLocaleString()} · 缓存写入 {tokens.cache_write_tokens.toLocaleString()}
-              </TooltipContent>
-            </Tooltip>
-          )}
-          {duration != null && (
-            <span className="inline-flex items-center gap-1" title="运行时长（首步 → 末步）">
-              <ClockIcon className="size-3" />
-              {fmtDuration(duration, "ms")}
-            </span>
-          )}
-          {isMain && <span>可交互</span>}
+              )}
+              {hasMore && (
+                <span className="text-[11px] text-muted-foreground" title="向上滚动加载更早历史">
+                  ↑ 更早历史
+                </span>
+              )}
+            </div>
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+              <SideQuestionButton side={side} />
+              {resolution && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge
+                      variant="outline"
+                      className="max-w-28 shrink-0 font-normal"
+                      aria-label={resolution.available ? `当前配置：${resolutionLabel(resolution)}` : "模型不可用"}
+                    >
+                      <span className="truncate">{resolution.available ? resolutionLabel(resolution) : "模型不可用"}</span>
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="max-w-xs [overflow-wrap:anywhere]">
+                    {resolution.available
+                      ? [resolutionLabel(resolution), resolution.model].filter(Boolean).join(" / ")
+                      : resolution.reason || "没有可用的 LLM 配置"}
+                  </TooltipContent>
+                </Tooltip>
+              )}
+              {assets && assets.length > 0 && <WorkerAssetBadge assets={assets} />}
+              {active.inherited && active.source_task_id && (
+                <Badge variant="outline">来源任务 #{active.source_task_id} · 只读历史</Badge>
+              )}
+            </div>
+          </div>
+          <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-x-2 gap-y-1 text-[11px] text-muted-foreground sm:ml-auto">
+            {tokenTotal.any && (
+              <Tooltip>
+                {/* 手机端用短标签（入/缓/出）：长标签会把这一行撑成两行，进一步压缩记录区。 */}
+                <TooltipTrigger asChild>
+                  <span className="inline-flex min-w-0 items-center">
+                    <TokenMetrics
+                      input={tokenTotal.i}
+                      cache={tokenTotal.cr}
+                      output={tokenTotal.o}
+                      labels="short"
+                      className="sm:hidden"
+                    />
+                    <TokenMetrics
+                      input={tokenTotal.i}
+                      cache={tokenTotal.cr}
+                      output={tokenTotal.o}
+                      labels="long"
+                      className="max-sm:hidden"
+                    />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  输入 {tokens.input_tokens.toLocaleString()} · 输出 {tokens.output_tokens.toLocaleString()} · 缓存读取{" "}
+                  {tokens.cache_read_tokens.toLocaleString()} · 缓存写入 {tokens.cache_write_tokens.toLocaleString()}
+                </TooltipContent>
+              </Tooltip>
+            )}
+            {duration != null && (
+              <span
+                className="inline-flex h-6 items-center gap-1 rounded-md border border-border/70 px-2 tabular-nums"
+                title="运行时长（首步 → 末步）"
+              >
+                <ClockIcon className="size-3" aria-hidden="true" />
+                {fmtDuration(duration, "ms")}
+              </span>
+            )}
+            {isMain && (
+              <span className="inline-flex h-6 items-center rounded-md border border-border/70 px-2 text-[11px]">可交互</span>
+            )}
+          </div>
         </div>
       </div>
       {(() => {
         const dm = active.role === "worker" ? meta : undefined;
         if (!dm?.deleted) return null;
         return (
-          <div className="flex items-start gap-2 border-b border-destructive/30 bg-destructive/5 px-4 py-2.5 text-xs">
+          <div className="flex items-start gap-2 border-b border-destructive/30 bg-destructive/5 px-5 py-2.5 text-[12px] leading-5">
             <Trash2Icon className="mt-0.5 size-3.5 shrink-0 text-destructive" />
             <div className="min-w-0">
               <span className="font-medium text-destructive">此意图已被用户删除</span>

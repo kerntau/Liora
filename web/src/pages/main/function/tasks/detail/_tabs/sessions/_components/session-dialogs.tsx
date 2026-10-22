@@ -66,28 +66,28 @@ export function CancelIntentDialog({
               aria-pressed={deleteMode === "soft"}
               onClick={() => onDeleteModeChange("soft")}
               className={cn(
-                "rounded-md border px-3 py-2 text-left text-sm transition-colors",
+                "rounded-md border px-3 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40",
                 deleteMode === "soft" ? "border-primary bg-primary/5" : "hover:bg-accent",
               )}
             >
-              <div className="font-medium">假删除</div>
-              <div className="text-xs text-muted-foreground">保留数据，可追溯</div>
+              <div className="text-[13px] font-medium">假删除</div>
+              <div className="text-[12px] text-muted-foreground">保留数据，可追溯</div>
             </button>
             <button
               type="button"
               aria-pressed={deleteMode === "hard"}
               onClick={() => onDeleteModeChange("hard")}
               className={cn(
-                "rounded-md border px-3 py-2 text-left text-sm transition-colors",
+                "rounded-md border px-3 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40",
                 deleteMode === "hard" ? "border-destructive bg-destructive/5" : "hover:bg-accent",
               )}
             >
-              <div className="font-medium">真删除</div>
-              <div className="text-xs text-muted-foreground">级联移除，不可恢复</div>
+              <div className="text-[13px] font-medium">真删除</div>
+              <div className="text-[12px] text-muted-foreground">级联移除，不可恢复</div>
             </button>
           </div>
           <div className="grid gap-2">
-            <label htmlFor="cancel-reason" className="text-sm font-medium">
+            <label htmlFor="cancel-reason" className="text-[13px] font-medium">
               删除原因（必填）
             </label>
             <Textarea

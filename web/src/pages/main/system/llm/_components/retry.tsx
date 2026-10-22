@@ -11,8 +11,9 @@
 
 import * as React from "react";
 
-import { Loader2Icon, SaveIcon } from "lucide-react";
+import { InfoIcon, Loader2Icon, RotateCcwIcon, SaveIcon } from "lucide-react";
 
+import { SectionCard } from "@/components/app/section-card";
 import { AsyncState } from "@/components/async-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -151,7 +152,7 @@ function NumField({
       id={id}
       type="number"
       min={min}
-      className="w-28 shrink-0"
+      className="w-28 shrink-0 font-mono tabular-nums"
       value={text}
       placeholder={placeholder}
       onChange={(e) => {
@@ -181,26 +182,28 @@ function RetryRuleFields({
   const meta = RETRY_LAYERS[layer];
   const human = humanMs(value.interval_ms);
   return (
-    <div className={compact ? "grid gap-2" : "grid gap-3 rounded-lg border p-3"}>
-      <div className="grid gap-0.5">
-        <div className="flex flex-wrap items-baseline gap-2">
-          <Label className="text-sm">{meta.title}</Label>
-          <span className="text-muted-foreground text-xs">{meta.where}</span>
+    <div className={compact ? "grid gap-2" : "grid gap-3 rounded-lg bg-surface-muted/50 p-4"}>
+      <div className="grid gap-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <Label className="text-[13px] font-semibold">{meta.title}</Label>
+          <span className="rounded-full border border-border bg-surface-muted px-2 py-0.5 text-[10px] text-muted-foreground">
+            {meta.where}
+          </span>
         </div>
         {/* 哪些错误会走到这层，具体到状态码——填了旋钮却看不到效果，多半是错误压根不落在这层。 */}
-        <p className="text-muted-foreground text-xs">
+        <p className="text-muted-foreground text-[12px] leading-5">
           <span className="font-medium text-foreground">触发</span>：{meta.trigger}
         </p>
         {!compact && meta.skips && (
-          <p className="text-muted-foreground text-xs">
+          <p className="text-muted-foreground text-[12px] leading-5">
             <span className="font-medium text-foreground">不走这层</span>：{meta.skips}
           </p>
         )}
-        {!compact && <p className="text-muted-foreground text-xs">{meta.desc}</p>}
+        {!compact && <p className="text-muted-foreground text-[12px] leading-5">{meta.desc}</p>}
       </div>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg bg-card px-3 py-2">
         <div className="flex items-center gap-2">
-          <Label htmlFor={`${idPrefix}-${layer}-n`} className="text-muted-foreground text-xs">
+          <Label htmlFor={`${idPrefix}-${layer}-n`} className="whitespace-nowrap text-muted-foreground text-xs">
             {meta.attemptsLabel}
           </Label>
           <NumField
@@ -212,7 +215,7 @@ function RetryRuleFields({
           />
         </div>
         <div className="flex items-center gap-2">
-          <Label htmlFor={`${idPrefix}-${layer}-ms`} className="text-muted-foreground text-xs">
+          <Label htmlFor={`${idPrefix}-${layer}-ms`} className="whitespace-nowrap text-muted-foreground text-xs">
             间隔 ms
           </Label>
           <NumField
@@ -222,10 +225,10 @@ function RetryRuleFields({
             placeholder="默认退避"
             onChange={(n) => onChange({ ...value, interval_ms: n })}
           />
-          <span className="text-muted-foreground text-xs">{human ? `固定 ${human}` : meta.defInterval}</span>
+          <span className="whitespace-nowrap text-muted-foreground text-xs">{human ? `固定 ${human}` : meta.defInterval}</span>
         </div>
       </div>
-      {!compact && <p className="text-muted-foreground text-xs">留空 = 用默认；{meta.offHint}。</p>}
+      {!compact && <p className="text-muted-foreground text-[12px]">留空 = 用默认；{meta.offHint}。</p>}
     </div>
   );
 }
@@ -239,16 +242,21 @@ export function ProfileRetryFields({
   onChange: (o: LLMRetryOverride) => void;
 }) {
   return (
-    <div className="grid gap-3 rounded-lg border p-3">
-      <div className="grid gap-0.5">
-        <Label className="text-sm">重试覆盖</Label>
-        <p className="text-muted-foreground text-xs">
+    <div className="grid gap-3 rounded-lg bg-surface-muted/60 p-3">
+      <div className="grid gap-1">
+        <Label className="flex items-center gap-2 text-[13px] font-semibold">
+          <span className="grid size-6 place-items-center rounded-md bg-primary/10 text-primary">
+            <RotateCcwIcon className="size-3.5" />
+          </span>
+          重试覆盖
+        </Label>
+        <p className="text-muted-foreground text-[12px] leading-5">
           只对这个配置生效，覆盖「重试与退避」里的全局默认。每格留空 = 跟随全局；次数填 -1 = 关掉这层重试；
           间隔填了就用固定间隔取代指数退避。熔断与意图重跑是进程级的，只能在全局那页调。
         </p>
       </div>
       {(["connect", "empty", "stream"] as const).map((k) => (
-        <div key={k} className="border-t pt-3 first:border-t-0 first:pt-0">
+        <div key={k} className="rounded-lg bg-card px-3 py-2.5">
           <RetryRuleFields
             compact
             layer={k}
@@ -323,32 +331,41 @@ export function RetryPolicyPanel() {
   }
 
   return (
-    <div className="grid gap-4">
-      <div className="rounded-lg border bg-muted/30 p-3 text-muted-foreground text-xs leading-relaxed">
-        一次模型调用的失败会依次经过五层重试，由内到外：
-        <span className="text-foreground"> 建连 → 空响应 → 同 provider 安全窗口 → 轮询熔断 → 意图重跑</span>
-        。内层用尽才轮到外层，所以次数是
-        <span className="text-foreground">相乘</span>
-        的——把每层都拉满，一次抖动能烧掉几十次请求。
-        全部留空即当前默认值，与没有这页时的行为完全一致。前三层可以在每个模型配置里单独覆盖。
-      </div>
+    <SectionCard
+      icon={RotateCcwIcon}
+      title="五层重试策略"
+      description="由内到外依次兜底；留空即当前默认值。前三层可在每个模型配置里单独覆盖。"
+      footer={
+        <div className="flex flex-wrap items-center gap-2">
+          <Button onClick={save} disabled={saving}>
+            {saving ? <Loader2Icon className="animate-spin" /> : <SaveIcon />}
+            保存
+          </Button>
+          <Button variant="outline" onClick={() => setPolicy(ZERO_POLICY)} disabled={saving}>
+            全部恢复默认
+          </Button>
+          <span className="ml-auto text-[12px] text-muted-foreground">保存后即时生效（进行中的调用仍用旧参数）</span>
+        </div>
+      }
+    >
+      <div className="grid gap-4">
+        <div className="flex items-start gap-2.5 rounded-lg border border-primary/15 bg-primary/[0.04] px-3.5 py-3 text-[12px] leading-5 text-muted-foreground">
+          <InfoIcon className="mt-0.5 size-3.5 shrink-0 text-primary" />
+          <p>
+            一次模型调用的失败会依次经过五层重试，由内到外：
+            <span className="font-medium text-foreground">建连 → 空响应 → 同 provider 安全窗口 → 轮询熔断 → 意图重跑</span>
+            。内层用尽才轮到外层，所以次数是<span className="font-medium text-foreground">相乘</span>
+            的——把每层都拉满，一次抖动能烧掉几十次请求。全部留空即当前默认值，与没有这页时的行为完全一致。
+          </p>
+        </div>
 
-      {/* 保存中锁住输入：回包会用服务端夹取后的值整体回写，期间的编辑会被静默覆盖。 */}
-      <fieldset disabled={saving} className="grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {(Object.keys(RETRY_LAYERS) as LayerKey[]).map((k) => (
-          <RetryRuleFields key={k} layer={k} idPrefix="gl" value={policy[k]} onChange={set(k)} />
-        ))}
-      </fieldset>
-
-      <div className="flex gap-2">
-        <Button onClick={save} disabled={saving}>
-          {saving ? <Loader2Icon className="animate-spin" /> : <SaveIcon />}
-          保存
-        </Button>
-        <Button variant="outline" onClick={() => setPolicy(ZERO_POLICY)} disabled={saving}>
-          全部恢复默认
-        </Button>
+        {/* 保存中锁住输入：回包会用服务端夹取后的值整体回写，期间的编辑会被静默覆盖。 */}
+        <fieldset disabled={saving} className="grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {(Object.keys(RETRY_LAYERS) as LayerKey[]).map((k) => (
+            <RetryRuleFields key={k} layer={k} idPrefix="gl" value={policy[k]} onChange={set(k)} />
+          ))}
+        </fieldset>
       </div>
-    </div>
+    </SectionCard>
   );
 }

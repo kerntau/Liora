@@ -7,6 +7,7 @@ import {
   ChevronRightIcon,
   CircleDashedIcon,
   GlobeIcon,
+  LayersIcon,
   LayoutTemplateIcon,
   LinkIcon,
   type LucideIcon,
@@ -32,6 +33,18 @@ const KIND_ICON: Record<FindingAssetKind, LucideIcon> = {
   service: LayoutTemplateIcon,
   endpoint: LinkIcon,
   none: CircleDashedIcon,
+};
+
+// 类型色只用于小图标,让树在同构层级里也能一眼分辨资产种类。
+const KIND_TONE: Record<FindingAssetKind, string> = {
+  company: "text-primary",
+  root_domain: "text-blue-500 dark:text-blue-400",
+  subdomain: "text-cyan-500 dark:text-cyan-400",
+  ip: "text-violet-500 dark:text-violet-400",
+  app: "text-emerald-500 dark:text-emerald-400",
+  service: "text-amber-500 dark:text-amber-400",
+  endpoint: "text-rose-500 dark:text-rose-400",
+  none: "text-muted-foreground",
 };
 
 const KIND_LABEL: Record<FindingAssetKind, string> = {
@@ -259,7 +272,7 @@ export function AssetTree({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1.5">
         <InputGroup className="flex-1">
           <InputGroupInput
             type="search"
@@ -267,6 +280,7 @@ export function AssetTree({
             onChange={(event) => setKeyword(event.target.value)}
             placeholder="过滤资产"
             aria-label="过滤资产"
+            className="h-8 text-xs"
           />
           <InputGroupAddon>
             <SearchIcon aria-hidden="true" />
@@ -290,24 +304,30 @@ export function AssetTree({
       <button
         type="button"
         onClick={() => onSelect(null)}
+        aria-pressed={selected === null}
         className={cn(
-          "flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm",
-          selected === null ? "bg-accent font-medium" : "hover:bg-accent/50",
+          "flex items-center gap-2 rounded-lg border px-2 py-1.5 text-left text-[13px] transition-colors",
+          selected === null
+            ? "border-primary/25 bg-primary/10 font-medium text-primary"
+            : "border-transparent hover:bg-surface-muted",
         )}
       >
-        <span>全部资产</span>
-        <span className="text-xs tabular-nums text-muted-foreground">{findingTotal}</span>
+        <LayersIcon className="size-3.5 shrink-0" aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate">全部资产</span>
+        <span className="shrink-0 rounded-full bg-card/70 px-1.5 text-[11px] text-muted-foreground tabular-nums ring-1 ring-border/60">
+          {findingTotal}
+        </span>
       </button>
 
       <ScrollArea className="min-h-0 flex-1">
-        <div className="flex flex-col pr-2">
+        <div className="flex flex-col gap-0.5 pr-2">
           {rows}
           {rows.length === 0 && <p className="px-2 py-8 text-center text-xs text-muted-foreground">{emptyHint}</p>}
         </div>
       </ScrollArea>
 
       {truncated && (
-        <p className="px-1 text-xs text-muted-foreground">
+        <p className="rounded-lg border border-border/70 bg-surface-muted px-2 py-1.5 text-[11px] leading-5 text-muted-foreground">
           资产过多，已隐藏{(droppedKinds ?? []).map((k) => KIND_LABEL[k as FindingAssetKind] ?? k).join(" / ")}
           层级（计数仍已计入上层）。用筛选或过滤框收窄可看到完整层级。
         </p>
@@ -334,8 +354,8 @@ function AssetTreeRow({
   return (
     <div
       className={cn(
-        "group flex items-center gap-1 rounded-md pr-1 text-sm",
-        selected ? "bg-accent" : "hover:bg-accent/50",
+        "group flex items-center gap-0.5 rounded-lg pr-1.5 text-[13px] transition-colors",
+        selected ? "bg-primary/10 ring-1 ring-primary/15" : "hover:bg-surface-muted",
       )}
       style={{ paddingLeft: `${node.depth * 10}px` }}
     >
@@ -355,20 +375,25 @@ function AssetTreeRow({
       <button
         type="button"
         onClick={onSelect}
-        className="flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left"
+        className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 text-left"
         title={`${KIND_LABEL[node.kind] ?? node.kind} · ${node.label}`}
       >
-        <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-        <span className={cn("min-w-0 truncate", selected && "font-medium")}>{node.display}</span>
+        <Icon
+          className={cn("size-3.5 shrink-0", selected ? "text-primary" : KIND_TONE[node.kind])}
+          aria-hidden="true"
+        />
+        <span className={cn("min-w-0 truncate", selected && "font-medium text-primary")}>{node.display}</span>
       </button>
-      <span className="flex shrink-0 items-center gap-1 text-xs tabular-nums">
+      <span className="flex shrink-0 items-center gap-1 text-[11px] tabular-nums">
         {node.critical > 0 && (
-          <span className="text-rose-600" title={`严重 ${node.critical}`}>
+          <span className="inline-flex items-center gap-0.5 text-rose-600 dark:text-rose-400" title={`严重 ${node.critical}`}>
+            <span className="size-1.5 rounded-full bg-rose-500" aria-hidden="true" />
             {node.critical}
           </span>
         )}
         {node.high > 0 && (
-          <span className="text-red-500" title={`高危 ${node.high}`}>
+          <span className="inline-flex items-center gap-0.5 text-red-500 dark:text-red-400" title={`高危 ${node.high}`}>
+            <span className="size-1.5 rounded-full bg-red-500" aria-hidden="true" />
             {node.high}
           </span>
         )}

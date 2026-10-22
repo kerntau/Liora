@@ -18,14 +18,17 @@ import {
   TargetIcon,
   Trash2Icon,
   XIcon,
+  type LucideIcon,
 } from "lucide-react";
 
+import { Donut } from "@/components/app/donut";
+import { SectionCard } from "@/components/app/section-card";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Progress } from "@/components/ui/progress";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api } from "@/lib/api";
 import { fmtTokens } from "@/lib/format";
 import { isTaskNotFoundError } from "@/lib/task-not-found";
@@ -39,6 +42,9 @@ import type {
   TaskNode,
   TaskScopeRow,
 } from "@/lib/types";
+
+// engine_mode 是后端枚举；认不出的值（老数据/新引擎）不能直接当标签渲染。
+const ENGINE_MODES = ["exploring", "paused", "stalled", "idle"];
 
 // 缓存命中率 = 缓存读 / 输入（InputTokens 已含 cache_read 子集，故比值在 0–100%）。
 function cacheHitRate(cacheRead: number, input: number): string {
@@ -71,27 +77,57 @@ const SCOPE_SOURCE_LABELS: Record<TaskScopeRow["source"], string> = {
   manual: "手动",
 };
 
-function StatCard({
+function CountChip({ children }: { children: React.ReactNode }) {
+  return <span className="app-chip shrink-0 tabular-nums">{children}</span>;
+}
+
+// 关键数字：默认平铺（用于卡片底部的指标条），boxed 用于网格里的独立小卡。
+function Metric({
   label,
   value,
-  sub,
-  icon: Icon,
+  hint,
+  tone = "default",
+  boxed = false,
 }: {
   label: string;
   value: React.ReactNode;
-  sub?: string;
-  icon: React.ElementType;
+  hint?: string;
+  tone?: "default" | "primary" | "success" | "warning" | "destructive";
+  boxed?: boolean;
+}) {
+  let toneClass = "text-foreground";
+  if (tone === "primary") toneClass = "text-primary";
+  if (tone === "success") toneClass = "text-success";
+  if (tone === "warning") toneClass = "text-warning";
+  if (tone === "destructive") toneClass = "text-destructive";
+  return (
+    <div className={boxed ? "min-w-0 rounded-xl border border-border/70 bg-surface-muted/50 p-3" : "min-w-0"}>
+      <div className={`text-[18px] leading-7 font-semibold tracking-tight tabular-nums ${toneClass}`}>{value}</div>
+      <div className="text-[11px] text-muted-foreground">{label}</div>
+      {hint ? <div className="text-[11px] text-muted-foreground/80">{hint}</div> : null}
+    </div>
+  );
+}
+
+// 统一的空态：图标 + 标题 + 说明 + 可选动作。
+function EmptyState({
+  icon: Icon,
+  title,
+  description,
+  action,
+}: {
+  icon: LucideIcon;
+  title: string;
+  description?: string;
+  action?: React.ReactNode;
 }) {
   return (
-    <Card className="gap-1.5">
-      <CardHeader className="pb-0">
-        <CardDescription className="flex items-center gap-1.5">
-          <Icon className="size-3.5" /> {label}
-        </CardDescription>
-        <CardTitle className="text-2xl tabular-nums">{value}</CardTitle>
-      </CardHeader>
-      {sub && <CardContent className="text-xs text-muted-foreground">{sub}</CardContent>}
-    </Card>
+    <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border/80 bg-surface-muted/40 px-4 py-8 text-center sm:py-10">
+      <Icon className="size-7 text-muted-foreground/40" aria-hidden="true" />
+      <p className="text-[13px] font-medium text-foreground">{title}</p>
+      {description ? <p className="max-w-sm text-[12px] leading-5 text-muted-foreground">{description}</p> : null}
+      {action ? <div className="mt-1.5">{action}</div> : null}
+    </div>
   );
 }
 
@@ -121,6 +157,7 @@ export function OverviewTab({ taskId }: { taskId: string }) {
   // 目标管理：目标列表 + 新增表单 + 行内编辑状态。
   const [goals, setGoals] = React.useState<TaskGoal[]>([]);
   const [goalText, setGoalText] = React.useState("");
+  const goalInputRef = React.useRef<HTMLInputElement>(null);
   const [goalVuln, setGoalVuln] = React.useState("");
   const [goalBusy, setGoalBusy] = React.useState(false);
   const [goalErr, setGoalErr] = React.useState("");
@@ -130,6 +167,7 @@ export function OverviewTab({ taskId }: { taskId: string }) {
   // 约束管理：约束列表 + 新增表单 + 行内编辑状态。
   const [constraints, setConstraints] = React.useState<TaskConstraint[]>([]);
   const [conText, setConText] = React.useState("");
+  const conInputRef = React.useRef<HTMLInputElement>(null);
   const [conKind, setConKind] = React.useState<TaskConstraint["kind"]>("deny");
   const [conBusy, setConBusy] = React.useState(false);
   const [conErr, setConErr] = React.useState("");
@@ -441,439 +479,546 @@ export function OverviewTab({ taskId }: { taskId: string }) {
   );
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 lg:gap-5">
       {notFound && (
         <div
           role="alert"
-          className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-muted-foreground"
+          className="flex flex-wrap items-center gap-2 rounded-xl border border-warning/25 bg-warning/5 px-3.5 py-2.5 text-[12px] text-muted-foreground"
         >
-          <AlertTriangleIcon className="size-3.5 text-amber-500" />
+          <AlertTriangleIcon className="size-4 shrink-0 text-warning" aria-hidden="true" />
           任务不存在或已归档，无法加载总览数据
         </div>
       )}
       {loadFailed && (
         <div
           role="alert"
-          className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-muted-foreground"
+          className="flex flex-wrap items-center gap-2 rounded-xl border border-warning/25 bg-warning/5 px-3.5 py-2.5 text-[12px] text-muted-foreground"
         >
-          <AlertTriangleIcon className="size-3.5 text-amber-500" />
+          <AlertTriangleIcon className="size-4 shrink-0 text-warning" aria-hidden="true" />
           任务数据刷新失败，当前显示上次成功的结果，正在自动重试
           <Button
             size="sm"
             variant="ghost"
-            className="ml-auto h-6 px-2 text-xs"
+            className="ml-auto h-7 px-2 text-xs"
             onClick={() => setReloadTick((n) => n + 1)}
           >
             立即重试
           </Button>
         </div>
       )}
+
       {/* 原始任务描述与目标(创建时填写的),置顶便于随时回看。 */}
-      <Card role="region" aria-label="任务描述与目标">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <TargetIcon className="size-4 text-primary" /> 任务描述与目标
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="flex flex-col gap-1.5">
-            <div className="text-xs font-medium text-muted-foreground">描述</div>
-            <p className="text-sm whitespace-pre-wrap break-words">{task?.description?.trim() || "—"}</p>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <div className="text-xs font-medium text-muted-foreground">目标</div>
-            <p className="text-sm whitespace-pre-wrap break-words">{task?.goal?.trim() || "—"}</p>
-          </div>
-        </CardContent>
-      </Card>
-      {/* 目标管理：查看/新增/修改/删除本任务的探索目标。新增与修改会通知规划者并复活任务，
-          删除仅通知规划者（不复活）。目标 = 最终可交付/可核验的结果，不是攻击步骤或侦察动作。 */}
-      <Card role="region" aria-label="目标管理">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <ListChecksIcon className="size-4 text-primary" /> 目标管理
-            <span className="text-muted-foreground text-xs font-normal">
-              （最终可核验的目标，共 {goals.length} 条；新增/修改会通知规划者并复活任务）
-            </span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          {/* 新增表单 */}
-          <div className="flex flex-wrap items-center gap-2">
-            <Input
-              className="h-7 min-w-56 flex-1 text-sm"
-              placeholder="新增目标，如『拿到管理员账号的越权访问』"
-              aria-label="新增目标"
-              value={goalText}
-              onChange={(e) => setGoalText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void addGoal();
-              }}
-              disabled={goalBusy}
-            />
-            <Input
-              className="h-7 w-32 text-sm"
-              placeholder="漏洞类(可选)"
-              value={goalVuln}
-              aria-label="新增目标的漏洞类（可选）"
-              onChange={(e) => setGoalVuln(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void addGoal();
-              }}
-              disabled={goalBusy}
-            />
-            <Button size="sm" variant="outline" disabled={goalBusy || !goalText.trim()} onClick={() => void addGoal()}>
-              <PlusIcon className="size-3.5" /> 添加
-            </Button>
-            {goalErr && <span className="text-xs text-red-500">{goalErr}</span>}
-          </div>
-          {/* 目标列表 */}
-          {goals.length > 0 ? (
-            <div className="flex flex-col gap-1.5">
-              {goals.map((g) =>
-                editingGoalId === g.id ? (
-                  <div key={g.id} className="flex flex-wrap items-center gap-2 rounded-md border px-2.5 py-1.5">
-                    <Input
-                      className="h-7 min-w-56 flex-1 text-sm"
-                      value={editText}
-                      aria-label="编辑目标"
-                      onChange={(e) => setEditText(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") void saveEditGoal(g);
-                        if (e.key === "Escape") cancelEditGoal();
-                      }}
-                      disabled={goalBusy}
-                      autoFocus
-                    />
-                    <Input
-                      className="h-7 w-32 text-sm"
-                      placeholder="漏洞类(可选)"
-                      value={editVuln}
-                      aria-label="编辑目标的漏洞类（可选）"
-                      onChange={(e) => setEditVuln(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") void saveEditGoal(g);
-                        if (e.key === "Escape") cancelEditGoal();
-                      }}
-                      disabled={goalBusy}
-                    />
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-6 shrink-0 px-1.5"
-                      disabled={goalBusy || !editText.trim()}
-                      onClick={() => void saveEditGoal(g)}
-                      aria-label="保存目标"
-                    >
-                      <CheckIcon className="size-3.5 text-emerald-500" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-6 shrink-0 px-1.5"
-                      disabled={goalBusy}
-                      onClick={cancelEditGoal}
-                      aria-label="取消编辑目标"
-                    >
-                      <XIcon className="size-3.5" />
-                    </Button>
-                  </div>
-                ) : (
-                  <div key={g.id} className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm">
-                    <StatusBadge domain="goal" value={g.state} />
-                    <span className="min-w-0 flex-1 break-words">{g.text}</span>
-                    {g.vulnclass && (
-                      <span className="bg-muted text-muted-foreground shrink-0 rounded px-1.5 py-0.5 text-xs">
-                        {g.vulnclass}
-                      </span>
-                    )}
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-6 shrink-0 px-1.5"
-                      disabled={goalBusy}
-                      onClick={() => startEditGoal(g)}
-                      aria-label="编辑目标"
-                    >
-                      <PencilIcon className="size-3.5" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-6 shrink-0 px-1.5"
-                      disabled={goalBusy}
-                      onClick={() => void removeGoal(g)}
-                      aria-label="删除目标"
-                    >
-                      <Trash2Icon className="size-3.5 text-red-500" />
-                    </Button>
-                  </div>
-                ),
-              )}
+      <section role="region" aria-label="任务描述与目标" className="min-w-0">
+        <SectionCard icon={TargetIcon} title="任务描述与目标" description="创建任务时填写的背景与验收目标">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-border/70 bg-surface-muted/60 p-4">
+              <div className="text-[11px] font-medium text-muted-foreground">描述</div>
+              <p className="mt-1.5 text-[13px] leading-6 whitespace-pre-wrap break-words">
+                {task?.description?.trim() || "—"}
+              </p>
             </div>
-          ) : (
-            <p className="text-muted-foreground text-sm">暂无目标，添加后规划者会据此派发探索意图并判定达成。</p>
-          )}
-        </CardContent>
-      </Card>
-      {/* 操作约束管理：allow=允许 / deny=禁止。约束会在下一轮规划时注入 planner/worker 的系统
-          提示以框定探索边界（注入范围可在 系统设置 里按 planner/worker 开关）。改动不即时打断，
-          下一轮规划自然读到。 */}
-      <Card role="region" aria-label="操作约束">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <ShieldAlertIcon className="size-4 text-amber-500" /> 操作约束
-            <span className="text-muted-foreground text-xs font-normal">
-              （框定 planner/worker 的探索边界，共 {constraints.length} 条；改动下一轮规划生效）
-            </span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          {/* 新增表单 */}
-          <div className="flex flex-wrap items-center gap-2">
-            <NativeSelect
-              size="sm"
-              value={conKind}
-              aria-label="新增操作约束类型"
-              onChange={(e) => setConKind(e.target.value as TaskConstraint["kind"])}
+            <div className="rounded-xl border border-border/70 bg-surface-muted/60 p-4">
+              <div className="text-[11px] font-medium text-muted-foreground">目标</div>
+              <p className="mt-1.5 text-[13px] leading-6 whitespace-pre-wrap break-words">
+                {task?.goal?.trim() || "—"}
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-3 border-t border-border/70 pt-4 sm:grid-cols-4">
+            <Metric label="待领意图" value={open.length} hint="frontier 开放" />
+            <Metric label="确认发现" value={taskFindings.length} hint="本任务" tone="destructive" />
+            <Metric label="意图总数" value={intents.length} hint="本任务全部意图" />
+            <Metric
+              label="目标达成"
+              value={`${task?.goals_met ?? 0}/${task?.goals_total ?? 0}`}
+              hint="已达成 / 全部"
+              tone={(task?.goals_met ?? 0) > 0 ? "success" : "default"}
+            />
+          </div>
+        </SectionCard>
+      </section>
+
+      {/* 主区左：目标与约束（需要编辑的配置）；右：运行态摘要。 */}
+      <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-3 lg:gap-5">
+        <div className="flex min-w-0 flex-col gap-4 lg:col-span-2 lg:gap-5">
+          {/* 目标管理：查看/新增/修改/删除本任务的探索目标。新增与修改会通知规划者并复活任务，
+              删除仅通知规划者（不复活）。目标 = 最终可交付/可核验的结果，不是攻击步骤或侦察动作。 */}
+          <section role="region" aria-label="目标管理" className="min-w-0">
+            <SectionCard
+              icon={ListChecksIcon}
+              title="目标管理"
+              description="最终可核验的目标；新增或修改会通知规划者并复活任务"
+              actions={<CountChip>{goals.length} 条</CountChip>}
             >
-              <NativeSelectOption value="deny">禁止</NativeSelectOption>
-              <NativeSelectOption value="allow">允许</NativeSelectOption>
-            </NativeSelect>
-            <Input
-              className="h-7 min-w-56 flex-1 text-sm"
-              placeholder="一条操作约束，如『仅测当前端口，不扫其他端口』"
-              value={conText}
-              aria-label="新增操作约束"
-              onChange={(e) => setConText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void addConstraint();
-              }}
-              disabled={conBusy}
-            />
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={conBusy || !conText.trim()}
-              onClick={() => void addConstraint()}
-            >
-              <PlusIcon className="size-3.5" /> 添加
-            </Button>
-            {conErr && <span className="text-xs text-red-500">{conErr}</span>}
-          </div>
-          {/* 约束列表 */}
-          {constraints.length > 0 ? (
-            <div className="flex flex-col gap-1.5">
-              {constraints.map((c) =>
-                editingConId === c.id ? (
-                  <div key={c.id} className="flex flex-wrap items-center gap-2 rounded-md border px-2.5 py-1.5">
-                    <NativeSelect
-                      size="sm"
-                      value={editConKind}
-                      aria-label="编辑操作约束类型"
-                      onChange={(e) => setEditConKind(e.target.value as TaskConstraint["kind"])}
-                    >
-                      <NativeSelectOption value="deny">禁止</NativeSelectOption>
-                      <NativeSelectOption value="allow">允许</NativeSelectOption>
-                    </NativeSelect>
-                    <Input
-                      className="h-7 min-w-56 flex-1 text-sm"
-                      value={editConText}
-                      aria-label="编辑操作约束"
-                      onChange={(e) => setEditConText(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") void saveEditConstraint(c);
-                        if (e.key === "Escape") cancelEditConstraint();
-                      }}
-                      disabled={conBusy}
-                      autoFocus
-                    />
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-6 shrink-0 px-1.5"
-                      disabled={conBusy || !editConText.trim()}
-                      onClick={() => void saveEditConstraint(c)}
-                      aria-label="保存操作约束"
-                    >
-                      <CheckIcon className="size-3.5 text-emerald-500" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-6 shrink-0 px-1.5"
-                      disabled={conBusy}
-                      onClick={cancelEditConstraint}
-                      aria-label="取消编辑操作约束"
-                    >
-                      <XIcon className="size-3.5" />
-                    </Button>
-                  </div>
-                ) : (
-                  <div key={c.id} className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm">
-                    <span
-                      className={`shrink-0 rounded px-1.5 py-0.5 text-xs ${
-                        c.kind === "allow"
-                          ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-                          : "bg-red-500/15 text-red-600 dark:text-red-400"
-                      }`}
-                    >
-                      {c.kind === "allow" ? "允许" : "禁止"}
-                    </span>
-                    <span className="min-w-0 flex-1 break-words">{c.text}</span>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-6 shrink-0 px-1.5"
-                      disabled={conBusy}
-                      onClick={() => startEditConstraint(c)}
-                      aria-label="编辑操作约束"
-                    >
-                      <PencilIcon className="size-3.5" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-6 shrink-0 px-1.5"
-                      disabled={conBusy}
-                      onClick={() => void removeConstraint(c)}
-                      aria-label="删除操作约束"
-                    >
-                      <Trash2Icon className="size-3.5 text-red-500" />
-                    </Button>
-                  </div>
-                ),
-              )}
-            </div>
-          ) : (
-            <p className="text-muted-foreground text-sm">
-              暂无操作约束。建任务时会自动从描述/目标抽取；也可在此手动增删改，用来框定「允许/禁止做哪些操作」。
-            </p>
-          )}
-        </CardContent>
-      </Card>
-      {coverage && coverage.enabled && coverage.scope_rows > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <TargetIcon className="size-4 text-emerald-500" /> 资产测试覆盖度
-              <span className="text-muted-foreground text-xs font-normal">（粗估，仅供参考）</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <div className="flex items-baseline gap-3">
-              <span className="text-2xl font-semibold tabular-nums">
-                {coverage.pct != null ? Math.round(coverage.pct * 100) + "%" : "—"}
-              </span>
-              <span className="text-muted-foreground text-sm">
-                已测 {coverage.tested} / 范围内 {coverage.denominator}
-              </span>
-            </div>
-            {coverage.pct != null && <Progress value={Math.round(coverage.pct * 100)} />}
-            {coverage.by_type.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 text-xs">
-                {coverage.by_type.map((b) => (
-                  <span key={b.type} className="bg-muted rounded px-1.5 py-0.5">
-                    <span className="text-muted-foreground">{b.type}</span>{" "}
-                    <span className="tabular-nums font-medium">
-                      {b.tested}/{b.total}
-                    </span>
-                  </span>
-                ))}
+              {/* 新增表单 */}
+              <div className="mb-3 flex flex-col gap-2 rounded-xl border border-border/70 bg-surface-muted/60 p-3 sm:flex-row sm:items-center">
+                <Input
+                  ref={goalInputRef}
+                  className="h-9 flex-1 bg-card text-[13px]"
+                  placeholder="新增目标，如『拿到管理员账号的越权访问』"
+                  aria-label="新增目标"
+                  value={goalText}
+                  onChange={(e) => setGoalText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void addGoal();
+                  }}
+                  disabled={goalBusy}
+                />
+                <div className="flex items-center gap-2">
+                  <Input
+                    className="h-9 w-32 bg-card text-[13px]"
+                    placeholder="漏洞类(可选)"
+                    value={goalVuln}
+                    aria-label="新增目标的漏洞类（可选）"
+                    onChange={(e) => setGoalVuln(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void addGoal();
+                    }}
+                    disabled={goalBusy}
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-9 shrink-0"
+                    disabled={goalBusy || !goalText.trim()}
+                    onClick={() => void addGoal()}
+                  >
+                    <PlusIcon className="size-3.5" /> 添加
+                  </Button>
+                </div>
               </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
+              {goalErr && <p className="mb-2 text-[12px] text-destructive">{goalErr}</p>}
+              {/* 目标列表 */}
+              {goals.length > 0 ? (
+                <ul className="overflow-hidden rounded-xl border border-border/70">
+                  {goals.map((g) =>
+                    editingGoalId === g.id ? (
+                      <li
+                        key={g.id}
+                        className="flex flex-wrap items-center gap-2 border-b border-border/70 bg-surface-muted/60 px-3 py-2.5 last:border-0"
+                      >
+                        <Input
+                          className="h-8 min-w-48 flex-1 bg-card text-[13px]"
+                          value={editText}
+                          aria-label="编辑目标"
+                          onChange={(e) => setEditText(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") void saveEditGoal(g);
+                            if (e.key === "Escape") cancelEditGoal();
+                          }}
+                          disabled={goalBusy}
+                          autoFocus
+                        />
+                        <Input
+                          className="h-8 w-32 bg-card text-[13px]"
+                          placeholder="漏洞类(可选)"
+                          value={editVuln}
+                          aria-label="编辑目标的漏洞类（可选）"
+                          onChange={(e) => setEditVuln(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") void saveEditGoal(g);
+                            if (e.key === "Escape") cancelEditGoal();
+                          }}
+                          disabled={goalBusy}
+                        />
+                        <div className="ml-auto flex shrink-0 items-center gap-1">
+                          <Button
+                            size="icon-sm"
+                            variant="ghost"
+                            disabled={goalBusy || !editText.trim()}
+                            onClick={() => void saveEditGoal(g)}
+                            aria-label="保存目标"
+                          >
+                            <CheckIcon className="size-4 text-success" />
+                          </Button>
+                          <Button
+                            size="icon-sm"
+                            variant="ghost"
+                            disabled={goalBusy}
+                            onClick={cancelEditGoal}
+                            aria-label="取消编辑目标"
+                          >
+                            <XIcon className="size-4" />
+                          </Button>
+                        </div>
+                      </li>
+                    ) : (
+                      <li
+                        key={g.id}
+                        className="flex items-start gap-2.5 border-b border-border/70 px-3 py-2.5 last:border-0"
+                      >
+                        <StatusBadge domain="goal" value={g.state} className="mt-0.5 shrink-0" />
+                        <span className="min-w-0 flex-1 text-[13px] leading-6 break-words">{g.text}</span>
+                        {g.vulnclass && (
+                          <span className="app-chip mt-0.5 shrink-0 px-2 py-0.5 text-[11px]">{g.vulnclass}</span>
+                        )}
+                        <div className="flex shrink-0 items-center gap-0.5">
+                          <Button
+                            size="icon-sm"
+                            variant="ghost"
+                            className="text-muted-foreground"
+                            disabled={goalBusy}
+                            onClick={() => startEditGoal(g)}
+                            aria-label="编辑目标"
+                          >
+                            <PencilIcon className="size-3.5" />
+                          </Button>
+                          <Button
+                            size="icon-sm"
+                            variant="ghost"
+                            className="text-muted-foreground hover:text-destructive"
+                            disabled={goalBusy}
+                            onClick={() => void removeGoal(g)}
+                            aria-label="删除目标"
+                          >
+                            <Trash2Icon className="size-3.5" />
+                          </Button>
+                        </div>
+                      </li>
+                    ),
+                  )}
+                </ul>
+              ) : (
+                <EmptyState
+                  icon={TargetIcon}
+                  title="还没有目标"
+                  description="目标决定规划者派发哪些探索意图。先添加一条可核验的结果目标。"
+                  action={
+                    <Button size="sm" variant="outline" onClick={() => goalInputRef.current?.focus()}>
+                      <PlusIcon className="size-3.5" /> 添加第一条目标
+                    </Button>
+                  }
+                />
+              )}
+            </SectionCard>
+          </section>
+
+          {/* 操作约束管理：allow=允许 / deny=禁止。约束会在下一轮规划时注入 planner/worker 的系统
+              提示以框定探索边界（注入范围可在 系统设置 里按 planner/worker 开关）。改动不即时打断，
+              下一轮规划自然读到。 */}
+          <section role="region" aria-label="操作约束" className="min-w-0">
+            <SectionCard
+              icon={ShieldAlertIcon}
+              title="操作约束"
+              description="框定 planner / worker 的探索边界，改动下一轮规划生效"
+              actions={<CountChip>{constraints.length} 条</CountChip>}
+            >
+              {/* 新增表单 */}
+              <div className="mb-3 flex flex-col gap-2 rounded-xl border border-border/70 bg-surface-muted/60 p-3 sm:flex-row sm:items-center">
+                <NativeSelect
+                  size="sm"
+                  value={conKind}
+                  aria-label="新增操作约束类型"
+                  onChange={(e) => setConKind(e.target.value as TaskConstraint["kind"])}
+                  className="shrink-0"
+                >
+                  <NativeSelectOption value="deny">禁止</NativeSelectOption>
+                  <NativeSelectOption value="allow">允许</NativeSelectOption>
+                </NativeSelect>
+                <Input
+                  ref={conInputRef}
+                  className="h-9 flex-1 bg-card text-[13px]"
+                  placeholder="一条操作约束，如『仅测当前端口，不扫其他端口』"
+                  value={conText}
+                  aria-label="新增操作约束"
+                  onChange={(e) => setConText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void addConstraint();
+                  }}
+                  disabled={conBusy}
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-9 shrink-0"
+                  disabled={conBusy || !conText.trim()}
+                  onClick={() => void addConstraint()}
+                >
+                  <PlusIcon className="size-3.5" /> 添加
+                </Button>
+              </div>
+              {conErr && <p className="mb-2 text-[12px] text-destructive">{conErr}</p>}
+              {/* 约束列表 */}
+              {constraints.length > 0 ? (
+                <ul className="overflow-hidden rounded-xl border border-border/70">
+                  {constraints.map((c) =>
+                    editingConId === c.id ? (
+                      <li
+                        key={c.id}
+                        className="flex flex-wrap items-center gap-2 border-b border-border/70 bg-surface-muted/60 px-3 py-2.5 last:border-0"
+                      >
+                        <NativeSelect
+                          size="sm"
+                          value={editConKind}
+                          aria-label="编辑操作约束类型"
+                          onChange={(e) => setEditConKind(e.target.value as TaskConstraint["kind"])}
+                          className="shrink-0"
+                        >
+                          <NativeSelectOption value="deny">禁止</NativeSelectOption>
+                          <NativeSelectOption value="allow">允许</NativeSelectOption>
+                        </NativeSelect>
+                        <Input
+                          className="h-8 min-w-48 flex-1 bg-card text-[13px]"
+                          value={editConText}
+                          aria-label="编辑操作约束"
+                          onChange={(e) => setEditConText(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") void saveEditConstraint(c);
+                            if (e.key === "Escape") cancelEditConstraint();
+                          }}
+                          disabled={conBusy}
+                          autoFocus
+                        />
+                        <div className="ml-auto flex shrink-0 items-center gap-1">
+                          <Button
+                            size="icon-sm"
+                            variant="ghost"
+                            disabled={conBusy || !editConText.trim()}
+                            onClick={() => void saveEditConstraint(c)}
+                            aria-label="保存操作约束"
+                          >
+                            <CheckIcon className="size-4 text-success" />
+                          </Button>
+                          <Button
+                            size="icon-sm"
+                            variant="ghost"
+                            disabled={conBusy}
+                            onClick={cancelEditConstraint}
+                            aria-label="取消编辑操作约束"
+                          >
+                            <XIcon className="size-4" />
+                          </Button>
+                        </div>
+                      </li>
+                    ) : (
+                      <li
+                        key={c.id}
+                        className="flex items-start gap-2.5 border-b border-border/70 px-3 py-2.5 last:border-0"
+                      >
+                        <span
+                          className={
+                            c.kind === "allow"
+                              ? "mt-0.5 inline-flex shrink-0 items-center rounded-md border border-success/20 bg-success/10 px-2 py-0.5 text-[11px] font-semibold text-success"
+                              : "mt-0.5 inline-flex shrink-0 items-center rounded-md border border-destructive/20 bg-destructive/10 px-2 py-0.5 text-[11px] font-semibold text-destructive"
+                          }
+                        >
+                          {c.kind === "allow" ? "允许" : "禁止"}
+                        </span>
+                        <span className="min-w-0 flex-1 text-[13px] leading-6 break-words">{c.text}</span>
+                        <div className="flex shrink-0 items-center gap-0.5">
+                          <Button
+                            size="icon-sm"
+                            variant="ghost"
+                            className="text-muted-foreground"
+                            disabled={conBusy}
+                            onClick={() => startEditConstraint(c)}
+                            aria-label="编辑操作约束"
+                          >
+                            <PencilIcon className="size-3.5" />
+                          </Button>
+                          <Button
+                            size="icon-sm"
+                            variant="ghost"
+                            className="text-muted-foreground hover:text-destructive"
+                            disabled={conBusy}
+                            onClick={() => void removeConstraint(c)}
+                            aria-label="删除操作约束"
+                          >
+                            <Trash2Icon className="size-3.5" />
+                          </Button>
+                        </div>
+                      </li>
+                    ),
+                  )}
+                </ul>
+              ) : (
+                <EmptyState
+                  icon={ShieldAlertIcon}
+                  title="暂无操作约束"
+                  description="建任务时会自动从描述/目标抽取；也可在此手动增删改，用来框定「允许/禁止做哪些操作」。"
+                  action={
+                    <Button size="sm" variant="outline" onClick={() => conInputRef.current?.focus()}>
+                      <PlusIcon className="size-3.5" /> 添加第一条约束
+                    </Button>
+                  }
+                />
+              )}
+            </SectionCard>
+          </section>
+        </div>
+
+        {/* 右栏：运行态摘要，窄屏时排到目标/约束之后。 */}
+        <div className="flex min-w-0 flex-col gap-4 lg:gap-5">
+          <SectionCard
+            icon={ActivityIcon}
+            title="运行心跳"
+            actions={
+              // 认不出的 engine_mode（老数据/新引擎）不渲染徽章，避免把英文枚举漏到界面上。
+              ENGINE_MODES.includes(stats?.engine_mode ?? task?.engine_mode ?? "idle") ? (
+                <StatusBadge domain="engine" value={stats?.engine_mode ?? task?.engine_mode ?? "idle"} dot />
+              ) : null
+            }
+          >
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-3.5">
+              <div>
+                <dt className="text-[12px] text-muted-foreground">运行中 Worker</dt>
+                <dd className="mt-0.5 text-[18px] leading-7 font-semibold tabular-nums">{running.length}</dd>
+              </div>
+              <div>
+                <dt className="text-[12px] text-muted-foreground">最近活动</dt>
+                <dd className="mt-1 inline-flex items-center gap-1 text-[13px] tabular-nums">
+                  <ClockIcon className="size-3.5 text-muted-foreground" aria-hidden="true" />
+                  {task?.last_activity ? new Date(task.last_activity).toLocaleTimeString("zh-CN") : "—"}
+                </dd>
+              </div>
+              <div className="col-span-2">
+                <dt className="flex items-center justify-between text-[12px] text-muted-foreground">
+                  <span>目标进度</span>
+                  <span className="font-medium text-foreground/80 tabular-nums">
+                    {task?.goals_met ?? 0}/{task?.goals_total ?? 0}
+                  </span>
+                </dt>
+                <dd className="mt-1.5">
+                  <Progress value={goalsPct} />
+                </dd>
+              </div>
+              {task?.completed_unix && task.completed_unix > 0 ? (
+                <div className="col-span-2 flex items-center justify-between border-t border-border/70 pt-3">
+                  <dt className="text-[12px] text-muted-foreground">完成时间</dt>
+                  <dd className="inline-flex items-center gap-1 text-[12px] tabular-nums">
+                    <ClockIcon className="size-3.5 text-muted-foreground" aria-hidden="true" />
+                    {new Date(task.completed_unix * 1000).toLocaleString("zh-CN")}
+                  </dd>
+                </div>
+              ) : null}
+            </dl>
+          </SectionCard>
+
+          {coverage && coverage.enabled && coverage.scope_rows > 0 && (
+            <SectionCard
+              icon={TargetIcon}
+              title="资产测试覆盖度"
+              description="粗估，仅供参考"
+              actions={<span className="app-chip tabular-nums">已测 {coverage.tested}/{coverage.denominator}</span>}
+            >
+              <div className="flex items-center gap-4">
+                <Donut
+                  value={coverage.pct != null ? Math.round(coverage.pct * 100) : 0}
+                  size={88}
+                  stroke={8}
+                  color="var(--primary)"
+                  label={coverage.pct != null ? undefined : "—"}
+                  caption="覆盖"
+                />
+                <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                  {coverage.by_type.length > 0 ? (
+                    coverage.by_type.map((b) => (
+                      <div key={b.type} className="flex items-center justify-between gap-2 text-[12px]">
+                        <span className="truncate text-muted-foreground">{b.type}</span>
+                        <span className="shrink-0 font-medium tabular-nums">
+                          {b.tested}/{b.total}
+                        </span>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-[12px] text-muted-foreground">尚无分类型覆盖数据</p>
+                  )}
+                </div>
+              </div>
+            </SectionCard>
+          )}
+
+          <SectionCard icon={AlertTriangleIcon} title="需要关注">
+            <div className="grid grid-cols-2 gap-3">
+              <Metric boxed label="确认漏洞" value={taskFindings.length} tone="destructive" />
+              <Metric boxed label="执行中" value={running.length} tone="primary" />
+              <Metric boxed label="frontier 待领" value={open.length} />
+              <Metric boxed label="被拦意图" value={blocked.length} tone="destructive" />
+            </div>
+          </SectionCard>
+        </div>
+      </div>
+
       {/* LLM Token 用量：按模型分组，数据来自 llm_records（需开启 LLM 录制）。 */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <CoinsIcon className="size-4 text-amber-500" /> LLM Token 用量
-            <span className="text-muted-foreground text-xs font-normal">
-              （按模型统计{tokenTotals.calls > 0 ? `，共 ${tokenTotals.calls} 次调用` : ""}）
-            </span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          {modelTokens.length > 0 ? (
-            <>
-              {/* 合计总览 */}
-              <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm">
-                <span className="tabular-nums">
-                  <span className="text-muted-foreground">输入 </span>
-                  <span className="font-semibold">{fmtTokens(tokenTotals.input)}</span>
-                </span>
-                <span className="tabular-nums">
-                  <span className="text-muted-foreground">输出 </span>
-                  <span className="font-semibold">{fmtTokens(tokenTotals.output)}</span>
-                </span>
-                <span className="tabular-nums">
-                  <span className="text-muted-foreground">缓存读 </span>
-                  <span className="font-semibold">{fmtTokens(tokenTotals.cacheRead)}</span>
-                </span>
-                <span className="tabular-nums">
-                  <span className="text-muted-foreground">缓存命中率 </span>
-                  <span className="font-semibold text-emerald-500">
-                    {cacheHitRate(tokenTotals.cacheRead, tokenTotals.input)}
-                  </span>
-                </span>
-              </div>
-              {/* 按模型明细表 */}
-              <div className="overflow-x-auto">
-                <table aria-label="按模型 Token 用量" className="w-full text-sm">
-                  <thead>
-                    <tr className="text-muted-foreground border-b text-left text-xs">
-                      <th className="py-1.5 pr-3 font-medium">模型</th>
-                      <th className="py-1.5 pr-3 text-right font-medium">调用</th>
-                      <th className="py-1.5 pr-3 text-right font-medium">输入</th>
-                      <th className="py-1.5 pr-3 text-right font-medium">输出</th>
-                      <th className="py-1.5 pr-3 text-right font-medium">缓存读</th>
-                      <th className="py-1.5 text-right font-medium">命中率</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {modelTokens.map((m) => (
-                      <tr key={m.model} className="border-b last:border-0">
-                        <td className="max-w-[16rem] truncate py-1.5 pr-3 font-mono text-xs" title={m.model}>
-                          {m.model}
-                        </td>
-                        <td className="py-1.5 pr-3 text-right tabular-nums">{m.calls}</td>
-                        <td className="py-1.5 pr-3 text-right tabular-nums">{fmtTokens(m.input_tokens)}</td>
-                        <td className="py-1.5 pr-3 text-right tabular-nums">{fmtTokens(m.output_tokens)}</td>
-                        <td className="py-1.5 pr-3 text-right tabular-nums">{fmtTokens(m.cache_read_tokens)}</td>
-                        <td className="py-1.5 text-right tabular-nums text-emerald-500">
-                          {cacheHitRate(m.cache_read_tokens, m.input_tokens)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          ) : (
-            <p className="text-muted-foreground text-sm">暂无 LLM 用量（任务尚未产生调用，或记录仍在写入）。</p>
-          )}
-        </CardContent>
-      </Card>
+      <SectionCard
+        icon={CoinsIcon}
+        title="LLM Token 用量"
+        description={`按模型统计${tokenTotals.calls > 0 ? ` · 共 ${tokenTotals.calls} 次调用` : ""}`}
+      >
+        {modelTokens.length > 0 ? (
+          <div className="flex flex-col gap-3.5">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Metric boxed label="输入" value={fmtTokens(tokenTotals.input)} />
+              <Metric boxed label="输出" value={fmtTokens(tokenTotals.output)} />
+              <Metric boxed label="缓存读" value={fmtTokens(tokenTotals.cacheRead)} />
+              <Metric
+                boxed
+                label="缓存命中率"
+                value={cacheHitRate(tokenTotals.cacheRead, tokenTotals.input)}
+                tone="success"
+              />
+            </div>
+            <div className="overflow-hidden rounded-xl border border-border/70">
+              <Table aria-label="按模型 Token 用量">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="pl-3">模型</TableHead>
+                    <TableHead className="text-right">调用</TableHead>
+                    <TableHead className="text-right">输入</TableHead>
+                    <TableHead className="text-right">输出</TableHead>
+                    <TableHead className="text-right">缓存读</TableHead>
+                    <TableHead className="pr-3 text-right">命中率</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {modelTokens.map((m) => (
+                    <TableRow key={m.model}>
+                      <TableCell className="max-w-[18rem] truncate pl-3 font-mono text-[12px]" title={m.model}>
+                        {m.model}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">{m.calls}</TableCell>
+                      <TableCell className="text-right tabular-nums">{fmtTokens(m.input_tokens)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{fmtTokens(m.output_tokens)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{fmtTokens(m.cache_read_tokens)}</TableCell>
+                      <TableCell className="pr-3 text-right font-medium text-success tabular-nums">
+                        {cacheHitRate(m.cache_read_tokens, m.input_tokens)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        ) : (
+          <EmptyState
+            icon={CoinsIcon}
+            title="暂无 LLM 用量"
+            description="任务尚未产生调用，或记录仍在写入。"
+          />
+        )}
+      </SectionCard>
+
       {/* 测试范围：覆盖度分母 + 授权边界，可手动增删。 */}
-      <Card role="region" aria-label="测试范围">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <ShieldCheckIcon className="size-4 text-emerald-500" /> 测试范围
-            <span className="text-muted-foreground text-xs font-normal">
-              （覆盖度分母 + 授权边界，共 {scope.length} 条）
-            </span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
+      <section role="region" aria-label="测试范围" className="min-w-0">
+        <SectionCard
+          icon={ShieldCheckIcon}
+          title="测试范围"
+          description="覆盖度分母与授权边界，可手动增删"
+          actions={<CountChip>{scope.length} 条</CountChip>}
+          footer={
+            scope.length > 10 ? (
+              <span className="text-[11px] text-muted-foreground">共 {scope.length} 条 · 列表可滚动查看全部</span>
+            ) : undefined
+          }
+        >
           {/* 新增表单 */}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="mb-3 flex flex-col gap-2 rounded-xl border border-border/70 bg-surface-muted/60 p-3 sm:flex-row sm:items-center">
             <NativeSelect
               size="sm"
               value={scopeKind}
               aria-label="范围类型"
               onChange={(e) => setScopeKind(e.target.value as TaskScopeRow["kind"])}
+              className="shrink-0"
             >
               <NativeSelectOption value="root_domain">根域名</NativeSelectOption>
               <NativeSelectOption value="subdomain">子域名</NativeSelectOption>
@@ -884,7 +1029,7 @@ export function OverviewTab({ taskId }: { taskId: string }) {
               <NativeSelectOption value="company">公司</NativeSelectOption>
             </NativeSelect>
             <Input
-              className="h-7 w-56 text-sm"
+              className="h-9 flex-1 bg-card text-[13px]"
               placeholder={
                 scopeKind === "company"
                   ? "公司名或 id"
@@ -907,172 +1052,114 @@ export function OverviewTab({ taskId }: { taskId: string }) {
             <Button
               size="sm"
               variant="outline"
+              className="h-9 shrink-0"
               disabled={scopeBusy || !scopeValueInput.trim()}
               onClick={() => void addScope()}
             >
               <PlusIcon className="size-3.5" /> 添加
             </Button>
-            {scopeErr && <span className="text-xs text-red-500">{scopeErr}</span>}
           </div>
+          {scopeErr && <p className="mb-2 text-[12px] text-destructive">{scopeErr}</p>}
           {/* 范围列表 */}
           {scope.length > 0 ? (
-            <div className="flex flex-col gap-1.5">
+            <ul className="max-h-[400px] overflow-x-hidden overflow-y-auto rounded-xl border border-border/70">
               {scope.map((row) => (
-                <div key={row.id} className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm">
-                  <span className="bg-muted text-muted-foreground shrink-0 rounded px-1.5 py-0.5 text-xs">
+                <li
+                  key={row.id}
+                  className="flex items-center gap-2.5 border-b border-border/70 px-3 py-2 last:border-0"
+                >
+                  <span className="inline-flex shrink-0 items-center rounded-sm bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                     {SCOPE_KIND_LABELS[row.kind]}
                   </span>
-                  <span className="min-w-0 flex-1 truncate font-mono text-xs">{scopeValue(row)}</span>
-                  <span className="text-muted-foreground shrink-0 text-xs">{SCOPE_SOURCE_LABELS[row.source]}</span>
-                  {row.task_id.toString() === taskId ? (
+                  <span className="min-w-0 flex-1 truncate font-mono text-[12px]" title={scopeValue(row)}>
+                    {scopeValue(row)}
+                  </span>
+                  <span className="shrink-0 text-[11px] text-muted-foreground">
+                    {SCOPE_SOURCE_LABELS[row.source]}
+                  </span>
+                  {String(row.task_id ?? "") === taskId ? (
                     <Button
-                      size="sm"
+                      size="icon-sm"
                       variant="ghost"
-                      className="h-6 shrink-0 px-1.5"
+                      className="text-muted-foreground hover:text-destructive"
                       onClick={() => void removeScope(row)}
                       aria-label="删除测试范围"
                     >
-                      <Trash2Icon className="size-3.5 text-red-500" />
+                      <Trash2Icon className="size-3.5" />
                     </Button>
                   ) : (
-                    <span className="text-muted-foreground shrink-0 text-xs">继承</span>
+                    <span className="w-8 shrink-0 text-center text-[11px] text-muted-foreground">继承</span>
                   )}
-                </div>
+                </li>
               ))}
-            </div>
+            </ul>
           ) : (
-            <p className="text-muted-foreground text-sm">暂无测试范围，添加后可作为资产覆盖度的分母。</p>
-          )}
-        </CardContent>
-      </Card>
-      {/* Heartbeat */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <ActivityIcon className="size-4 text-blue-500" /> 心跳
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <div>
-            <div className="text-xs text-muted-foreground">引擎态</div>
-            <StatusBadge
-              domain="engine"
-              value={stats?.engine_mode ?? task?.engine_mode ?? "idle"}
-              dot
-              className="mt-1"
+            <EmptyState
+              icon={ShieldCheckIcon}
+              title="暂无测试范围"
+              description="添加后可作为资产覆盖度的分母，也用于框定授权边界。"
             />
-          </div>
-          <div>
-            <div className="text-xs text-muted-foreground">运行中 Worker</div>
-            <div className="mt-1 text-lg font-semibold tabular-nums">{running.length}</div>
-          </div>
-          <div>
-            <div className="text-xs text-muted-foreground">最近活动</div>
-            <div className="mt-1 inline-flex items-center gap-1 text-sm">
-              <ClockIcon className="size-3.5" />
-              {task?.last_activity ? new Date(task.last_activity).toLocaleTimeString("zh-CN") : "—"}
-            </div>
-          </div>
-          <div>
-            <div className="text-xs text-muted-foreground">
-              目标 {task?.goals_met ?? 0}/{task?.goals_total ?? 0}
-            </div>
-            <Progress value={goalsPct} className="mt-2" />
-          </div>
-          {task?.completed_unix && task.completed_unix > 0 ? (
-            <div>
-              <div className="text-xs text-muted-foreground">完成时间</div>
-              <div className="mt-1 inline-flex items-center gap-1 text-sm">
-                <ClockIcon className="size-3.5" />
-                {new Date(task.completed_unix * 1000).toLocaleString("zh-CN")}
-              </div>
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
+          )}
+        </SectionCard>
+      </section>
 
       {/* Work set */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-sm">
-              <TargetIcon className="size-4" /> 进行中意图
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-2">
-            {running.slice(0, 6).map((i) => (
-              <div key={i.id} className="flex items-center gap-2 text-sm">
-                <StatusBadge domain="intent" value={i.state} />
-                <span className="min-w-0 flex-1 truncate">{i.payload}</span>
-              </div>
-            ))}
-            {running.length === 0 && <p className="text-sm text-muted-foreground">暂无进行中意图</p>}
-          </CardContent>
-        </Card>
+      <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-5">
+        <SectionCard icon={TargetIcon} title="进行中意图" actions={<CountChip>{running.length}</CountChip>}>
+          {running.length > 0 ? (
+            <ul className="overflow-hidden rounded-xl border border-border/70">
+              {running.slice(0, 6).map((i) => (
+                <li key={i.id} className="flex items-center gap-2 border-b border-border/70 px-3 py-2 last:border-0">
+                  <StatusBadge domain="intent" value={i.state} className="shrink-0" />
+                  <span className="min-w-0 flex-1 truncate text-[13px]">{i.payload}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <EmptyState
+              icon={TargetIcon}
+              title="暂无进行中意图"
+              description="任务开始探索后，这里会显示正在执行的意图。"
+            />
+          )}
+        </SectionCard>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-sm">
-              <AlertTriangleIcon className="size-4 text-amber-500" /> 需要关注
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-3 text-sm">
-            <div>
-              <div className="text-2xl font-semibold tabular-nums text-red-600 dark:text-red-400">{taskFindings.length}</div>
-              <div className="text-xs text-muted-foreground">确认漏洞</div>
-            </div>
-            <div>
-              <div className="text-2xl font-semibold tabular-nums text-blue-600 dark:text-blue-400">{running.length}</div>
-              <div className="text-xs text-muted-foreground">执行中</div>
-            </div>
-            <div>
-              <div className="text-2xl font-semibold tabular-nums">{open.length}</div>
-              <div className="text-xs text-muted-foreground">frontier 待领</div>
-            </div>
-            <div>
-              <div className="text-2xl font-semibold tabular-nums text-red-600 dark:text-red-400">{blocked.length}</div>
-              <div className="text-xs text-muted-foreground">被拦意图</div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-sm">
-              <BugIcon className="size-4 text-red-500" /> 最近发现
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-2">
-            {taskFindings.slice(0, 6).map((f) => (
-              <div key={f.id} className="flex items-center gap-2 text-sm">
-                <StatusBadge domain="severity" value={f.severity} dot />
-                <span className="min-w-0 flex-1 truncate">{f.summary}</span>
-              </div>
-            ))}
-            {taskFindings.length === 0 && <p className="text-sm text-muted-foreground">暂无发现</p>}
-          </CardContent>
-        </Card>
+        <SectionCard icon={BugIcon} title="最近发现" actions={<CountChip>{taskFindings.length}</CountChip>}>
+          {taskFindings.length > 0 ? (
+            <ul className="overflow-hidden rounded-xl border border-border/70">
+              {taskFindings.slice(0, 6).map((f) => (
+                <li key={f.id} className="flex items-center gap-2 border-b border-border/70 px-3 py-2 last:border-0">
+                  <StatusBadge domain="severity" value={f.severity} dot className="shrink-0" />
+                  <span className="min-w-0 flex-1 truncate text-[13px]">{f.summary}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <EmptyState icon={BugIcon} title="暂无发现" description="验证成功的漏洞会先汇总到这里。" />
+          )}
+        </SectionCard>
       </div>
 
       {/* Blocked intents — 出错/被拦(如 LLM 网络问题)的意图，可一键重跑：置回 open，
           worker 会重新认领、从头再跑（已写回图谱的数据保留）；任务若已终态/暂停会自动复活。 */}
       {blocked.length > 0 && (
-        <Card className="border-red-500/30">
-          <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
-            <CardTitle className="flex items-center gap-2 text-sm">
-              <AlertTriangleIcon className="size-4 text-red-500" /> 被拦/出错意图
-              <span className="text-xs font-normal text-muted-foreground">（共 {blocked.length} 条，可重跑）</span>
-            </CardTitle>
+        <SectionCard
+          icon={AlertTriangleIcon}
+          title="被拦 / 出错意图"
+          description={`共 ${blocked.length} 条，可重跑；重跑会置回待领，已写回图谱的数据保留`}
+          actions={
             <Button size="sm" variant="outline" disabled={rerunning.has("__all__")} onClick={() => void rerunAll()}>
               <RefreshCwIcon className={`size-3.5 ${rerunning.has("__all__") ? "animate-spin" : ""}`} />
               全部重跑
             </Button>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-2">
+          }
+          className="border-destructive/25"
+        >
+          <ul className="overflow-hidden rounded-xl border border-border/70">
             {blocked.slice(0, 20).map((i) => (
-              <div key={i.id} className="flex items-center gap-2 text-sm">
-                <StatusBadge domain="intent" value={i.state} />
-                <span className="min-w-0 flex-1 truncate">{i.payload}</span>
+              <li key={i.id} className="flex items-center gap-2 border-b border-border/70 px-3 py-2 last:border-0">
+                <StatusBadge domain="intent" value={i.state} className="shrink-0" />
+                <span className="min-w-0 flex-1 truncate text-[13px]">{i.payload}</span>
                 <Button
                   size="sm"
                   variant="ghost"
@@ -1083,24 +1170,16 @@ export function OverviewTab({ taskId }: { taskId: string }) {
                   <RefreshCwIcon className={`size-3 ${rerunning.has(i.id) ? "animate-spin" : ""}`} />
                   重跑
                 </Button>
-              </div>
+              </li>
             ))}
-            {blocked.length > 20 && (
-              <p className="text-xs text-muted-foreground">
-                仅显示前 20 条，点「全部重跑」处理剩余 {blocked.length - 20} 条。
-              </p>
-            )}
-          </CardContent>
-        </Card>
+          </ul>
+          {blocked.length > 20 && (
+            <p className="mt-2 text-[12px] text-muted-foreground">
+              仅显示前 20 条，点「全部重跑」处理剩余 {blocked.length - 20} 条。
+            </p>
+          )}
+        </SectionCard>
       )}
-
-      {/* Stat cards */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
-        <StatCard label="待领意图" value={open.length} icon={ShieldCheckIcon} sub="frontier 开放" />
-        <StatCard label="确认发现" value={taskFindings.length} icon={BugIcon} sub="本任务" />
-        <StatCard label="意图总数" value={intents.length} icon={AlertTriangleIcon} sub="本任务全部意图" />
-      </div>
-
     </div>
   );
 }

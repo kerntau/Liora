@@ -738,7 +738,8 @@ export function SessionsTab({
   const sessionMeta = React.useMemo(() => {
     const map = new Map<string, SessionMeta>();
     for (const node of allIntents) {
-      let title = `Intent ${node.id}`;
+      // 没有摘要时用中文兜底，别把内部类型名（Intent …）漏到界面上。
+      let title = "未命名意图";
       let parsedPayload: unknown = node.payload;
       // 假删除:意图 state='deleted',删除原因在独立字段 delete_reason 上。
       const deleted = node.state === "deleted";
@@ -1066,7 +1067,15 @@ export function SessionsTab({
     const text = input.trim();
     const atts = attachments;
     if (side.handleCommand(text, () => setInput(""))) return;
-    if ((!text && atts.length === 0) || sending || mainBusy) return;
+    if ((!text && atts.length === 0) || sending || mainBusy) {
+      // 主 Agent 运行中输入框仍可打字（为了能发 /btw），但普通消息按 Enter 会被静默
+      // 丢弃，看起来像「按了没反应」。明确告知现在还能走哪条路。
+      if (mainBusy && !sending && (text || atts.length)) {
+        // 同一个 id：连按 Enter 只更新这一条提示，不会叠出一串同样的 toast。
+        toast.info("主 Agent 正在运行，请等本轮结束，或输入 /btw 旁路提问", { id: "chat-busy-hint" });
+      }
+      return;
+    }
     // No optimistic echo: the backend persists+broadcasts the human turn before it
     // returns, so it streams back over SSE (worker="mainagent") with its real DB
     // seq — the transcript renders it from server data like every other step. Clear
@@ -1132,14 +1141,15 @@ export function SessionsTab({
 
   return (
     <TooltipProvider delayDuration={300}>
-      {/* 高度预留：页面头部（标题行 + 目标 + Tabs ≈ 7.5rem）+ 内容内边距。手机端 p-4、
-        桌面端 lg:p-6，且桌面还要留出滚动余量，所以两档分别预留 10rem / 13rem —— 手机端
-        沿用 13rem 会白白吃掉 3rem 的记录高度。 */}
+      {/* 高度预留：页面头部（标题行 + 目标 + Tabs）+ 内容内边距 + 底部浮动 Dock。
+        手机端头部分三行（标题 / 操作 / 目标 + Tabs），实测约占 15rem，再扣掉右下角
+        48px 的 Dock 悬浮球与 16px 外边距（共 4rem），所以预留 20rem：否则底部的
+        发送按钮正好被悬浮球压住。桌面端头部更矮，沿用 19rem。 */}
       <div
         className={cn(
-          "grid h-[calc(100svh-10rem)] min-h-0 grid-cols-1 gap-4",
+          "grid h-[calc(100svh-20rem)] min-h-0 grid-cols-1 gap-4",
           listOpen ? "grid-rows-[minmax(0,40svh)_minmax(0,1fr)]" : "grid-rows-[auto_minmax(0,1fr)]",
-          "lg:h-[calc(100svh-13rem)] lg:grid-cols-[18rem_1fr] lg:grid-rows-[minmax(0,1fr)]",
+          "lg:h-[calc(100svh-19rem)] lg:grid-cols-[19rem_1fr] lg:grid-rows-[minmax(0,1fr)] xl:grid-cols-[20rem_1fr]",
         )}
       >
         {/* Left: session list */}
@@ -1181,7 +1191,7 @@ export function SessionsTab({
           side={side}
           label={active.role === "worker" ? `Worker #${active.intent_id} · ${activeDisplayTitle}` : activeDisplayTitle}
         >
-          <div className="flex min-h-0 flex-1 min-w-0 flex-col overflow-hidden rounded-lg border bg-card">
+          <div className="flex min-h-0 flex-1 min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-[var(--shadow-card)]">
             <SessionHeader
               active={active}
               meta={sessionMeta.get(active.id)}

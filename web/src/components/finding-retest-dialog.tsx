@@ -53,7 +53,7 @@ export function FindingRetestDialog({ findingId, findingName, onClose, onStarted
 
   return (
     <Dialog open onOpenChange={(open) => !open && !submitLock.current && onClose()}>
-      <DialogContent>
+      <DialogContent busy={submitting}>
         <DialogHeader>
           <DialogTitle>复测漏洞 #{findingId}</DialogTitle>
           <DialogDescription className="break-words">

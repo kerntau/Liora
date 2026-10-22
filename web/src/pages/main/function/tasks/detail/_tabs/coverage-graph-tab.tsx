@@ -8,15 +8,16 @@ import {
   Globe,
   Link2,
   type LucideIcon,
+  Network,
   Radio,
   RefreshCw,
   Server,
   Waypoints,
 } from "lucide-react";
 
+import { SectionCard } from "@/components/app/section-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Sheet,
@@ -542,7 +543,7 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
         container: containerRef.current,
         autoResize: true,
         autoFit: "view",
-        background: "#f0f2f7",
+        // 不写死画布底色：让容器的语义 token（bg-surface-muted）透出来，暗色模式才成立。
         node: {
           style: {
             size: (d: unknown) => nd(d).size,
@@ -639,8 +640,8 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
     <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" />
 
-      {/* 图例 + 统计 + 刷新（叠加层） */}
-      <div className="bg-card/95 pointer-events-auto absolute top-3 left-3 flex max-w-[340px] flex-col gap-2.5 rounded-lg border p-3 text-xs shadow-sm backdrop-blur">
+      {/* 图例 + 统计 + 刷新（叠加层）：图例、工具栏收进同一张浮层卡片 */}
+      <div className="pointer-events-auto absolute top-3 left-3 flex max-w-[min(21rem,calc(100%-1.5rem))] flex-col gap-2 rounded-xl border border-border/70 bg-card/95 p-3 text-[11px] shadow-[var(--shadow-card)] backdrop-blur">
         <div className="flex items-center justify-between gap-3">
           {total > 0 ? (
             <span className="text-muted-foreground">
@@ -649,14 +650,21 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
                 <>
                   {" "}
                   · 已测{" "}
-                  <span className="font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">{tested}</span>
+                  <span className="font-semibold tabular-nums text-success">{tested}</span>
                 </>
               )}
             </span>
           ) : (
             <span className="text-muted-foreground">{loading ? "加载中…" : "暂无范围内资产（先锚定任务范围）"}</span>
           )}
-          <Button variant="ghost" size="icon" className="size-6" onClick={fetchGraph} title="刷新">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="size-6 shrink-0"
+            onClick={fetchGraph}
+            title="刷新"
+            aria-label="刷新"
+          >
             <RefreshCw className={cn("size-3.5", loading && "animate-spin")} />
           </Button>
         </div>
@@ -678,21 +686,38 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
           {coverageEnabled && (
             <>
               <span className="inline-flex items-center gap-1.5">
-                <span className="size-3 rounded-full bg-emerald-500" /> 已测（高亮）
+                <span className="size-2.5 rounded-full bg-success" /> 已测（高亮）
               </span>
               <span className="inline-flex items-center gap-1.5">
-                <span className="size-3 rounded-full bg-neutral-400" /> 未测
+                <span className="size-2.5 rounded-full bg-muted-foreground/50" /> 未测
               </span>
             </>
           )}
           <span className="inline-flex items-center gap-1.5">
-            <span className="size-3 rounded-full border border-dashed border-neutral-400 bg-neutral-200" /> 范围外
+            <span className="size-2.5 rounded-full border border-dashed border-muted-foreground/60 bg-muted" /> 范围外
           </span>
         </div>
-        <p className="text-muted-foreground/80 border-border/60 border-t pt-2 leading-relaxed">
+        <p className="hidden border-t border-border/60 pt-2 leading-relaxed text-muted-foreground/80 sm:block">
           力导向布局，可拖拽节点、滚轮缩放；灰色「⋯」是折叠节点，点开可展开更多。
         </p>
       </div>
+
+      {!loading && total === 0 && (
+        <div className="pointer-events-none absolute inset-0 grid place-items-center p-4">
+          <div className="pointer-events-auto flex max-w-sm flex-col items-center gap-2 rounded-lg border border-border/70 bg-card px-6 py-7 text-center shadow-[var(--shadow-card)]">
+            <span className="grid size-10 place-items-center rounded-md border border-border/70 bg-surface-muted text-muted-foreground/60">
+              <Network className="size-5" aria-hidden="true" />
+            </span>
+            <p className="text-[13px] font-medium text-foreground">暂无资产覆盖数据</p>
+            <p className="text-[11px] leading-5 text-muted-foreground">
+              先为任务锚定测试资产范围；Agent 探索到的资产会在这里按层级展开。
+            </p>
+            <Button size="sm" variant="outline" onClick={fetchGraph}>
+              刷新
+            </Button>
+          </div>
+        </div>
+      )}
 
       <AssetSheet node={selectedAsset} taskId={taskId} onOpenChange={(o) => !o && setSelectedAsset(null)} />
       <FoldSheet
@@ -710,12 +735,18 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
 
 export function CoverageGraphTab({ taskId, coverageEnabled = true }: { taskId: string; coverageEnabled?: boolean }) {
   return (
-    <Card>
-      <CardContent className="p-0">
-        <div className="h-[72vh] w-full overflow-hidden rounded-xl">
+    <SectionCard
+      icon={Network}
+      title="资产覆盖图"
+      description="按资产层级展开的覆盖视图：已测资产高亮，范围外与折叠节点用灰色虚线表示。"
+      dense
+      bodyClassName="px-0 pb-0"
+    >
+      <div className="border-t border-border/70 p-3 lg:p-4">
+        <div className="relative h-[70svh] min-h-[22rem] w-full overflow-hidden rounded-xl border border-border/70 bg-surface-muted">
           <GraphInner taskId={taskId} coverageEnabled={coverageEnabled} />
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </SectionCard>
   );
 }

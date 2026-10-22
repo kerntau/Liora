@@ -2,7 +2,7 @@
 
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
-import { ArrowUpIcon, MessageCircleQuestionIcon, SquareIcon, Trash2Icon, XIcon } from "lucide-react";
+import { ArrowUpIcon, Loader2Icon, MessageCircleQuestionIcon, SquareIcon, Trash2Icon, XIcon } from "lucide-react";
 
 import { Markdown } from "@/components/markdown";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -25,6 +25,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { Skeleton } from "@/components/ui/skeleton";
 import { useIsMobile } from "@/hooks/use-mobile";
 import type { SideQuestions } from "@/hooks/use-side-questions";
+import { shouldSubmitOnKey, useChatSendMode } from "@/lib/chat-send-mode";
 import { cn } from "@/lib/utils";
 
 type ComposerLayout = "inline" | "stacked";
@@ -38,9 +39,17 @@ const preparationLabels = {
 };
 
 export function SideQuestionButton({ side }: { side: SideQuestions }) {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const wasOpen = useRef(side.open);
+  // 面板关闭后焦点原本掉回 body：键盘用户得从页面顶部重新 Tab 回来。关闭时把焦点
+  // 交还给打开它的这个按钮（移动端抽屉由 Radix 自己还焦点，这里落到同一元素上）。
+  useEffect(() => {
+    if (wasOpen.current && !side.open) buttonRef.current?.focus();
+    wasOpen.current = side.open;
+  }, [side.open]);
   if (!side.enabled) return null;
   return (
-    <Button variant="outline" size="sm" onClick={() => side.setOpen(true)} title="/btw 旁路提问">
+    <Button ref={buttonRef} variant="outline" size="sm" onClick={() => side.setOpen(true)} title="/btw 旁路提问">
       <MessageCircleQuestionIcon data-icon="inline-start" />
       旁路提问
     </Button>
@@ -51,15 +60,34 @@ function SidePanel({
   side,
   label,
   composerLayout,
+  autoFocusComposer = false,
 }: {
   side: SideQuestions;
   label: string;
   composerLayout: ComposerLayout;
+  /** 桌面内联面板打开即聚焦输入框；移动端抽屉交给 Radix 的焦点陷阱，避免抢焦点。 */
+  autoFocusComposer?: boolean;
 }) {
   const inlineComposer = composerLayout === "inline";
   const [confirm, setConfirm] = useState(false);
   const viewport = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const sendMode = useChatSendMode();
   const pinned = useRef(true);
+  // 面板是条件挂载的，挂载即「刚打开」。不把焦点送进输入框的话，键盘用户要先 Tab
+  // 过整个主会话才能开始提问。但用 /btw 在输入框里直接提问时面板会跟着打开，那时
+  // 焦点必须留在原输入框（用户还在打字），所以只在焦点不在文本控件里时才接管。
+  useEffect(() => {
+    if (!autoFocusComposer) return;
+    const active = document.activeElement;
+    if (
+      active instanceof HTMLElement &&
+      (active.tagName === "TEXTAREA" || active.tagName === "INPUT" || active.isContentEditable)
+    ) {
+      return;
+    }
+    inputRef.current?.focus({ preventScroll: true });
+  }, [autoFocusComposer]);
   const tail = side.items.at(-1);
   // biome-ignore lint/correctness/useExhaustiveDependencies: New cumulative text scrolls only readers who remain at the bottom.
   useEffect(() => {
@@ -161,6 +189,7 @@ function SidePanel({
         )}
         <InputGroup className={inlineComposer ? "min-h-10" : "min-h-9"}>
           <InputGroupTextarea
+            ref={inputRef}
             rows={1}
             className={cn("overflow-y-auto", inlineComposer ? "max-h-40 min-h-0" : "max-h-36 min-h-9")}
             aria-label="旁路问题"
@@ -170,10 +199,11 @@ function SidePanel({
             disabled={side.busy}
             onChange={(event) => side.setDraft(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-                event.preventDefault();
-                void side.ask(side.draft);
-              }
+              // 与两个会话输入框共用同一套键位设置：选了「Ctrl+Enter 发送」的用户
+              // 不该在旁路面板里被 Enter 直接发出去，输入法组字也不能误发。
+              if (!shouldSubmitOnKey(event, sendMode)) return;
+              event.preventDefault();
+              void side.ask(side.draft);
             }}
           />
           <InputGroupAddon align={inlineComposer ? "inline-end" : "block-end"}>
@@ -195,9 +225,10 @@ function SidePanel({
                 size="icon-xs"
                 onClick={() => void side.ask(side.draft)}
                 disabled={side.busy || !side.draft.trim() || !side.snapshot?.available}
+                aria-busy={side.busy || undefined}
                 aria-label="发送旁路问题"
               >
-                <ArrowUpIcon />
+                {side.busy ? <Loader2Icon className="animate-spin" /> : <ArrowUpIcon />}
               </InputGroupButton>
             )}
           </InputGroupAddon>
@@ -246,7 +277,7 @@ export function SideQuestionWorkspace({
           <>
             <ResizableHandle withHandle />
             <ResizablePanel id="side-question" defaultSize="38%" minSize="280px" maxSize="65%">
-              <SidePanel side={side} label={label} composerLayout={composerLayout} />
+              <SidePanel side={side} label={label} composerLayout={composerLayout} autoFocusComposer />
             </ResizablePanel>
           </>
         )}

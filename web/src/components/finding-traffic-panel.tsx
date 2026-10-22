@@ -2,15 +2,15 @@
 
 import * as React from "react";
 
-import { ArrowDownIcon, ArrowUpIcon, PlusIcon } from "lucide-react";
+import { ArrowDownIcon, ArrowUpIcon, PlusIcon, WaypointsIcon } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 
+import { SectionCard } from "@/components/app/section-card";
 import { TrafficEvidenceViewer } from "@/components/traffic-evidence-viewer";
 import { TrafficPickerDialog } from "@/components/traffic-picker-dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -19,7 +19,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -53,6 +52,8 @@ export function FindingTrafficPanel({
   const [role, setRole] = React.useState<TrafficEvidenceRole>("supporting");
   const [note, setNote] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  // 上移/下移/保存说明在 busy 状态生效前仍可能被连点,同步锁避免重复提交。
+  const mutateLock = React.useRef(false);
   const [reload, setReload] = React.useState(0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: retry token intentionally refreshes this request.
   React.useEffect(() => {
@@ -73,6 +74,8 @@ export function FindingTrafficPanel({
   }, [findingId, contextTask, reload]);
 
   async function mutate(action: () => Promise<FindingTraffic>) {
+    if (mutateLock.current) return;
+    mutateLock.current = true;
     setBusy(true);
     try {
       setData(await action());
@@ -83,6 +86,7 @@ export function FindingTrafficPanel({
       toast.error((e as Error).message);
       setReload((n) => n + 1);
     } finally {
+      mutateLock.current = false;
       setBusy(false);
     }
   }
@@ -96,22 +100,31 @@ export function FindingTrafficPanel({
 
   return (
     <>
-      <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <CardTitle>关联流量 {data ? `(${data.bindings.length})` : ""}</CardTitle>
-            {!readOnly ? (
-              <Button variant="outline" size="sm" disabled={!data || busy} onClick={() => setAdding(true)}>
-                <PlusIcon data-icon="inline-start" />
-                绑定流量
-              </Button>
-            ) : (
-              <Badge variant="outline">继承证据 · 只读</Badge>
-            )}
-          </div>
-          <CardDescription>按复现顺序组织请求与响应。清理原始流量后，已绑定证据仍然保留。</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
+      <SectionCard
+        icon={WaypointsIcon}
+        title={
+          <span className="inline-flex items-center gap-2">
+            关联流量
+            {data ? (
+              <span className="text-[11px] font-medium tabular-nums text-muted-foreground">
+                {data.bindings.length}
+              </span>
+            ) : null}
+          </span>
+        }
+        description="按复现顺序组织请求与响应。清理原始流量后，已绑定证据仍然保留。"
+        actions={
+          !readOnly ? (
+            <Button variant="outline" size="sm" disabled={!data || busy} onClick={() => setAdding(true)}>
+              <PlusIcon data-icon="inline-start" />
+              绑定流量
+            </Button>
+          ) : (
+            <Badge variant="outline">继承证据 · 只读</Badge>
+          )
+        }
+      >
+        <div className="flex flex-col gap-3">
           {error ? (
             <Alert variant="destructive">
               <AlertDescription>
@@ -123,93 +136,96 @@ export function FindingTrafficPanel({
             </Alert>
           ) : null}
           {!data ? (
-            <Skeleton className="h-28 w-full" />
+            <Skeleton className="h-16 w-full" />
           ) : data.bindings.length === 0 ? (
-            <Empty>
-              <EmptyHeader>
-                <EmptyTitle>暂无关联流量</EmptyTitle>
-                <EmptyDescription>可绑定正常对照、漏洞证明和补充验证请求。</EmptyDescription>
-              </EmptyHeader>
-            </Empty>
+            <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border/70 bg-surface-muted/40 px-6 py-8 text-center">
+              <WaypointsIcon className="size-6 text-muted-foreground/50" aria-hidden="true" />
+              <p className="text-[13px] font-medium text-foreground">暂无关联流量</p>
+              <p className="text-[12px] leading-5 text-muted-foreground">可绑定正常对照、漏洞证明和补充验证请求。</p>
+            </div>
           ) : (
-            data.bindings.map((b, index) => (
-              <div key={b.id} className="flex min-w-0 flex-col gap-2 rounded-md border p-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="outline">
-                    {index + 1}. {ROLES[b.role]}
-                  </Badge>
-                  <Badge variant="secondary">
-                    {b.snapshot.method} · {b.snapshot.status}
-                  </Badge>
-                  <span className="text-xs text-muted-foreground">证据 #{b.id}</span>
-                </div>
-                <Button
-                  variant="link"
-                  className="h-auto justify-start p-0 text-left whitespace-normal"
-                  onClick={() => setPreview(b.id)}
-                >
-                  <span className="break-all font-mono text-xs">{b.snapshot.url}</span>
-                </Button>
-                {b.note ? <p className="text-sm whitespace-pre-wrap">{b.note}</p> : null}
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xs text-muted-foreground">
-                    {new Date(b.snapshot.captured_at * 1000).toLocaleString("zh-CN")}
-                  </span>
-                  <div className="flex flex-wrap gap-1">
-                    <Button variant="outline" size="sm" onClick={() => setPreview(b.id)}>
-                      查看报文
-                    </Button>
-                    {!readOnly ? (
-                      <>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={busy}
-                          onClick={() => {
-                            setEditing(b);
-                            setRole(b.role);
-                            setNote(b.note);
-                          }}
-                        >
-                          编辑说明
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`上移证据 ${b.id}`}
-                          disabled={busy || index === 0}
-                          onClick={() => move(index, -1)}
-                        >
-                          <ArrowUpIcon />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`下移证据 ${b.id}`}
-                          disabled={busy || index === data.bindings.length - 1}
-                          onClick={() => move(index, 1)}
-                        >
-                          <ArrowDownIcon />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={busy}
-                          onClick={() =>
-                            void mutate(() => api.removeFindingTraffic(findingId, b.id, data.version, contextTask))
-                          }
-                        >
-                          解除绑定
-                        </Button>
-                      </>
-                    ) : null}
+            <ul className="divide-y divide-border/60">
+              {data.bindings.map((b, index) => (
+                <li key={b.id} className="flex min-w-0 flex-col gap-2 py-3 first:pt-0 last:pb-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline">
+                      {index + 1}. {ROLES[b.role]}
+                    </Badge>
+                    <Badge variant="secondary">
+                      {b.snapshot.method} · {b.snapshot.status}
+                    </Badge>
+                    <span className="text-[12px] tabular-nums text-muted-foreground">证据 #{b.id}</span>
                   </div>
-                </div>
-              </div>
-            ))
+                  <button
+                    type="button"
+                    className="min-w-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                    onClick={() => setPreview(b.id)}
+                  >
+                    <span className="font-mono text-[12px] break-all text-primary hover:underline">
+                      {b.snapshot.url}
+                    </span>
+                  </button>
+                  {b.note ? <p className="text-[13px] leading-5 whitespace-pre-wrap">{b.note}</p> : null}
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-[12px] tabular-nums text-muted-foreground">
+                      {new Date(b.snapshot.captured_at * 1000).toLocaleString("zh-CN")}
+                    </span>
+                    <div className="flex flex-wrap gap-1">
+                      <Button variant="outline" size="sm" onClick={() => setPreview(b.id)}>
+                        查看报文
+                      </Button>
+                      {!readOnly ? (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={busy}
+                            onClick={() => {
+                              setEditing(b);
+                              setRole(b.role);
+                              setNote(b.note);
+                            }}
+                          >
+                            编辑说明
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`上移证据 ${b.id}`}
+                            disabled={busy || index === 0}
+                            onClick={() => move(index, -1)}
+                          >
+                            <ArrowUpIcon />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`下移证据 ${b.id}`}
+                            disabled={busy || index === data.bindings.length - 1}
+                            onClick={() => move(index, 1)}
+                          >
+                            <ArrowDownIcon />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={busy}
+                            onClick={() =>
+                              void mutate(() => api.removeFindingTraffic(findingId, b.id, data.version, contextTask))
+                            }
+                          >
+                            解除绑定
+                          </Button>
+                        </>
+                      ) : null}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </SectionCard>
       {adding && data ? (
         <TrafficPickerDialog
           findingId={findingId}
@@ -234,7 +250,7 @@ export function FindingTrafficPanel({
           if (!open && !busy) setEditing(null);
         }}
       >
-        <DialogContent>
+        <DialogContent busy={busy}>
           <DialogHeader>
             <DialogTitle>编辑流量证据</DialogTitle>
             <DialogDescription>说明这组请求/响应如何支持漏洞结论。</DialogDescription>

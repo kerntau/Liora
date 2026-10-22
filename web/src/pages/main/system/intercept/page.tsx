@@ -4,13 +4,18 @@ import * as React from "react";
 import { toast } from "@/components/ui/sonner";
 import {
   BotIcon,
+  FileTextIcon,
   ListFilterIcon,
   PencilIcon,
   PlusIcon,
   ShieldAlertIcon,
+  ShieldCheckIcon,
+  SlidersHorizontalIcon,
   Trash2Icon,
 } from "lucide-react";
 
+import { PageHeader } from "@/components/app/page-header";
+import { SectionCard } from "@/components/app/section-card";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -49,9 +54,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import type { InterceptRule, InterceptAction, JudgeConfig, LLMProfile, Tool } from "@/lib/types";
 
 // ---- tool scope ----
@@ -130,9 +135,25 @@ const defaultForm = (): RuleForm => ({
 // ---- small components ----
 
 function ActionBadge({ action }: { action: InterceptAction }) {
-  if (action === "allow") return <Badge variant="secondary">允许</Badge>;
-  if (action === "deny")  return <Badge variant="destructive">禁止</Badge>;
-  return <Badge variant="outline" className="border-amber-400 text-amber-600">申请</Badge>;
+  if (action === "allow") {
+    return (
+      <span className="inline-flex items-center rounded-full border border-success/20 bg-success/10 px-2.5 py-1 text-[11px] font-semibold text-success">
+        允许
+      </span>
+    );
+  }
+  if (action === "deny") {
+    return (
+      <span className="inline-flex items-center rounded-full border border-destructive/20 bg-destructive/10 px-2.5 py-1 text-[11px] font-semibold text-destructive">
+        禁止
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center rounded-full border border-warning/25 bg-warning/10 px-2.5 py-1 text-[11px] font-semibold text-warning">
+      申请
+    </span>
+  );
 }
 
 function Field({ label, htmlFor, children }: { label: string; htmlFor: string; children: React.ReactNode }) {
@@ -259,59 +280,67 @@ function JudgeCard() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4">
       {/* 启用开关 —— 独立高亮条 */}
       <div
-        className={`flex items-center justify-between gap-3 rounded-lg border px-4 py-3 ${
-          cfg.enabled ? "border-violet-400/50 bg-violet-50/40 dark:bg-violet-950/20" : "bg-muted/40"
-        }`}
+        className={cn(
+          "flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3",
+          cfg.enabled ? "border-primary/30 bg-primary/5" : "border-border/70 bg-surface-muted/40",
+        )}
       >
-        <div className="flex items-center gap-2.5">
-          <BotIcon className={`h-5 w-5 shrink-0 ${cfg.enabled ? "text-violet-600" : "text-muted-foreground"}`} />
-          <div>
-            <p className="text-sm font-semibold leading-tight">模型兜底审批</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
+        <div className="flex min-w-0 items-start gap-2.5">
+          <span className={cn("grid size-8 shrink-0 place-items-center rounded-lg", cfg.enabled ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")}>
+            <BotIcon className="size-4" aria-hidden="true" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-[13px] font-semibold leading-tight">模型兜底审批</p>
+            <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
               在<span className="font-medium text-foreground">拦截范围</span>内、且<span className="font-medium text-foreground">没有任何拦截规则命中</span>的命令，才由模型做语义判断（放行 / 转人工 / 拦截）
             </p>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <span className="text-xs text-muted-foreground">{cfg.enabled ? "已启用" : "未启用"}</span>
+          <span className={cn("rounded-full border px-2 py-0.5 text-[11px] font-semibold", cfg.enabled ? "border-success/20 bg-success/10 text-success" : "border-transparent bg-muted text-muted-foreground")}>
+            {cfg.enabled ? "已启用" : "未启用"}
+          </span>
           <Switch aria-label="模型兜底审批" checked={cfg.enabled} disabled={loading} onCheckedChange={(v) => patch({ enabled: v })} />
         </div>
       </div>
 
       {cfg.enabled && (
-        <div className="grid gap-4 lg:grid-cols-5">
+        <div className="grid gap-4 xl:grid-cols-5">
           {/* 左:提示词编辑器(直接展开,主区域) */}
-          <Card className="lg:col-span-3">
-            <CardContent className="flex h-full flex-col gap-2 p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium">审批提示词</p>
-                  <p className="text-xs text-muted-foreground">模型据此判定 ALLOW / ASK / DENY，可直接编辑</p>
-                </div>
-                <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={restorePrompt} disabled={saving}>
-                  恢复默认模板
-                </Button>
-              </div>
-              <Textarea
-                aria-label="审批提示词"
-                className="min-h-[22rem] flex-1 resize-none font-mono text-xs leading-relaxed"
-                value={cfg.prompt}
-                onChange={(e) => patch({ prompt: e.target.value })}
-                placeholder="留空使用内置模板"
-                spellCheck={false}
-              />
-              <p className="text-right text-[11px] text-muted-foreground">{cfg.prompt.length} 字</p>
-            </CardContent>
-          </Card>
+          <SectionCard
+            icon={FileTextIcon}
+            title="审批提示词"
+            description="模型据此判定 ALLOW / ASK / DENY，可直接编辑"
+            className="xl:col-span-3"
+            actions={
+              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={restorePrompt} disabled={saving}>
+                恢复默认模板
+              </Button>
+            }
+          >
+            <Textarea
+              aria-label="审批提示词"
+              className="min-h-[22rem] w-full resize-none font-mono text-xs leading-relaxed"
+              value={cfg.prompt}
+              onChange={(e) => patch({ prompt: e.target.value })}
+              placeholder="留空使用内置模板"
+              spellCheck={false}
+            />
+            <p className="mt-2 text-right text-[11px] tabular-nums text-muted-foreground">{cfg.prompt.length} 字</p>
+          </SectionCard>
 
           {/* 右:判定参数(设置栏) */}
-          <Card className="lg:col-span-2">
-            <CardContent className="space-y-5 p-4">
+          <SectionCard
+            icon={SlidersHorizontalIcon}
+            title="判定模型与策略"
+            description="模型超时、失败与人工审批的兜底动作"
+            className="xl:col-span-2"
+          >
+            <div className="space-y-4">
               <div className="space-y-4">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">判定模型与策略</p>
                 <Field label="审批模型" htmlFor="judge-profile">
                   <Select value={String(cfg.profile_id || 0)} onValueChange={(v) => patch({ profile_id: Number(v) })}>
                     <SelectTrigger id="judge-profile"><SelectValue /></SelectTrigger>
@@ -348,7 +377,7 @@ function JudgeCard() {
               <Separator />
 
               <div className="space-y-4">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">人工审批（模型判为「转人工」时）</p>
+                <p className="text-xs font-semibold text-foreground">人工审批（模型判为「转人工」时）</p>
                 <Field label="审批等待超时（秒）" htmlFor="judge-ask-timeout">
                   <NumberInput
                     id="judge-ask-timeout"
@@ -367,12 +396,13 @@ function JudgeCard() {
                   </Select>
                 </Field>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </SectionCard>
         </div>
       )}
 
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-card px-4 py-2.5 shadow-[var(--shadow-card)]">
+        <p className="text-xs text-muted-foreground">提示词与判定策略修改后需保存才会生效</p>
         <Button size="sm" onClick={save} disabled={saving || loading}>
           {saving ? "保存中…" : "保存配置"}
         </Button>
@@ -405,6 +435,10 @@ export default function InterceptPage() {
   const [scopeLoading, setScopeLoading] = React.useState(false);
   const [scopeSaving, setScopeSaving]   = React.useState(false);
   const [scopeTools, setScopeTools]     = React.useState<string[]>([]); // 页头信息条:当前进入拦截的工具
+  // 页签内容默认在切走时卸载，而模型兜底配置的表单状态在 JudgeCard 内部：
+  // 切去「拦截规则」看一眼再回来，提示词/超时等未保存的编辑就没了。首次进入后常驻。
+  const [judgeMounted, setJudgeMounted] = React.useState(false);
+  const [tab, setTab] = React.useState("rules");
 
   // ---- data ----
 
@@ -576,172 +610,210 @@ export default function InterceptPage() {
   // ---- render ----
 
   return (
-    <div className="flex flex-1 flex-col gap-5 p-6">
+    <div className="flex min-w-0 flex-1 flex-col gap-5">
 
-      {/* ---- header ---- */}
-      <div className="flex items-center gap-2.5">
-        <ShieldAlertIcon className="h-5 w-5 shrink-0" />
-        <div>
-          <h1 className="text-lg font-semibold leading-tight">命令拦截</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            工具执行前先按拦截规则匹配；未命中的命令可交由模型兜底判定
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        icon={ShieldAlertIcon}
+        title="命令拦截"
+        description="工具执行前先按拦截规则匹配；未命中的命令可交由模型兜底判定。"
+        meta={[
+          <span className="tabular-nums">{scopeTools.length} 个工具在拦截范围</span>,
+          <span className="tabular-nums">
+            {rules.length} 条规则（{rules.filter((rule) => rule.enabled).length} 条启用）
+          </span>,
+        ]}
+        actions={
+          <Button onClick={openNew} size="sm">
+            <PlusIcon className="size-4" />
+            新建规则
+          </Button>
+        }
+      />
 
       {/* ---- 拦截范围信息条（规则匹配与模型兜底共用：不在范围内的工具两者都不介入）---- */}
       <div
-        className={`flex items-center justify-between gap-3 rounded-lg border px-4 py-2.5 ${
+        className={cn(
+          "flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3",
           scopeTools.length === 0
-            ? "border-amber-400/60 bg-amber-50/50 dark:bg-amber-950/20"
-            : "bg-muted/40"
-        }`}
+            ? "border-warning/40 bg-warning/5"
+            : "border-border/60 bg-card shadow-[var(--shadow-card)]",
+        )}
       >
-        <div className="flex min-w-0 items-center gap-2 text-sm">
-          <ListFilterIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="shrink-0 font-medium">拦截范围</span>
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-[13px]">
+          <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+            <ListFilterIcon className="size-4" aria-hidden="true" />
+          </span>
+          <span className="shrink-0 font-semibold">拦截范围</span>
           {scopeTools.length === 0 ? (
-            <span className="text-amber-700 dark:text-amber-500">
+            <span className="text-warning">
               未启用任何工具 — 拦截规则与模型兜底均不会生效
             </span>
           ) : (
-            <>
-              <Badge variant="secondary" className="shrink-0">{scopeTools.length} 个工具</Badge>
-              <span className="truncate text-muted-foreground" title={scopeTools.join("、")}>
-                {scopeTools.join("、")}
-              </span>
-            </>
+            <span className="min-w-0 truncate font-mono text-xs text-muted-foreground" title={scopeTools.join("、")}>
+              {scopeTools.join("、")}
+            </span>
           )}
         </div>
+        {/* 全页唯一的主操作是页头的「新建规则」；范围为空时的强调交给这条警告色信息条，
+            按钮本身保持 outline，避免同屏出现两个 primary（REFINE-SPEC 二.4）。 */}
         <Button
-          variant={scopeTools.length === 0 ? "default" : "outline"}
+          variant="outline"
           size="sm"
-          className="shrink-0"
+          className={cn("shrink-0", scopeTools.length === 0 && "border-warning/40 text-warning hover:text-warning")}
           onClick={openScope}
         >
-          <ListFilterIcon className="h-4 w-4" />
+          <ListFilterIcon className="size-4" />
           调整范围
         </Button>
       </div>
 
-      <Tabs defaultValue="rules" className="flex-1">
-        <TabsList>
-          <TabsTrigger value="rules">拦截规则</TabsTrigger>
-          <TabsTrigger value="judge">模型配置</TabsTrigger>
-        </TabsList>
-
-        {/* ---- tab: 拦截规则 ---- */}
-        <TabsContent value="rules" className="mt-4 flex flex-col gap-4">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-xs text-muted-foreground">
+      <Tabs
+        defaultValue="rules"
+        className="flex flex-col gap-4"
+        onValueChange={(value) => {
+          setTab(value);
+          if (value === "judge") setJudgeMounted(true);
+        }}
+      >
+        <div className="flex flex-wrap items-center gap-3">
+          <TabsList>
+            <TabsTrigger value="rules">拦截规则</TabsTrigger>
+            <TabsTrigger value="judge">模型配置</TabsTrigger>
+          </TabsList>
+          {tab === "rules" ? (
+            <p className="min-w-0 text-xs text-muted-foreground">
               按优先级（数字越大越先）逐条匹配，首条命中的规则生效
             </p>
-            <Button onClick={openNew} size="sm" className="shrink-0">
-              <PlusIcon className="h-4 w-4" />
-              新建规则
-            </Button>
-          </div>
+          ) : null}
+        </div>
 
-          <Card>
-            <CardContent className="p-0">
-          {loading ? (
-            <p className="p-6 text-sm text-muted-foreground">加载中…</p>
-          ) : loadError ? (
-            <div role="alert" className="flex flex-col items-center justify-center gap-2 py-16 text-center">
-              <ShieldAlertIcon className="h-8 w-8 text-muted-foreground/40" />
-              <p className="text-muted-foreground text-sm">加载拦截规则失败</p>
-              <p className="max-w-md text-muted-foreground text-xs [overflow-wrap:anywhere]">{loadError}</p>
-              <Button size="sm" variant="outline" onClick={() => void load()}>
-                重试
-              </Button>
-            </div>
-          ) : rules.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
-              <ShieldAlertIcon className="h-8 w-8 text-muted-foreground/40" />
-              <p className="text-sm text-muted-foreground">暂无规则</p>
-              <Button size="sm" variant="outline" onClick={openNew}>
-                <PlusIcon className="h-4 w-4" />
-                新建第一条规则
-              </Button>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead className="w-[72px]">优先级</TableHead>
-                  <TableHead>名称</TableHead>
-                  <TableHead className="w-[90px]">目标</TableHead>
-                  <TableHead className="w-[80px]">类型</TableHead>
-                  <TableHead>模式</TableHead>
-                  <TableHead className="w-[72px]">策略</TableHead>
-                  <TableHead className="w-[64px] text-center">启用</TableHead>
-                  <TableHead className="w-[80px]" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rules.map((rule) => (
-                  <TableRow key={rule.id} className={!rule.enabled ? "opacity-40" : ""}>
-                    <TableCell>
-                      <span className="font-mono text-xs tabular-nums">{rule.priority}</span>
-                    </TableCell>
-                    <TableCell className="font-medium text-sm">{rule.name}</TableCell>
-                    <TableCell>
-                      <span className="text-xs text-muted-foreground">
-                        {rule.match_target === "tool_name" ? "工具名" : "输入内容"}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <span className="text-xs text-muted-foreground">
-                        {rule.match_type === "regex" ? "正则" : "字符串"}
-                      </span>
-                    </TableCell>
-                    <TableCell className="max-w-[220px]">
-                      <code className="block truncate rounded bg-muted px-1.5 py-0.5 text-xs font-mono">
-                        {rule.pattern}
-                      </code>
-                    </TableCell>
-                    <TableCell>
-                      <ActionBadge action={rule.action} />
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <Switch
-                        aria-label={`启用规则 ${rule.name}`}
-                        checked={rule.enabled}
-                        onCheckedChange={() => handleToggle(rule)}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center justify-end gap-0.5">
-                        <Button
-                          size="icon" variant="ghost" className="h-7 w-7"
-                          onClick={() => openEdit(rule)}
-                          aria-label={`编辑规则 ${rule.name}`}
-                        >
-                          <PencilIcon className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          size="icon" variant="ghost"
-                          className="h-7 w-7 text-destructive hover:text-destructive"
-                          onClick={() => setDeleteTarget(rule)}
-                          aria-label={`删除规则 ${rule.name}`}
-                        >
-                          <Trash2Icon className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
+        {/* ---- tab: 拦截规则 ---- */}
+        <TabsContent value="rules" className="mt-0">
+          <SectionCard
+            icon={ShieldCheckIcon}
+            title="拦截规则"
+            description="命中即执行对应策略；停用的规则仍保留配置，但不参与匹配。"
+            bodyClassName="px-0 pb-0"
+          >
+            {loading ? (
+              <div className="flex flex-col gap-2 px-5 pb-5">
+                {[0, 1, 2, 3].map((i) => (
+                  <div key={i} className="h-10 animate-pulse rounded-lg bg-surface-muted" />
                 ))}
-              </TableBody>
-            </Table>
-          )}
-            </CardContent>
-          </Card>
+              </div>
+            ) : loadError ? (
+              <div role="alert" className="flex flex-col items-center justify-center gap-1.5 px-5 py-6 text-center">
+                <ShieldAlertIcon className="size-6 text-muted-foreground/50" aria-hidden="true" />
+                <p className="text-[13px] font-medium text-foreground">加载拦截规则失败</p>
+                <p className="max-w-md text-xs text-muted-foreground [overflow-wrap:anywhere]">{loadError}</p>
+                <Button size="sm" variant="outline" className="h-8" onClick={() => void load()}>
+                  重试
+                </Button>
+              </div>
+            ) : rules.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-1.5 px-5 py-6 text-center">
+                <ShieldAlertIcon className="size-6 text-muted-foreground/50" aria-hidden="true" />
+                <p className="text-[13px] font-medium text-foreground">暂无规则</p>
+                <p className="max-w-sm text-xs text-muted-foreground">
+                  新建第一条规则，为高危命令设置允许、禁止或转人工审批。
+                </p>
+                <Button size="sm" variant="outline" className="h-8" onClick={openNew}>
+                  <PlusIcon className="size-4" />
+                  新建第一条规则
+                </Button>
+              </div>
+            ) : (
+              <>
+                <p className="px-5 pb-2 text-xs text-muted-foreground sm:hidden">左右滑动表格查看模式、策略与启用状态。</p>
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="w-[72px]">优先级</TableHead>
+                    <TableHead>名称</TableHead>
+                    <TableHead className="w-[96px]">目标</TableHead>
+                    <TableHead className="w-[76px]">类型</TableHead>
+                    <TableHead>模式</TableHead>
+                    <TableHead className="w-[72px]">策略</TableHead>
+                    <TableHead className="w-[64px] text-center">启用</TableHead>
+                    <TableHead className="w-[80px]" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rules.map((rule) => (
+                    <TableRow key={rule.id} className={cn("h-11", !rule.enabled && "text-muted-foreground")}>
+                      <TableCell>
+                        <span className="inline-flex min-w-7 items-center justify-center rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[11px] tabular-nums">
+                          {rule.priority}
+                        </span>
+                      </TableCell>
+                      <TableCell
+                        className={cn("max-w-[260px] truncate text-[13px] font-medium", rule.enabled && "text-foreground")}
+                        title={rule.name}
+                      >
+                        {rule.name}
+                      </TableCell>
+                      <TableCell>
+                        <span className="rounded bg-muted/60 px-1.5 py-0.5 text-[11px]">
+                          {rule.match_target === "tool_name" ? "工具名" : "输入内容"}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <span className="rounded bg-muted/60 px-1.5 py-0.5 text-[11px]">
+                          {rule.match_type === "regex" ? "正则" : "字符串"}
+                        </span>
+                      </TableCell>
+                      <TableCell className="max-w-[240px]">
+                        <code
+                          className="inline-block max-w-full truncate rounded bg-muted/50 px-1.5 py-0.5 align-middle font-mono text-[12px]"
+                          title={rule.pattern}
+                        >
+                          {rule.pattern}
+                        </code>
+                      </TableCell>
+                      <TableCell>
+                        <ActionBadge action={rule.action} />
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Switch
+                          aria-label={`启用规则 ${rule.name}`}
+                          checked={rule.enabled}
+                          onCheckedChange={() => handleToggle(rule)}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center justify-end gap-0.5">
+                          <Button
+                            size="icon" variant="ghost" className="size-7"
+                            onClick={() => openEdit(rule)}
+                            aria-label={`编辑规则 ${rule.name}`}
+                          >
+                            <PencilIcon className="size-3.5" />
+                          </Button>
+                          <Button
+                            size="icon" variant="ghost"
+                            className="size-7 text-destructive hover:text-destructive"
+                            onClick={() => setDeleteTarget(rule)}
+                            aria-label={`删除规则 ${rule.name}`}
+                          >
+                            <Trash2Icon className="size-3.5" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              </>
+            )}
+          </SectionCard>
         </TabsContent>
 
         {/* ---- tab: 模型配置 ---- */}
-        <TabsContent value="judge" className="mt-4">
-          <JudgeCard />
-        </TabsContent>
+        {judgeMounted && (
+          <TabsContent value="judge" forceMount className="mt-0 data-[state=inactive]:hidden">
+            <JudgeCard />
+          </TabsContent>
+        )}
       </Tabs>
 
       {/* ---- editor sheet ---- */}
@@ -827,7 +899,7 @@ export default function InterceptPage() {
                 <p id="rule-pattern-error" role="alert" className="text-xs text-destructive mt-1">{patternError}</p>
               )}
               {regexWarn && (
-                <p className="text-xs text-amber-600 mt-1">包含 Go RE2 扩展语法（如 <code className="font-mono">(?i)</code>），浏览器无法预览，提交后由服务端验证</p>
+                <p className="text-xs text-warning mt-1">包含 Go RE2 扩展语法（如 <code className="font-mono">(?i)</code>），浏览器无法预览，提交后由服务端验证</p>
               )}
             </Field>
 
@@ -961,7 +1033,7 @@ export default function InterceptPage() {
               toolGroups.map((group, gi) => (
                 <div key={group.label}>
                   {gi > 0 && <Separator className="mb-5" />}
-                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                  <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
                     {group.label}
                   </p>
                   <div className="space-y-0.5">
@@ -976,7 +1048,7 @@ export default function InterceptPage() {
                           <div className="flex items-center gap-1.5">
                             <span className="font-mono text-sm">{t.key}</span>
                             {(t.kind && t.kind !== "builtin") && (
-                              <Badge variant="outline" className="px-1 py-0 text-[10px]">{t.kind}</Badge>
+                              <Badge variant="outline" className="px-1.5 py-0 text-[11px]">{t.kind}</Badge>
                             )}
                           </div>
                           {t.description && (

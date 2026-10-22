@@ -5,11 +5,13 @@ import * as React from "react";
 import { DownloadIcon, FileTextIcon, RefreshCwIcon } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 
+import { MetaSeparator } from "@/components/app/page-header";
+import { SectionCard } from "@/components/app/section-card";
 import { CopyButton } from "@/components/copy-button";
 import { Markdown } from "@/components/markdown";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Spinner } from "@/components/ui/spinner";
 import { api } from "@/lib/api";
 
 export function ReportTab({ taskId }: { taskId: string }) {
@@ -79,15 +81,15 @@ export function ReportTab({ taskId }: { taskId: string }) {
         role="status"
         aria-live="polite"
         aria-busy="true"
-        className="flex flex-col items-center justify-center gap-2 rounded-md border border-dashed py-16 text-muted-foreground text-sm"
+        className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border/70 bg-surface-muted/40 py-12 text-center"
       >
-        <FileTextIcon className="size-8 opacity-40" />
-        加载中…
+        <Spinner className="size-6 text-muted-foreground" />
+        <p className="text-[13px] text-muted-foreground">加载中…</p>
       </div>
     );
   } else if (report) {
     content = (
-      <div className="max-h-[60vh] overflow-auto rounded-md border bg-muted/20 p-4">
+      <div className="max-h-[65vh] overflow-auto rounded-lg bg-surface-muted/40 p-4 sm:p-6">
         <Markdown text={report} />
       </div>
     );
@@ -108,13 +110,15 @@ export function ReportTab({ taskId }: { taskId: string }) {
   } else {
     // 空态给出下一步：报告由 Agent 生成，用户需要知道去哪拿、怎么刷新。
     content = (
-      <div className="flex flex-col items-center justify-center gap-3 rounded-md border border-dashed px-4 py-16 text-center text-muted-foreground text-sm">
-        <FileTextIcon className="size-8 opacity-40" />
+      <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border/70 bg-surface-muted/40 px-4 py-10 text-center">
+        <FileTextIcon className="size-6 text-muted-foreground/50" aria-hidden="true" />
         <div className="space-y-1">
-          <div className="text-foreground">暂无报告</div>
-          <div className="text-xs">报告由 Agent 在任务中生成，生成后点「刷新」查看</div>
+          <div className="text-[13px] font-medium text-foreground">暂无报告</div>
+          <div className="text-[12px] leading-5 text-muted-foreground">
+            报告由 Agent 在任务中生成，生成后点「刷新」查看
+          </div>
         </div>
-        <Button size="sm" variant="outline" disabled={refreshing} onClick={() => void refresh()}>
+        <Button size="sm" variant="outline" className="mt-1.5" disabled={refreshing} onClick={() => void refresh()}>
           <RefreshCwIcon className={refreshing ? "animate-spin" : undefined} />
           {refreshing ? "刷新中…" : "刷新"}
         </Button>
@@ -123,30 +127,44 @@ export function ReportTab({ taskId }: { taskId: string }) {
   }
 
   return (
-    <Card>
-      <CardHeader className="flex-row items-center justify-between">
-        <CardTitle className="flex items-center gap-2 text-sm">
-          <FileTextIcon className="size-4" /> 渗透测试报告（Markdown）
-        </CardTitle>
-        <div className="flex gap-2">
-          {report && <CopyButton text={report} />}
-          <Button size="sm" variant="outline" disabled={!report} onClick={download}>
-            <DownloadIcon /> 下载 Markdown
-          </Button>
-          <Button size="sm" variant="outline" disabled={refreshing || loading} onClick={() => void refresh()}>
-            <RefreshCwIcon className={refreshing ? "animate-spin" : undefined} />
-            {refreshing ? "刷新中…" : "刷新"}
-          </Button>
+    <SectionCard
+      icon={FileTextIcon}
+      title="渗透测试报告"
+      description="Markdown 报告 · 由 Agent 在任务中生成，可复制或下载归档"
+    >
+      <div className="flex flex-col gap-3">
+        {/* 工具栏：文件名与体量在左，复制 / 下载 / 刷新在右；窄屏自动换行。 */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2 text-[12px] text-muted-foreground">
+            <span className="inline-flex min-w-0 items-center gap-1.5">
+              <FileTextIcon className="size-3.5 shrink-0" aria-hidden="true" />
+              <span className="truncate font-mono">liora-report-{taskId}.md</span>
+            </span>
+            {report ? (
+              <>
+                <MetaSeparator />
+                <span className="shrink-0 tabular-nums">{report.length.toLocaleString("zh-CN")} 字符</span>
+              </>
+            ) : null}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {report ? <CopyButton text={report} /> : null}
+            <Button size="sm" variant="outline" disabled={!report} onClick={download}>
+              <DownloadIcon /> 下载 Markdown
+            </Button>
+            <Button size="sm" variant="outline" disabled={refreshing || loading} onClick={() => void refresh()}>
+              <RefreshCwIcon className={refreshing ? "animate-spin" : undefined} />
+              {refreshing ? "刷新中…" : "刷新"}
+            </Button>
+          </div>
         </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
         {error && report ? (
           <Alert variant="destructive">
             <AlertDescription>刷新失败：{error}</AlertDescription>
           </Alert>
         ) : null}
         {content}
-      </CardContent>
-    </Card>
+      </div>
+    </SectionCard>
   );
 }

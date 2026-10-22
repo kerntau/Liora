@@ -54,25 +54,28 @@ export function TodoPopover({
           type="button"
           disabled={disabled}
           title={disabled ? "本会话暂无 Todo" : "查看最近 Todo"}
-          className="text-muted-foreground/70 hover:text-primary flex items-center gap-0.5 text-xs disabled:pointer-events-none disabled:opacity-40"
+          className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border/60 bg-card px-2 text-[12px] text-muted-foreground transition-colors outline-none hover:border-primary/30 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:border-border/40 disabled:text-muted-foreground"
         >
-          <ListTodo className="size-3" />
+          <ListTodo className="size-3.5" aria-hidden="true" />
           Todo
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" className="max-h-80 w-80 overflow-auto p-2">
-        <p className="text-muted-foreground px-1 pb-1 text-[11px] font-medium">
+        <p className="text-muted-foreground px-1 pb-1 text-[12px] font-medium">
           最近 Todo{loading ? " · 加载中…" : ""}
         </p>
         {err && <p className="text-destructive px-1 text-xs">{err}</p>}
         {todos && todos.length === 0 && !loading && (
           <p className="text-muted-foreground px-1 text-xs">（空）</p>
         )}
-        <ul className="space-y-0.5">
+        <ul className="space-y-1">
           {(todos ?? []).map((t, i) => (
             <li
               key={`${i}:${t.content}`}
-              className={cn("flex gap-1.5 px-1 text-xs", t.status === "completed" && "text-muted-foreground line-through")}
+              className={cn(
+                "flex gap-1.5 px-1 text-[12px] leading-5",
+                t.status === "completed" && "text-muted-foreground line-through",
+              )}
             >
               <span className="shrink-0">{MARK[t.status] ?? "☐"}</span>
               <span className="break-words">{t.content}</span>

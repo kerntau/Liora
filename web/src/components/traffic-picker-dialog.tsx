@@ -49,6 +49,8 @@ export function TrafficPickerDialog({
   const [loading, setLoading] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState("");
+  // 绑定按钮在 setBusy 生效前仍可被连点两次;用同步锁保证只发一次绑定请求。
+  const saveLock = React.useRef(false);
   const alreadyBound = new Set(bound.map((b) => b.snapshot.source_traffic_id));
   React.useEffect(() => {
     let active = true;
@@ -84,6 +86,8 @@ export function TrafficPickerDialog({
     });
   }
   async function save() {
+    if (saveLock.current) return;
+    saveLock.current = true;
     setBusy(true);
     setError("");
     try {
@@ -98,6 +102,7 @@ export function TrafficPickerDialog({
     } catch (e) {
       setError((e as Error).message);
     } finally {
+      saveLock.current = false;
       setBusy(false);
     }
   }
@@ -110,7 +115,7 @@ export function TrafficPickerDialog({
           if (!open && !busy) onClose();
         }}
       >
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
+        <DialogContent busy={busy} className="max-h-[90dvh] overflow-y-auto sm:max-w-5xl">
           <DialogHeader>
             <DialogTitle>绑定流量</DialogTitle>
             <DialogDescription>

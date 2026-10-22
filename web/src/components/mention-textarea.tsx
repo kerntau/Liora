@@ -224,7 +224,7 @@ export function MentionTextarea({ value, onValueChange, onKeyDown, className, in
         <PopoverContent
           side="top"
           align="start"
-          className="w-[min(28rem,calc(100vw-2rem))] gap-1 p-1.5"
+          className="w-[min(28rem,calc(100vw-2rem))] gap-1 p-1"
           onOpenAutoFocus={(event) => event.preventDefault()}
           onCloseAutoFocus={(event) => event.preventDefault()}
           onInteractOutside={(event) => {
@@ -238,7 +238,7 @@ export function MentionTextarea({ value, onValueChange, onKeyDown, className, in
                 ? "选择引用类型"
                 : `搜索${mentionKinds.find((kind) => kind.kind === search.kind)?.label ?? "全部记录"}`}
             </span>
-            <span>↑↓ 选择 · Enter 确认 · Esc 关闭</span>
+            <span className="hidden sm:inline">↑↓ 选择 · Enter 确认 · Esc 关闭</span>
           </div>
           <div
             id={listId}
@@ -258,30 +258,30 @@ export function MentionTextarea({ value, onValueChange, onKeyDown, className, in
                 role="option"
                 aria-selected={activeIndex === index}
                 className={cn(
-                  "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent",
+                  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] outline-none hover:bg-accent focus-visible:bg-accent",
                   activeIndex === index && "bg-accent",
                 )}
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => choose(index)}
               >
-                <AtSignIcon className="size-4 text-muted-foreground" />
-                <span>{kind.label}</span>
-                <ChevronRightIcon className="ml-auto size-4 text-muted-foreground" />
+                <AtSignIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <span className="min-w-0 flex-1 truncate">{kind.label}</span>
+                <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
               </button>
             ))}
             {!categories.length && loading && (
-              <div role="status" className="flex items-center gap-2 p-3 text-muted-foreground text-sm">
-                <Loader2Icon className="size-4 animate-spin" />
+              <div role="status" className="flex items-center gap-2 p-3 text-[13px] text-muted-foreground">
+                <Loader2Icon className="size-3.5 animate-spin" />
                 搜索中…
               </div>
             )}
             {!categories.length && !loading && error && (
-              <div role="alert" className="p-3 text-destructive text-sm">
+              <div role="alert" className="p-3 text-[13px] text-destructive">
                 搜索失败：{error}。请重新输入重试。
               </div>
             )}
             {!categories.length && !loading && !error && !items.length && (
-              <div role="status" className="p-3 text-muted-foreground text-sm">
+              <div role="status" className="p-3 text-[13px] text-muted-foreground">
                 没有匹配记录，请更换名称、地址或 ID
               </div>
             )}
@@ -293,7 +293,7 @@ export function MentionTextarea({ value, onValueChange, onKeyDown, className, in
                 role="option"
                 aria-selected={activeIndex === index}
                 className={cn(
-                  "flex w-full flex-col gap-0.5 rounded-md px-2 py-2 text-left hover:bg-accent",
+                  "flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left outline-none hover:bg-accent focus-visible:bg-accent",
                   activeIndex === index && "bg-accent",
                 )}
                 onMouseDown={(event) => event.preventDefault()}
@@ -301,10 +301,12 @@ export function MentionTextarea({ value, onValueChange, onKeyDown, className, in
               >
                 <span className="flex w-full items-center gap-2">
                   <Badge variant="outline">{mentionKinds.find((kind) => kind.kind === item.kind)?.label}</Badge>
-                  <span className="truncate text-sm">{item.label}</span>
-                  <span className="ml-auto shrink-0 text-muted-foreground text-xs">#{item.id}</span>
+                  <span className="min-w-0 flex-1 truncate text-[13px]">{item.label}</span>
+                  <span className="ml-auto shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
+                    #{item.id}
+                  </span>
                 </span>
-                <span className="w-full truncate text-muted-foreground text-xs">{item.description}</span>
+                <span className="w-full truncate text-[12px] text-muted-foreground">{item.description}</span>
               </button>
             ))}
           </div>

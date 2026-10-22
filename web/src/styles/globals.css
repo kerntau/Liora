@@ -15,7 +15,7 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-2xl: calc(var(--radius) + 2px);
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
   --color-background: var(--background);
@@ -25,6 +25,7 @@
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
+  --color-primary-text: var(--primary-text);
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
@@ -33,6 +34,16 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-brand: var(--brand);
+  --color-brand-soft: var(--brand-soft);
+  --color-surface-muted: var(--surface-muted);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -53,79 +64,105 @@
   --font-sans: var(--font-sans);
 }
 
-/* Default theme styles (used when no data-theme-preset is set or when 'default' is selected).
-These serve as the fallback; there is no separate default.css file. */
+/* Liora console theme — deep-navy rail + airy light workspace.
+   These are the product defaults; presets below can still override them. */
 :root {
-  --radius: 0.625rem;
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.54 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --radius: 0.5rem;
+  --background: #eef3f7;
+  --foreground: #101828;
+  --card: #fcfdfe;
+  --card-foreground: #101828;
+  --popover: #fcfdfe;
+  --popover-foreground: #101828;
+  --primary: #3789fc;
+  --primary-foreground: #0a1c3a;
+  --secondary: #e8eef5;
+  --secondary-foreground: #1d2939;
+  --muted: #f1f5f9;
+  --muted-foreground: #5d6a82;
+  --accent: #e9f1ff;
+  --accent-foreground: #1d4ed8;
+  --destructive: #d92d20;
+  --border: #e3eaf2;
+  --input: #dfe5ef;
+  --ring: #3789fc;
+  --chart-1: #3789fc;
+  --chart-2: #12b76a;
+  --chart-3: #f79009;
+  --chart-4: #7a5af8;
+  --chart-5: #06aed4;
+  --sidebar: #1a2946;
+  --sidebar-foreground: #c7d3e8;
+  --sidebar-primary: #3789fc;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #283d70;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgba(255, 255, 255, 0.09);
+  --sidebar-ring: #3789fc;
+
+  /* Semantic accents used across the console. */
+  --success: #067a55;
+  --success-foreground: #05603a;
+  --warning: #ee992e;
+  --warning-foreground: #93370d;
+  --info: #1e6be6;
+  --info-foreground: #1d4ed8;
+  --brand: #3789fc;
+  --primary-text: #1d4ed8;
+  --brand-soft: #e9f1ff;
+  --surface-muted: #f6f9fc;
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.03), 0 1px 2px rgba(16, 24, 40, 0.03);
+  --shadow-raised: 0 6px 20px -12px rgba(16, 24, 40, 0.14), 0 1px 4px -2px rgba(16, 24, 40, 0.05);
 
   /* fonts */
   --font-sans: var(--font-geist);
   --font-mono: var(--font-geist-mono);
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: #0b1220;
+  --foreground: #e7edf8;
+  --card: #111b2e;
+  --card-foreground: #e7edf8;
+  --popover: #111b2e;
+  --popover-foreground: #e7edf8;
+  --primary: #4d84ff;
+  --primary-foreground: #0b1220;
+  --secondary: #1a2740;
+  --secondary-foreground: #e7edf8;
+  --muted: #172136;
+  --muted-foreground: #94a3bd;
+  --accent: #17284a;
+  --accent-foreground: #dbe7ff;
+  --destructive: #ff6b5e;
+  --border: #22304a;
+  --input: #2a3a58;
+  --ring: #4d84ff;
+  --chart-1: #4d84ff;
+  --chart-2: #2dd4a0;
+  --chart-3: #fdb022;
+  --chart-4: #a48afb;
+  --chart-5: #38bdf8;
+  --sidebar: #14203a;
+  --sidebar-foreground: #b9c7de;
+  --sidebar-primary: #4d84ff;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #243857;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgba(255, 255, 255, 0.09);
+  --sidebar-ring: #4d84ff;
+  --success: #2ac8a6;
+  --primary-text: #8ab4ff;
+  --success-foreground: #a7f3d0;
+  --warning: #fdb022;
+  --warning-foreground: #fde68a;
+  --info: #4d84ff;
+  --info-foreground: #bfdbfe;
+  --brand: #4d84ff;
+  --brand-soft: rgba(77, 132, 255, 0.14);
+  --surface-muted: #0f1929;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.24);
+  --shadow-raised: 0 12px 32px -16px rgba(0, 0, 0, 0.6);
 }
 
 @layer base {
@@ -134,11 +171,60 @@ These serve as the fallback; there is no separate default.css file. */
   }
 
   body {
-    @apply bg-background text-foreground;
-    font-family: var(--font-sans), system-ui, sans-serif;
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-sans), "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   }
   html {
     @apply font-sans;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--primary) 22%, transparent);
+  }
+  /* Slim, unobtrusive scrollbars for the dense console views. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--muted-foreground) 30%, transparent) transparent;
+  }
+}
+
+@layer components {
+  .app-card {
+    @apply rounded-xl border border-border bg-card text-card-foreground;
+    box-shadow: var(--shadow-card);
+  }
+
+  .app-card-hover {
+    @apply transition-shadow;
+  }
+  .app-card-hover:hover {
+    box-shadow: var(--shadow-raised);
+  }
+
+  .app-muted-panel {
+    @apply rounded-lg border border-border/70 bg-surface-muted;
+  }
+
+  .app-divider {
+    @apply h-px w-full bg-border;
+  }
+
+  .app-chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-muted-foreground;
+  }
+
+  .app-focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+  }
+
+  .app-kbd {
+    @apply inline-flex h-5 min-w-5 items-center justify-center rounded-md border border-border bg-surface-muted px-1 font-mono text-[10px] font-medium text-muted-foreground;
+  }
+
+  .app-grid-bg {
+    background-image:
+      linear-gradient(to right, color-mix(in srgb, var(--border) 55%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in srgb, var(--border) 55%, transparent) 1px, transparent 1px);
+    background-size: 28px 28px;
   }
 }
 
@@ -294,3 +380,298 @@ html {
     -webkit-print-color-adjust: exact;
   }
 }
+
+/* ============ 统一动效令牌（DESIGN-SPEC，供全站复用；不动既有变量） ============ */
+@layer utilities {
+  /* 淡入：150ms 微反馈 */
+  .animate-fade-in {
+    animation: liora-fade-in 150ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  /* 上浮淡入：250ms 常规进场 */
+  .animate-slide-up {
+    animation: liora-slide-up 250ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  /* 缩放淡入：250ms 弹层进场 */
+  .animate-scale-in {
+    animation: liora-scale-in 250ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  /* 呼吸：仅「运行中」实时状态点 */
+  .animate-breathe {
+    animation: liora-breathe 2.4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+  }
+
+  /* 阶梯延迟（与上述动画类叠加，实现逐项进场） */
+  .motion-delay-1 {
+    animation-delay: 75ms;
+  }
+  .motion-delay-2 {
+    animation-delay: 150ms;
+  }
+  .motion-delay-3 {
+    animation-delay: 250ms;
+  }
+
+  /* 骨架屏扫光：深浅主题自适应（color-mix 取前景色低透明度高光） */
+  .skeleton-shimmer {
+    position: relative;
+    overflow: hidden;
+    background-color: color-mix(in srgb, var(--muted) 85%, var(--background));
+  }
+  .skeleton-shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in srgb, var(--foreground) 8%, transparent),
+      transparent
+    );
+    animation: liora-shimmer 1.6s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+  }
+}
+
+@keyframes liora-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes liora-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes liora-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes liora-breathe {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.85);
+  }
+}
+
+@keyframes liora-shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* 显式兜底：reduced-motion 下关闭本层全部动效 */
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in,
+  .animate-slide-up,
+  .animate-scale-in,
+  .animate-breathe,
+  .skeleton-shimmer::after {
+    animation: none;
+  }
+}
+
+/* ============ 排版 token 与工具类（REFINE-SPEC 二 / 三；仅追加，不改既有变量） ============ */
+:root {
+  /* 字号阶梯：页面标题 20 / 区块标题 13 / 正文 13 / 次要说明 12 */
+  --ui-text-page-title: 20px;
+  --ui-text-section-title: 13px;
+  --ui-text-body: 13px;
+  --ui-text-meta: 12px;
+  --ui-leading-tight: 1.25;
+  --ui-leading-body: 1.5;
+  /* 间距节奏：页面纵向 gap-5、卡片内 p-5、表格行 h-11 */
+  --ui-gap-page: 1.25rem;
+  --ui-space-card: 1.25rem;
+  --ui-row-height: 2.75rem;
+  --ui-control-height: 2.25rem;
+  --ui-control-height-sm: 2rem;
+  /* 唯一允许的卡片描边与圆角（与 Card 组件的 rounded-xl 对齐） */
+  --ui-border-soft: color-mix(in srgb, var(--border) 60%, transparent);
+  --ui-radius-card: calc(var(--radius) + 4px);
+}
+
+@layer components {
+  .ui-page-title {
+    font-size: var(--ui-text-page-title);
+    line-height: var(--ui-leading-tight);
+    font-weight: 600;
+    letter-spacing: -0.011em;
+    color: var(--foreground);
+  }
+
+  .ui-page-desc {
+    font-size: var(--ui-text-body);
+    line-height: var(--ui-leading-body);
+    color: var(--muted-foreground);
+  }
+
+  .ui-section-title {
+    font-size: var(--ui-text-section-title);
+    line-height: var(--ui-leading-body);
+    font-weight: 600;
+    color: var(--foreground);
+  }
+
+  .ui-body {
+    font-size: var(--ui-text-body);
+    line-height: var(--ui-leading-body);
+  }
+
+  .ui-meta {
+    font-size: var(--ui-text-meta);
+    line-height: var(--ui-leading-body);
+    color: var(--muted-foreground);
+  }
+
+  .ui-num {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 工具栏：搜索 + 筛选 + 计数同一基线、同一高度 */
+  .ui-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  /* 页面纵向节奏 */
+  .ui-page-stack {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: var(--ui-gap-page);
+  }
+
+  /* 空态：高度受限、图标 24px、一句话说明 */
+  .ui-empty {
+    display: flex;
+    min-height: 120px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 1.5rem 1rem;
+    text-align: center;
+    font-size: var(--ui-text-meta);
+    line-height: var(--ui-leading-body);
+    color: var(--muted-foreground);
+  }
+
+  .ui-empty-icon {
+    width: 24px;
+    height: 24px;
+    color: color-mix(in srgb, var(--muted-foreground) 70%, transparent);
+  }
+
+  /* 一层卡片：不要卡片套卡片 */
+  .ui-card {
+    border: 1px solid var(--ui-border-soft);
+    border-radius: var(--ui-radius-card);
+    background: var(--card);
+    box-shadow: var(--shadow-card);
+  }
+
+  .ui-divider {
+    border-top: 1px solid var(--ui-border-soft);
+  }
+}
+
+
+/* ── 深色可读性修正（对比度实测） ───────────────────────────────
+   1) 分隔符常用 `text-border`（= 边框色）当文字色，深色下 1.42:1 几乎不可见；
+      统一提到「次要文字 55%」这一档，浅色/深色都读得出来，又不会抢正文。
+   2) 通知徽标是 `bg-destructive text-white`，深色下 destructive 提亮成 #ff6b5e，
+      白字只有 2.79:1；补一个 destructive-foreground token，深色下用深字。 */
+@layer utilities {
+  .text-border {
+    color: color-mix(in srgb, var(--muted-foreground) 55%, transparent);
+  }
+}
+
+:root {
+  --destructive-foreground: #ffffff;
+}
+
+.dark {
+  --destructive-foreground: #2a0b08;
+}
+
+
+/* ── 浅色小字对比度修正（实测 3.0~3.4:1 → 4.5:1 以上） ─────────────
+   品牌蓝与警告橙作为**文字**放在浅色底上偏亮；这两个覆盖只在浅色生效，
+   深色保持原亮度（深色底上它们本来就够）。背景填充（bg-primary 等）不受影响。 */
+:root {
+  --warning-text: #b54708;
+}
+
+.dark {
+  --warning-text: #fdb022;
+}
+
+:root:not(.dark) .text-primary {
+  color: var(--primary-text);
+}
+
+:root:not(.dark) .text-warning {
+  color: var(--warning-text);
+}
+
+:root:not(.dark) .text-destructive {
+  color: #b42318;
+}
+
+/* ── 底部 Dock 的 hover 底块（默认透明，指到才浮出） ─────────────────
+   规范里写的是 bg-surface-muted，但它与 card 只差 3~6 个色阶
+   （浅色 #f6f9fc vs #fcfdfe、深色 #0f1929 vs #111b2e），实测 hover 时整块看不见，
+   13 个格子又会退回「一排按钮」的观感。这里改用前景色 5% 的薄膜：
+   浅色下是一块极淡的灰、深色下自然向上提亮一档，两种模式都读得出「指到了哪一格」，
+   又不会变成实心按钮。放在 @layer 之外，确保优先级压过 tailwind 的 bg-* 工具类。 */
+.dock-tile {
+  background-color: transparent;
+  /* 由 floating-dock.tsx 按每帧 scale 写入：底块跟随放大后的字形（= 字形外扩 3px 的方块）。 */
+  transform: var(--dock-tile-follow, none);
+}
+
+.group:hover > .dock-tile,
+.group:focus-visible > .dock-tile {
+  background-color: color-mix(in srgb, var(--foreground) 5%, transparent);
+}
+
+/* 激活态：蓝底常显；静止时固定 40px 不跟随，只有 hover 时才跟字形一起放大。 */
+.dock-tile[data-active="true"] {
+  background-color: color-mix(in srgb, var(--primary) 10%, transparent);
+  transform: none;
+}
+
+.group:hover > .dock-tile[data-active="true"],
+.group:focus-visible > .dock-tile[data-active="true"] {
+  background-color: color-mix(in srgb, var(--primary) 10%, transparent);
+  transform: var(--dock-tile-follow, none);
+}
+

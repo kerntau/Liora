@@ -4,10 +4,9 @@ import * as React from "react";
 
 import {
   BuildingIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
   GlobeIcon,
   KeyRoundIcon,
+  LayersIcon,
   LayoutTemplateIcon,
   LinkIcon,
   type LucideIcon,
@@ -18,7 +17,9 @@ import {
 } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 
+import { PageHeader } from "@/components/app/page-header";
 import { Chips, MethodBadge, PAGE_SIZES, statusTone } from "@/components/asset-cells";
+import { TablePagination } from "@/components/table-pagination";
 import { AssetDslSearch } from "@/components/asset-dsl-search";
 import { AsyncState } from "@/components/async-state";
 import { ScopeTextEditor } from "@/components/scope-text-editor";
@@ -48,7 +49,6 @@ import {
 } from "@/components/ui/dialog";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Sheet,
   SheetContent,
@@ -66,15 +66,73 @@ import { parseCompanyScopeText } from "@/lib/company-scope";
 import type { Asset, Company, CompanyScopeRule } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const TABS: { key: string; label: string; icon: LucideIcon }[] = [
-  { key: "company", label: "企业", icon: BuildingIcon },
-  { key: "root_domain", label: "根域名", icon: GlobeIcon },
-  { key: "ip", label: "IP", icon: NetworkIcon },
-  { key: "subdomain", label: "子域名", icon: GlobeIcon },
-  { key: "app", label: "应用", icon: SmartphoneIcon },
-  { key: "service", label: "服务", icon: LayoutTemplateIcon },
-  { key: "endpoint", label: "接口", icon: LinkIcon },
+// 每种资产一种颜色的小图标块：左树、列表卡片头、空态复用同一份映射，
+// 与「漏洞结果 · 按资产」树里的类型色保持一致。
+interface AssetTypeMeta {
+  key: string;
+  label: string;
+  icon: LucideIcon;
+  tile: string;
+  description: string;
+}
+
+const TABS: AssetTypeMeta[] = [
+  {
+    key: "company",
+    label: "企业",
+    icon: BuildingIcon,
+    tile: "bg-primary/10 text-primary",
+    description: "组织主体与授权资产范围。",
+  },
+  {
+    key: "root_domain",
+    label: "根域名",
+    icon: GlobeIcon,
+    tile: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+    description: "已收录的主域名与 ICP 备案。",
+  },
+  {
+    key: "ip",
+    label: "IP",
+    icon: NetworkIcon,
+    tile: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
+    description: "C 段、绑定域名与开放端口。",
+  },
+  {
+    key: "subdomain",
+    label: "子域名",
+    icon: GlobeIcon,
+    tile: "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400",
+    description: "DNS 解析记录与所属根域名。",
+  },
+  {
+    key: "app",
+    label: "应用",
+    icon: SmartphoneIcon,
+    tile: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+    description: "移动端应用与 Bundle ID。",
+  },
+  {
+    key: "service",
+    label: "服务",
+    icon: LayoutTemplateIcon,
+    tile: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+    description: "端口服务、指纹与页面标题。",
+  },
+  {
+    key: "endpoint",
+    label: "接口",
+    icon: LinkIcon,
+    tile: "bg-rose-500/10 text-rose-600 dark:text-rose-400",
+    description: "已发现的 API 与请求参数。",
+  },
 ];
+
+const TAB_BY_KEY = new Map(TABS.map((item) => [item.key, item]));
+
+// 左栏按资产大类排序（组织 → 域名 → 网络 → 应用）。7 个类型一屏读完，
+// 不再插组标题：那会让左栏比右侧内容高出一大截，且组标题与页签名重复。
+const TAB_ORDER = ["company", "root_domain", "subdomain", "ip", "app", "service", "endpoint"];
 
 export default function AssetsPage() {
   const [rows, setRows] = React.useState<Asset[]>([]);
@@ -125,6 +183,18 @@ export default function AssetsPage() {
         /* Keep the last successful counters on a transient failure. */
       });
   }, []);
+
+  // First load: the organization tab is the natural home, but a fresh install has
+  // no companies while assets already exist. In that case open the first
+  // populated type instead of showing an empty table.
+  const autoPickedTab = React.useRef(false);
+  React.useEffect(() => {
+    if (autoPickedTab.current || !metaLoaded || Object.keys(counts).length === 0) return;
+    autoPickedTab.current = true;
+    if (tab === "company" && companies.length === 0 && (counts.root_domain ?? 0) > 0) {
+      setTab("root_domain");
+    }
+  }, [metaLoaded, companies.length, counts, tab]);
 
   // Manual refresh: reload counts/companies and re-fetch the current page.
   const refresh = React.useCallback(() => {
@@ -296,401 +366,518 @@ export default function AssetsPage() {
   const cardStateProps = { error: dslError, loading, onRetry: refresh };
 
   return (
-    <div className="flex h-[calc(100vh-6rem)] min-h-0 flex-col gap-4">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">资产</h1>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-muted-foreground">
-            共 <span className="tabular-nums">{totalAssets}</span> 项资产
-          </span>
-          {selected.size > 0 && (
-            <Button variant="destructive" size="sm" onClick={() => openDelete(Array.from(selected) as number[])}>
-              <Trash2Icon className="size-3.5" /> 删除已选 ({selected.size})
+    <div className="flex flex-col gap-5">
+      <PageHeader
+        icon={NetworkIcon}
+        title="测试资产"
+        description="统一管理授权范围内的企业、域名、IP、应用与接口；按类型浏览，或用 DSL 精确检索后批量清理。"
+        actions={
+          <>
+            <Button variant="outline" size="sm" onClick={refresh} disabled={loading} aria-label="刷新资产列表">
+              <RefreshCwIcon className={cn("size-4", loading && "animate-spin")} /> 刷新
             </Button>
-          )}
-          <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>
-            <RefreshCwIcon className={cn("size-4", loading && "animate-spin")} /> 刷新
-          </Button>
-          <CompanyDialog onSaved={refresh} />
-        </div>
-      </div>
+            <CompanyDialog onSaved={refresh} />
+          </>
+        }
+      />
 
-      <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col gap-4">
-        <div className="overflow-x-auto overflow-y-hidden">
-          <TabsList variant="default">
-            {TABS.map((t) => (
-              <TabsTrigger key={t.key} value={t.key}>
-                <t.icon className="size-3.5" />
-                {t.label}
-                <span className="ml-1 tabular-nums text-muted-foreground">{tabCounts[t.key]}</span>
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </div>
-
-        {/* 企业 */}
-        <TabsContent value="company" className="mt-0 flex min-h-0 flex-1 flex-col">
-          <Card className="flex min-h-0 flex-1 flex-col overflow-hidden py-0">
-            <AsyncState
-              status={!metaLoaded ? "loading" : metaError && companies.length === 0 ? "error" : "ready"}
-              error={metaError}
-              onRetry={loadMeta}
-              className="m-4"
-            >
-              {metaError && companies.length > 0 && (
-                <div
-                  role="alert"
-                  className="m-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed px-3 py-2 text-muted-foreground text-xs"
-                >
-                  <span className="min-w-0 [overflow-wrap:anywhere]">刷新企业列表失败：{metaError.message}</span>
-                  <Button size="sm" variant="outline" onClick={loadMeta}>
-                    重试
-                  </Button>
-                </div>
-              )}
-              <div className="min-h-0 flex-1 overflow-auto">
-                <Table>
-                  <TableHeader className="sticky top-0 z-10 bg-card">
-                    <TableRow>
-                      <TableHead>企业</TableHead>
-                      <TableHead className="w-24 text-right">资产数</TableHead>
-                      <TableHead>资产范围</TableHead>
-                      <TableHead className="w-36 text-right">操作</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {companies.map((c) => (
-                      <TableRow key={c.id}>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <CompanyAvatar name={c.name} logo={c.logo} />
-                            <span className="font-medium">{c.name}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums text-sm">{c.asset_count}</TableCell>
-                        <TableCell>
-                          {c.scope?.length ? (
-                            <div className="flex flex-wrap gap-1">
-                              {c.scope.map((s, i) => (
-                                <Badge key={i} variant="secondary" className="font-mono text-[11px]">
-                                  {s.raw}
-                                </Badge>
-                              ))}
-                            </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">未设置范围</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <EditScopeDialog company={c} onSaved={refresh} />
-                            <AppendScopeDialog company={c} onSaved={refresh} />
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="size-7 text-muted-foreground hover:text-destructive"
-                              onClick={() => {
-                                setCompanyDeleteTarget(c);
-                                setCompanyDeleteAssets(false);
-                              }}
-                              aria-label={`删除企业 ${c.name}`}
-                            >
-                              <Trash2Icon className="size-3.5" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {metaLoaded && !metaError && companies.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={4} className="py-10 text-center text-sm text-muted-foreground">
-                          还没有企业。点击右上角「新增企业」并填写资产范围，系统会自动认领命中的资产。
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
+      <Tabs
+        value={tab}
+        onValueChange={setTab}
+        orientation="vertical"
+        className="flex flex-col gap-5 lg:flex-row lg:items-start"
+      >
+        <Card className="gap-0 shrink-0 overflow-hidden py-0 lg:sticky lg:top-20 lg:w-60 xl:w-64">
+          <div className="flex items-start justify-between gap-2 px-5 pt-5 pb-3">
+            <div className="flex min-w-0 items-start gap-2">
+              <LayersIcon className="text-muted-foreground mt-0.5 size-4 shrink-0" aria-hidden="true" />
+              <div className="min-w-0">
+                <h2 className="text-foreground text-[13px] leading-5 font-semibold">资产分类</h2>
+                <p className="text-muted-foreground mt-0.5 truncate text-[12px] leading-5 tabular-nums">
+                  共 {totalAssets} 项资产
+                </p>
               </div>
-            </AsyncState>
-          </Card>
-        </TabsContent>
-
-        {/* 根域名 */}
-        <TabsContent value="root_domain" className="mt-0 flex min-h-0 flex-1 flex-col gap-2">
-          {searchBox}
-          <AssetCard
-            {...cardStateProps}
-            cols={["", "域名", "ICP 备案", "归属企业", ""]}
-            loaded={tabLoaded}
-            total={total}
-            page={page}
-            size={size}
-            onSize={setSize}
-            onPage={setPage}
-            rows={currentRows}
-            selected={selected}
-            onToggleAll={(ids) => toggleSelectAll(ids)}
-          >
-            {slice(tabData("root_domain")).map((a) => (
-              <TableRow key={a.id} className={selected.has(a.id) ? "bg-muted/40" : undefined}>
-                <TableCell className="w-8 pr-0">
-                  <Checkbox
-                    checked={selected.has(a.id)}
-                    onCheckedChange={() => toggleSelect(a.id)}
-                    aria-label={`选择资产 ${a.domain || a.id}`}
-                  />
-                </TableCell>
-                <TableCell className="font-mono text-xs font-medium">{a.domain}</TableCell>
-                <TableCell className="text-xs">{a.icp || "—"}</TableCell>
-                <TableCell className="text-xs">
-                  {companyName(a.company_id) || <span className="text-muted-foreground">未归属</span>}
-                </TableCell>
-                <TableCell className="w-8 pl-0">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-7 text-muted-foreground hover:text-destructive"
-                    onClick={() => openDelete([a.id])}
-                    aria-label={`删除资产 ${a.domain || a.id}`}
+            </div>
+          </div>
+          <div className="px-3 pb-4">
+            <TabsList className="bg-surface-muted/70 w-full! flex-row! items-stretch justify-start gap-0.5 overflow-x-auto rounded-lg border-0 p-1 lg:flex-col! lg:overflow-visible">
+              {TAB_ORDER.map((key) => {
+                const item = TAB_BY_KEY.get(key);
+                if (!item) return null;
+                const Icon = item.icon;
+                return (
+                  <TabsTrigger
+                    key={key}
+                    value={key}
+                    className="h-8 w-auto! flex-none! justify-start gap-2 rounded-md px-2 text-[13px] lg:w-full!"
                   >
-                    <Trash2Icon className="size-3.5" />
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-          </AssetCard>
-        </TabsContent>
-
-        {/* IP */}
-        <TabsContent value="ip" className="mt-0 flex min-h-0 flex-1 flex-col gap-2">
-          {searchBox}
-          <AssetCard
-            {...cardStateProps}
-            cols={["", "IP", "C段", "绑定域名", "开放端口", ""]}
-            loaded={tabLoaded}
-            total={total}
-            page={page}
-            size={size}
-            onSize={setSize}
-            onPage={setPage}
-            rows={currentRows}
-            selected={selected}
-            onToggleAll={(ids) => toggleSelectAll(ids)}
-          >
-            {slice(tabData("ip")).map((a) => (
-              <TableRow key={a.id} className={selected.has(a.id) ? "bg-muted/40" : undefined}>
-                <TableCell className="w-8 pr-0">
-                  <Checkbox
-                    checked={selected.has(a.id)}
-                    onCheckedChange={() => toggleSelect(a.id)}
-                    aria-label={`选择资产 ${a.ip || a.id}`}
-                  />
-                </TableCell>
-                <TableCell className="font-mono text-xs font-medium">{a.ip}</TableCell>
-                <TableCell className="font-mono text-xs">{a.c_segment || "—"}</TableCell>
-                <TableCell>
-                  <Chips items={a.bound_domains ?? []} mono dense />
-                </TableCell>
-                <TableCell>
-                  <Chips
-                    items={(a.open_ports ?? []).map((p) => (p.service ? `${p.port}/${p.service}` : String(p.port)))}
-                    mono
-                    dense
-                  />
-                </TableCell>
-                <TableCell className="w-8 pl-0">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-7 text-muted-foreground hover:text-destructive"
-                    onClick={() => openDelete([a.id])}
-                    aria-label={`删除资产 ${a.ip || a.id}`}
-                  >
-                    <Trash2Icon className="size-3.5" />
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-          </AssetCard>
-        </TabsContent>
-
-        {/* 子域名 */}
-        <TabsContent value="subdomain" className="mt-0 flex min-h-0 flex-1 flex-col gap-2">
-          {searchBox}
-          <AssetCard
-            {...cardStateProps}
-            cols={["", "域名", "根域名", "解析类型", "解析值", ""]}
-            loaded={tabLoaded}
-            total={total}
-            page={page}
-            size={size}
-            onSize={setSize}
-            onPage={setPage}
-            rows={currentRows}
-            selected={selected}
-            onToggleAll={(ids) => toggleSelectAll(ids)}
-          >
-            {slice(tabData("subdomain")).map((a) => (
-              <TableRow key={a.id} className={selected.has(a.id) ? "bg-muted/40" : undefined}>
-                <TableCell className="w-8 pr-0">
-                  <Checkbox
-                    checked={selected.has(a.id)}
-                    onCheckedChange={() => toggleSelect(a.id)}
-                    aria-label={`选择资产 ${a.domain || a.id}`}
-                  />
-                </TableCell>
-                <TableCell className="font-mono text-xs font-medium">{a.domain}</TableCell>
-                <TableCell className="font-mono text-xs">{a.root_domain || "—"}</TableCell>
-                <TableCell className="text-xs">{a.record_type || "—"}</TableCell>
-                <TableCell className="max-w-xs truncate font-mono text-xs">
-                  {(Array.isArray(a.record_value) ? a.record_value.join(", ") : a.record_value) || "—"}
-                </TableCell>
-                <TableCell className="w-8 pl-0">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-7 text-muted-foreground hover:text-destructive"
-                    onClick={() => openDelete([a.id])}
-                    aria-label={`删除资产 ${a.domain || a.id}`}
-                  >
-                    <Trash2Icon className="size-3.5" />
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-          </AssetCard>
-        </TabsContent>
-
-        {/* 应用 */}
-        <TabsContent value="app" className="mt-0 flex min-h-0 flex-1 flex-col gap-2">
-          {searchBox}
-          <AssetCard
-            {...cardStateProps}
-            cols={["", "应用名", "Bundle ID", "分类", "ICP 备案", ""]}
-            loaded={tabLoaded}
-            total={total}
-            page={page}
-            size={size}
-            onSize={setSize}
-            onPage={setPage}
-            rows={currentRows}
-            selected={selected}
-            onToggleAll={(ids) => toggleSelectAll(ids)}
-          >
-            {slice(tabData("app")).map((a) => (
-              <TableRow key={a.id} className={selected.has(a.id) ? "bg-muted/40" : undefined}>
-                <TableCell className="w-8 pr-0">
-                  <Checkbox
-                    checked={selected.has(a.id)}
-                    onCheckedChange={() => toggleSelect(a.id)}
-                    aria-label={`选择资产 ${a.app_name || a.id}`}
-                  />
-                </TableCell>
-                <TableCell className="text-xs font-medium">{a.app_name || "—"}</TableCell>
-                <TableCell className="font-mono text-xs">{a.bundle_id || "—"}</TableCell>
-                <TableCell className="text-xs">{a.category || "—"}</TableCell>
-                <TableCell className="text-xs">{a.app_icp || "—"}</TableCell>
-                <TableCell className="w-8 pl-0">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-7 text-muted-foreground hover:text-destructive"
-                    onClick={() => openDelete([a.id])}
-                    aria-label={`删除资产 ${a.app_name || a.id}`}
-                  >
-                    <Trash2Icon className="size-3.5" />
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-          </AssetCard>
-        </TabsContent>
-
-        {/* 服务 */}
-        <TabsContent value="service" className="mt-0 flex min-h-0 flex-1 flex-col gap-2">
-          {searchBox}
-          <AssetCard
-            {...cardStateProps}
-            cols={["", "服务", "域名", "IP", "端口", "状态码", "标题", "指纹", "认证", ""]}
-            loaded={tabLoaded}
-            total={total}
-            page={page}
-            size={size}
-            onSize={setSize}
-            onPage={setPage}
-            rows={currentRows}
-            selected={selected}
-            onToggleAll={(ids) => toggleSelectAll(ids)}
-          >
-            {slice(tabData("service")).map((a) => {
-              const isHttp = a.service_type === "http";
-              const svc = a.service_name || (isHttp ? "http" : "") || a.service_type || "";
-              let domainCell: React.ReactNode = "—";
-              if (isHttp && a.url) {
-                domainCell = (
-                  <a
-                    href={a.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-blue-600 hover:underline dark:text-blue-400"
-                  >
-                    {a.domain || a.url}
-                  </a>
+                    <span className={cn("grid size-5 shrink-0 place-items-center rounded-md", item.tile)}>
+                      <Icon className="size-3.5" aria-hidden="true" />
+                    </span>
+                    <span className="whitespace-nowrap">{item.label}</span>
+                    {/* 计数统一成裸数字：选中项与未选中项同一字号、同一颜色、同一对齐。 */}
+                    <span className="text-muted-foreground ml-auto text-[11px] font-medium tabular-nums">
+                      {tabCounts[key] ?? 0}
+                    </span>
+                  </TabsTrigger>
                 );
-              } else if (a.domain) {
-                domainCell = a.domain;
-              }
-              return (
+              })}
+            </TabsList>
+          </div>
+        </Card>
+
+        <div className="flex min-w-0 flex-1 flex-col gap-3">
+          {/* 企业 */}
+          <TabsContent value="company" className="mt-0 flex flex-col gap-5">
+            <Card className="flex flex-col gap-0 overflow-hidden py-0">
+              <AssetCardHead
+                icon={BuildingIcon}
+                title="企业"
+                description="组织主体与授权资产范围。"
+                actions={
+                  <span className="app-chip shrink-0 tabular-nums">
+                    共 <span className="text-foreground font-medium">{companies.length}</span> 家
+                  </span>
+                }
+              />
+              <AsyncState
+                status={!metaLoaded ? "loading" : metaError && companies.length === 0 ? "error" : "ready"}
+                error={metaError}
+                onRetry={loadMeta}
+                className="mx-5 mb-5"
+              >
+                <div className="px-5 pb-5">
+                  {metaError && companies.length > 0 && (
+                    <div
+                      role="alert"
+                      className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+                    >
+                      <span className="min-w-0 [overflow-wrap:anywhere]">刷新企业列表失败：{metaError.message}</span>
+                      <Button size="sm" variant="outline" onClick={loadMeta}>
+                        重试
+                      </Button>
+                    </div>
+                  )}
+                  <div className="border-border/60 max-h-[60vh] min-h-[10rem] overflow-auto rounded-lg border">
+                    <Table>
+                      <TableHeader className="sticky top-0 z-10">
+                        <TableRow>
+                          <TableHead>企业</TableHead>
+                          <TableHead className="w-24 text-right">资产数</TableHead>
+                          <TableHead>资产范围</TableHead>
+                          <TableHead className="w-36 text-right">操作</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {companies.map((c) => (
+                          <TableRow key={c.id}>
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                <CompanyAvatar name={c.name} logo={c.logo} />
+                                <span className="font-medium">{c.name}</span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums text-[13px]">{c.asset_count}</TableCell>
+                            <TableCell>
+                              {c.scope?.length ? (
+                                <div className="flex flex-wrap gap-1">
+                                  {c.scope.map((s, i) => (
+                                    <Badge key={i} variant="secondary" className="font-mono text-[11px]">
+                                      {s.raw}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">未设置范围</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <EditScopeDialog company={c} onSaved={refresh} />
+                                <AppendScopeDialog company={c} onSaved={refresh} />
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="size-7 text-muted-foreground hover:text-destructive"
+                                  onClick={() => {
+                                    setCompanyDeleteTarget(c);
+                                    setCompanyDeleteAssets(false);
+                                  }}
+                                  aria-label={`删除企业 ${c.name}`}
+                                >
+                                  <Trash2Icon className="size-3.5" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                        {metaLoaded && !metaError && companies.length === 0 && (
+                          <TableRow className="hover:bg-transparent">
+                            <TableCell colSpan={4} className="p-0 text-center whitespace-normal">
+                              <div className="flex flex-col items-center justify-center gap-1.5 px-6 py-6 text-center">
+                                <BuildingIcon className="text-muted-foreground/60 size-6" aria-hidden="true" />
+                                <p className="text-foreground text-[13px] font-semibold">还没有企业</p>
+                                <p className="text-muted-foreground max-w-md text-[12px] leading-5">
+                                  点击右上角「新增企业」并填写资产范围，系统会自动认领命中的资产。
+                                </p>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              </AsyncState>
+            </Card>
+          </TabsContent>
+
+          {/* 根域名 */}
+          <TabsContent value="root_domain" className="mt-0 flex flex-col gap-3">
+            <AssetCard
+              {...cardStateProps}
+              typeKey="root_domain"
+              search={searchBox}
+              onDeleteSelected={openDelete}
+              cols={["", "域名", "ICP 备案", "归属企业", "操作"]}
+              loaded={tabLoaded}
+              total={total}
+              page={page}
+              size={size}
+              onSize={setSize}
+              onPage={setPage}
+              rows={currentRows}
+              selected={selected}
+              onToggleAll={(ids) => toggleSelectAll(ids)}
+            >
+              {slice(tabData("root_domain")).map((a) => (
                 <TableRow key={a.id} className={selected.has(a.id) ? "bg-muted/40" : undefined}>
                   <TableCell className="w-8 pr-0">
                     <Checkbox
                       checked={selected.has(a.id)}
                       onCheckedChange={() => toggleSelect(a.id)}
-                      aria-label={`选择资产 ${a.url || a.domain || a.id}`}
+                      aria-label={`选择资产 ${a.domain || a.id}`}
                     />
                   </TableCell>
-                  <TableCell className="text-xs">
-                    <Badge variant={isHttp ? "default" : "secondary"} className="font-mono text-[10px]">
-                      {svc || "—"}
-                    </Badge>
+                  <TableCell className="font-mono text-[13px] font-medium">{a.domain}</TableCell>
+                  <TableCell className="text-[13px]">{a.icp || "—"}</TableCell>
+                  <TableCell className="text-[13px]">
+                    {companyName(a.company_id) || <span className="text-muted-foreground">未归属</span>}
                   </TableCell>
-                  <TableCell className="max-w-[14rem] truncate font-mono text-xs" title={a.domain || a.url}>
-                    {domainCell}
+                  <TableCell className="w-8 pl-0">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 text-muted-foreground hover:text-destructive"
+                      onClick={() => openDelete([a.id])}
+                      aria-label={`删除资产 ${a.domain || a.id}`}
+                    >
+                      <Trash2Icon className="size-3.5" />
+                    </Button>
                   </TableCell>
-                  <TableCell className="font-mono text-xs">{a.ip || "—"}</TableCell>
-                  <TableCell className="font-mono text-xs tabular-nums">{a.port || "—"}</TableCell>
+                </TableRow>
+              ))}
+            </AssetCard>
+          </TabsContent>
+
+          {/* IP */}
+          <TabsContent value="ip" className="mt-0 flex flex-col gap-3">
+            <AssetCard
+              {...cardStateProps}
+              typeKey="ip"
+              search={searchBox}
+              onDeleteSelected={openDelete}
+              cols={["", "IP", "C段", "绑定域名", "开放端口", "操作"]}
+              loaded={tabLoaded}
+              total={total}
+              page={page}
+              size={size}
+              onSize={setSize}
+              onPage={setPage}
+              rows={currentRows}
+              selected={selected}
+              onToggleAll={(ids) => toggleSelectAll(ids)}
+            >
+              {slice(tabData("ip")).map((a) => (
+                <TableRow key={a.id} className={selected.has(a.id) ? "bg-muted/40" : undefined}>
+                  <TableCell className="w-8 pr-0">
+                    <Checkbox
+                      checked={selected.has(a.id)}
+                      onCheckedChange={() => toggleSelect(a.id)}
+                      aria-label={`选择资产 ${a.ip || a.id}`}
+                    />
+                  </TableCell>
+                  <TableCell className="font-mono text-[13px] font-medium">{a.ip}</TableCell>
+                  <TableCell className="font-mono text-[13px]">{a.c_segment || "—"}</TableCell>
                   <TableCell>
-                    {a.status_code != null ? (
-                      <span className={cn("font-mono text-xs font-semibold tabular-nums", statusTone(a.status_code))}>
-                        {a.status_code}
-                      </span>
-                    ) : (
-                      "—"
-                    )}
-                  </TableCell>
-                  <TableCell className="max-w-[12rem] truncate text-xs" title={a.page_title}>
-                    {a.page_title || "—"}
+                    <Chips items={a.bound_domains ?? []} mono dense />
                   </TableCell>
                   <TableCell>
-                    <Chips items={a.technologies ?? []} dense />
+                    <Chips
+                      items={(a.open_ports ?? []).map((p) => (p.service ? `${p.port}/${p.service}` : String(p.port)))}
+                      mono
+                      dense
+                    />
+                  </TableCell>
+                  <TableCell className="w-8 pl-0">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 text-muted-foreground hover:text-destructive"
+                      onClick={() => openDelete([a.id])}
+                      aria-label={`删除资产 ${a.ip || a.id}`}
+                    >
+                      <Trash2Icon className="size-3.5" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </AssetCard>
+          </TabsContent>
+
+          {/* 子域名 */}
+          <TabsContent value="subdomain" className="mt-0 flex flex-col gap-3">
+            <AssetCard
+              {...cardStateProps}
+              typeKey="subdomain"
+              search={searchBox}
+              onDeleteSelected={openDelete}
+              cols={["", "域名", "根域名", "解析类型", "解析值", "操作"]}
+              loaded={tabLoaded}
+              total={total}
+              page={page}
+              size={size}
+              onSize={setSize}
+              onPage={setPage}
+              rows={currentRows}
+              selected={selected}
+              onToggleAll={(ids) => toggleSelectAll(ids)}
+            >
+              {slice(tabData("subdomain")).map((a) => (
+                <TableRow key={a.id} className={selected.has(a.id) ? "bg-muted/40" : undefined}>
+                  <TableCell className="w-8 pr-0">
+                    <Checkbox
+                      checked={selected.has(a.id)}
+                      onCheckedChange={() => toggleSelect(a.id)}
+                      aria-label={`选择资产 ${a.domain || a.id}`}
+                    />
+                  </TableCell>
+                  <TableCell className="font-mono text-[13px] font-medium">{a.domain}</TableCell>
+                  <TableCell className="font-mono text-[13px]">{a.root_domain || "—"}</TableCell>
+                  <TableCell className="text-[13px]">{a.record_type || "—"}</TableCell>
+                  <TableCell className="max-w-xs truncate font-mono text-[13px]">
+                    {(Array.isArray(a.record_value) ? a.record_value.join(", ") : a.record_value) || "—"}
+                  </TableCell>
+                  <TableCell className="w-8 pl-0">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 text-muted-foreground hover:text-destructive"
+                      onClick={() => openDelete([a.id])}
+                      aria-label={`删除资产 ${a.domain || a.id}`}
+                    >
+                      <Trash2Icon className="size-3.5" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </AssetCard>
+          </TabsContent>
+
+          {/* 应用 */}
+          <TabsContent value="app" className="mt-0 flex flex-col gap-3">
+            <AssetCard
+              {...cardStateProps}
+              typeKey="app"
+              search={searchBox}
+              onDeleteSelected={openDelete}
+              cols={["", "应用名", "Bundle ID", "分类", "ICP 备案", "操作"]}
+              loaded={tabLoaded}
+              total={total}
+              page={page}
+              size={size}
+              onSize={setSize}
+              onPage={setPage}
+              rows={currentRows}
+              selected={selected}
+              onToggleAll={(ids) => toggleSelectAll(ids)}
+            >
+              {slice(tabData("app")).map((a) => (
+                <TableRow key={a.id} className={selected.has(a.id) ? "bg-muted/40" : undefined}>
+                  <TableCell className="w-8 pr-0">
+                    <Checkbox
+                      checked={selected.has(a.id)}
+                      onCheckedChange={() => toggleSelect(a.id)}
+                      aria-label={`选择资产 ${a.app_name || a.id}`}
+                    />
+                  </TableCell>
+                  <TableCell className="text-[13px] font-medium">{a.app_name || "—"}</TableCell>
+                  <TableCell className="font-mono text-[13px]">{a.bundle_id || "—"}</TableCell>
+                  <TableCell className="text-[13px]">{a.category || "—"}</TableCell>
+                  <TableCell className="text-[13px]">{a.app_icp || "—"}</TableCell>
+                  <TableCell className="w-8 pl-0">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 text-muted-foreground hover:text-destructive"
+                      onClick={() => openDelete([a.id])}
+                      aria-label={`删除资产 ${a.app_name || a.id}`}
+                    >
+                      <Trash2Icon className="size-3.5" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </AssetCard>
+          </TabsContent>
+
+          {/* 服务 */}
+          <TabsContent value="service" className="mt-0 flex flex-col gap-3">
+            <AssetCard
+              {...cardStateProps}
+              typeKey="service"
+              search={searchBox}
+              onDeleteSelected={openDelete}
+              cols={["", "服务", "域名", "IP", "端口", "状态码", "标题", "指纹", "认证", "操作"]}
+              loaded={tabLoaded}
+              total={total}
+              page={page}
+              size={size}
+              onSize={setSize}
+              onPage={setPage}
+              rows={currentRows}
+              selected={selected}
+              onToggleAll={(ids) => toggleSelectAll(ids)}
+            >
+              {slice(tabData("service")).map((asset) => {
+                const isHttp = asset.service_type === "http";
+                const svc = asset.service_name || (isHttp ? "http" : "") || asset.service_type || "";
+                let domainCell: React.ReactNode = "—";
+                if (isHttp && asset.url) {
+                  domainCell = (
+                    <a
+                      href={asset.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-blue-600 hover:underline dark:text-blue-400"
+                    >
+                      {asset.domain || asset.url}
+                    </a>
+                  );
+                } else if (asset.domain) {
+                  domainCell = asset.domain;
+                }
+                return (
+                  <TableRow key={asset.id} className={selected.has(asset.id) ? "bg-muted/40" : undefined}>
+                    <TableCell className="w-8 pr-0">
+                      <Checkbox
+                        checked={selected.has(asset.id)}
+                        onCheckedChange={() => toggleSelect(asset.id)}
+                        aria-label={`选择资产 ${asset.url || asset.domain || asset.id}`}
+                      />
+                    </TableCell>
+                    <TableCell className="text-[13px]">
+                      <Badge variant={isHttp ? "default" : "secondary"} className="font-mono text-[11px]">
+                        {svc || "—"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="max-w-[14rem] truncate font-mono text-[13px]" title={asset.domain || asset.url}>
+                      {domainCell}
+                    </TableCell>
+                    <TableCell className="font-mono text-[13px]">{asset.ip || "—"}</TableCell>
+                    <TableCell className="font-mono text-[13px] tabular-nums">{asset.port || "—"}</TableCell>
+                    <TableCell>
+                      {asset.status_code != null ? (
+                        <span
+                          className={cn("font-mono text-xs font-semibold tabular-nums", statusTone(asset.status_code))}
+                        >
+                          {asset.status_code}
+                        </span>
+                      ) : (
+                        "—"
+                      )}
+                    </TableCell>
+                    <TableCell className="max-w-[12rem] truncate text-[13px]" title={asset.page_title}>
+                      {asset.page_title || "—"}
+                    </TableCell>
+                    <TableCell>
+                      <Chips items={asset.technologies ?? []} dense />
+                    </TableCell>
+                    <TableCell>
+                      {(asset.auth ?? []).length === 0 ? (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      ) : (
+                        (asset.auth ?? []).map((authItem, i) => {
+                          const item = authItem as Record<string, string>;
+                          const label = item.type || item.username || "认证";
+                          return (
+                            <span key={i} className="inline-flex items-center gap-1 text-[11px]">
+                              <KeyRoundIcon className="size-3 text-muted-foreground" />
+                              <span className="font-mono">{label}</span>
+                            </span>
+                          );
+                        })
+                      )}
+                    </TableCell>
+                    <TableCell className="w-8 pl-0">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7 text-muted-foreground hover:text-destructive"
+                        onClick={() => openDelete([asset.id])}
+                        aria-label={`删除资产 ${asset.url || asset.id}`}
+                      >
+                        <Trash2Icon className="size-3.5" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </AssetCard>
+          </TabsContent>
+
+          {/* 接口 */}
+          <TabsContent value="endpoint" className="mt-0 flex flex-col gap-3">
+            <AssetCard
+              {...cardStateProps}
+              typeKey="endpoint"
+              search={searchBox}
+              onDeleteSelected={openDelete}
+              cols={["", "方法", "完整地址", "参数", "操作"]}
+              loaded={tabLoaded}
+              total={total}
+              page={page}
+              size={size}
+              onSize={setSize}
+              onPage={setPage}
+              rows={currentRows}
+              selected={selected}
+              onToggleAll={(ids) => toggleSelectAll(ids)}
+            >
+              {slice(tabData("endpoint")).map((a) => (
+                <TableRow key={a.id} className={selected.has(a.id) ? "bg-muted/40" : undefined}>
+                  <TableCell className="w-8 pr-0">
+                    <Checkbox
+                      checked={selected.has(a.id)}
+                      onCheckedChange={() => toggleSelect(a.id)}
+                      aria-label={`选择资产 ${a.url || a.id}`}
+                    />
+                  </TableCell>
+                  <TableCell className="w-16">
+                    <MethodBadge method={a.method || ""} />
+                  </TableCell>
+                  <TableCell className="max-w-sm truncate font-mono text-[13px]" title={a.url}>
+                    {a.url || "—"}
                   </TableCell>
                   <TableCell>
-                    {(a.auth ?? []).length === 0 ? (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    ) : (
-                      (a.auth ?? []).map((authItem, i) => {
-                        const item = authItem as Record<string, string>;
-                        const label = item.type || item.username || "认证";
-                        return (
-                          <span key={i} className="inline-flex items-center gap-1 text-[11px]">
-                            <KeyRoundIcon className="size-3 text-muted-foreground" />
-                            <span className="font-mono">{label}</span>
-                          </span>
-                        );
-                      })
-                    )}
+                    <Chips
+                      items={(a.params ?? []).map((p) => {
+                        const item = p as Record<string, string>;
+                        return item.name ? `${item.name}(${item.location || "?"})` : "?";
+                      })}
+                      mono
+                      dense
+                    />
                   </TableCell>
                   <TableCell className="w-8 pl-0">
                     <Button
@@ -704,71 +891,18 @@ export default function AssetsPage() {
                     </Button>
                   </TableCell>
                 </TableRow>
-              );
-            })}
-          </AssetCard>
-        </TabsContent>
-
-        {/* 接口 */}
-        <TabsContent value="endpoint" className="mt-0 flex min-h-0 flex-1 flex-col gap-2">
-          {searchBox}
-          <AssetCard
-            {...cardStateProps}
-            cols={["", "方法", "完整地址", "参数", ""]}
-            loaded={tabLoaded}
-            total={total}
-            page={page}
-            size={size}
-            onSize={setSize}
-            onPage={setPage}
-            rows={currentRows}
-            selected={selected}
-            onToggleAll={(ids) => toggleSelectAll(ids)}
-          >
-            {slice(tabData("endpoint")).map((a) => (
-              <TableRow key={a.id} className={selected.has(a.id) ? "bg-muted/40" : undefined}>
-                <TableCell className="w-8 pr-0">
-                  <Checkbox
-                    checked={selected.has(a.id)}
-                    onCheckedChange={() => toggleSelect(a.id)}
-                    aria-label={`选择资产 ${a.url || a.id}`}
-                  />
-                </TableCell>
-                <TableCell className="w-16">
-                  <MethodBadge method={a.method || ""} />
-                </TableCell>
-                <TableCell className="max-w-sm truncate font-mono text-xs" title={a.url}>
-                  {a.url || "—"}
-                </TableCell>
-                <TableCell>
-                  <Chips
-                    items={(a.params ?? []).map((p) => {
-                      const item = p as Record<string, string>;
-                      return item.name ? `${item.name}(${item.location || "?"})` : "?";
-                    })}
-                    mono
-                    dense
-                  />
-                </TableCell>
-                <TableCell className="w-8 pl-0">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-7 text-muted-foreground hover:text-destructive"
-                    onClick={() => openDelete([a.id])}
-                    aria-label={`删除资产 ${a.url || a.id}`}
-                  >
-                    <Trash2Icon className="size-3.5" />
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-          </AssetCard>
-        </TabsContent>
+              ))}
+            </AssetCard>
+          </TabsContent>
+        </div>
       </Tabs>
 
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent
+          onEscapeKeyDown={(event) => {
+            if (deleting) event.preventDefault();
+          }}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>确认删除</AlertDialogTitle>
             <AlertDialogDescription>
@@ -801,7 +935,11 @@ export default function AssetsPage() {
           }
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent
+          onEscapeKeyDown={(event) => {
+            if (companyDeleting) event.preventDefault();
+          }}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>删除企业 · {companyDeleteTarget?.name}</AlertDialogTitle>
             <AlertDialogDescription asChild>
@@ -843,7 +981,37 @@ export default function AssetsPage() {
   );
 }
 
+// 卡片头：与 SectionCard 的排版完全一致（14px 线性图标 + 13px 标题 + 12px 说明 + 右侧计数），
+// 企业卡与各资产类型卡共用，避免两套头部样式。
+function AssetCardHead({
+  icon: Icon,
+  title,
+  description,
+  actions,
+}: {
+  icon: LucideIcon;
+  title: React.ReactNode;
+  description: React.ReactNode;
+  actions?: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-3">
+      <div className="flex min-w-0 items-start gap-2">
+        <Icon className="text-muted-foreground mt-0.5 size-4 shrink-0" aria-hidden="true" />
+        <div className="min-w-0">
+          <h2 className="text-foreground text-[13px] leading-5 font-semibold">{title}</h2>
+          <p className="text-muted-foreground mt-0.5 truncate text-[12px] leading-5">{description}</p>
+        </div>
+      </div>
+      {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
+    </div>
+  );
+}
+
 function AssetCard({
+  typeKey,
+  search,
+  onDeleteSelected,
   cols,
   loaded,
   loading,
@@ -859,6 +1027,10 @@ function AssetCard({
   onToggleAll,
   children,
 }: {
+  typeKey: string;
+  /** DSL 检索框（共享组件，内部自带候选与命中数提示）。 */
+  search: React.ReactNode;
+  onDeleteSelected: (ids: number[]) => void;
   cols: string[];
   loaded: boolean;
   loading: boolean;
@@ -874,10 +1046,10 @@ function AssetCard({
   onToggleAll?: (ids: number[]) => void;
   children: React.ReactNode;
 }) {
+  const meta = TAB_BY_KEY.get(typeKey);
+  const TypeIcon = meta?.icon ?? LayersIcon;
+  const selectedCount = selected?.size ?? 0;
   const childRows = React.Children.toArray(children);
-  const pageCount = Math.max(1, Math.ceil(total / size));
-  const start = total === 0 ? 0 : page * size + 1;
-  const end = page * size + childRows.length;
 
   const pageIds = dataRows?.map((r) => r.id) ?? [];
   const allSelected = pageIds.length > 0 && selected != null && pageIds.every((id) => selected.has(id));
@@ -911,19 +1083,55 @@ function AssetCard({
     tableRows = childRows;
   } else {
     tableRows = (
-      <TableRow>
-        <TableCell colSpan={cols.length} className="py-12 text-center text-sm text-muted-foreground">
-          暂无数据。
+      <TableRow className="hover:bg-transparent">
+        <TableCell colSpan={cols.length} className="p-0 text-center whitespace-normal">
+          <div className="flex flex-col items-center justify-center gap-1.5 px-6 py-6 text-center">
+            <TypeIcon className="text-muted-foreground/60 size-6" aria-hidden="true" />
+            <p className="text-foreground text-[13px] font-semibold">暂无{meta?.label ?? "资产"}</p>
+            <p className="text-muted-foreground max-w-md text-[12px] leading-5">
+              换个类型页签或调整 DSL 检索条件；新发现的资产会在任务运行后自动入库。
+            </p>
+          </div>
         </TableCell>
       </TableRow>
     );
   }
 
   return (
-    <Card className="flex min-h-0 flex-1 flex-col overflow-hidden py-0">
-      <div className="min-h-0 flex-1 overflow-auto scrollbar-thin scrollbar-track-transparent">
+    <Card className="flex flex-col gap-0 overflow-hidden py-0">
+      <AssetCardHead
+        icon={TypeIcon}
+        title={meta?.label ?? "资产"}
+        description={meta?.description ?? "资产列表。"}
+        actions={
+          <span className="app-chip shrink-0 tabular-nums">
+            共 <span className="text-foreground font-medium">{total}</span> 项
+          </span>
+        }
+      />
+
+      <div className="border-border/60 flex flex-wrap items-center gap-2 border-y px-5 py-3">
+        <div className="min-w-0 flex-1">{search}</div>
+        {selectedCount > 0 && (
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="text-muted-foreground text-[12px] whitespace-nowrap tabular-nums">
+              已选 <span className="text-foreground font-medium">{selectedCount}</span> 项
+            </span>
+            <Button
+              variant="destructive"
+              size="sm"
+              aria-label={`删除已选的 ${selectedCount} 项资产`}
+              onClick={() => onDeleteSelected(Array.from(selected ?? []) as number[])}
+            >
+              <Trash2Icon className="size-3.5" /> 删除
+            </Button>
+          </div>
+        )}
+      </div>
+
+      <div className="max-h-[60vh] min-h-[12rem] overflow-auto scrollbar-thin scrollbar-track-transparent">
         <Table>
-          <TableHeader className="sticky top-0 z-10 bg-card">
+          <TableHeader className="sticky top-0 z-10">
             <TableRow>
               {cols.map((c, i) =>
                 c === "" && i === 0 && onToggleAll ? (
@@ -935,7 +1143,9 @@ function AssetCard({
                     />
                   </TableHead>
                 ) : (
-                  <TableHead key={c + i}>{c}</TableHead>
+                  <TableHead key={c + i} className={i === cols.length - 1 ? "text-right" : undefined}>
+                    {c}
+                  </TableHead>
                 ),
               )}
             </TableRow>
@@ -943,53 +1153,17 @@ function AssetCard({
           <TableBody>{tableRows}</TableBody>
         </Table>
       </div>
+      {/* 与任务/漏洞列表共用同一个分页条：同一套 28px 控件、同一种分隔符与文案口径。
+          资产页的 page 是 0 基，这里换算成 1 基交给组件。 */}
       {total > 0 && (
-        <div className="flex shrink-0 items-center gap-2 border-t px-3 py-1.5 text-xs text-muted-foreground">
-          <Select value={String(size)} onValueChange={(v) => onSize(Number(v))}>
-            <SelectTrigger size="sm" className="h-7 w-24" aria-label="每页数量">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {PAGE_SIZES.map((n) => (
-                  <SelectItem key={n} value={String(n)}>
-                    {n} / 页
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-          <span className="tabular-nums">
-            {start}–{end} / {total}
-          </span>
-          {pageCount > 1 && (
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="icon"
-                className="size-7"
-                disabled={page <= 0}
-                onClick={() => onPage((p) => Math.max(0, p - 1))}
-                aria-label="上一页"
-              >
-                <ChevronLeftIcon />
-              </Button>
-              <span className="tabular-nums">
-                {page + 1} / {pageCount}
-              </span>
-              <Button
-                variant="outline"
-                size="icon"
-                className="size-7"
-                disabled={page + 1 >= pageCount}
-                onClick={() => onPage((p) => Math.min(pageCount - 1, p + 1))}
-                aria-label="下一页"
-              >
-                <ChevronRightIcon />
-              </Button>
-            </div>
-          )}
-        </div>
+        <TablePagination
+          page={page + 1}
+          pageSize={size}
+          total={total}
+          pageSizeOptions={PAGE_SIZES}
+          onPageChange={(next) => onPage(Math.max(0, next - 1))}
+          onPageSizeChange={(next) => onSize(next)}
+        />
       )}
     </Card>
   );
@@ -1073,7 +1247,7 @@ function CompanyDialog({ onSaved }: { onSaved: () => void }) {
           <BuildingIcon data-icon="inline-start" /> 新增企业
         </Button>
       </SheetTrigger>
-      <SheetContent className="w-full! max-w-none! gap-0 p-0 sm:w-[520px]! sm:max-w-[520px]!">
+      <SheetContent busy={busy} className="w-full! max-w-none! gap-0 p-0 sm:w-[520px]! sm:max-w-[520px]!">
         <SheetHeader className="border-b p-6">
           <SheetTitle>新增企业</SheetTitle>
           <SheetDescription>配置企业及其资产范围。关键词只作为 Agent 提示，不会自动归属资产。</SheetDescription>
@@ -1151,7 +1325,7 @@ function EditScopeDialog({ company, onSaved }: { company: Company; onSaved: () =
           编辑
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent busy={busy}>
         <DialogHeader>
           <DialogTitle>编辑资产范围 · {company.name}</DialogTitle>
           <DialogDescription>
@@ -1234,7 +1408,7 @@ function AppendScopeDialog({ company, onSaved }: { company: Company; onSaved: ()
           追加
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent busy={busy}>
         <DialogHeader>
           <DialogTitle>追加资产范围 · {company.name}</DialogTitle>
           <DialogDescription>新范围会追加到现有范围。ICP 精确匹配资产，企业关键词仅作为 Agent 提示。</DialogDescription>

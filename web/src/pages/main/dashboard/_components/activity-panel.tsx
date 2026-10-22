@@ -4,104 +4,121 @@ import * as React from "react";
 
 import { ActivityIcon, ArrowUpRightIcon } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SECTION_TITLE_CLASS } from "@/lib/typography";
 import Link from "@/lib/router-compat";
+import { breathe } from "@/lib/motion";
 import type { Activity } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-import { fmtRel } from "./format";
+import { activitySummary, fmtRel } from "./format";
 
 interface ActivityPanelProps {
   activity: Activity[];
   fastReady: boolean;
 }
 
+const KIND_META: Record<string, { label: string; dot: string }> = {
+  tool_use: { label: "工具调用", dot: "bg-chart-1" },
+  tool_result: { label: "工具结果", dot: "bg-chart-2" },
+  thinking: { label: "思考", dot: "bg-chart-4" },
+  intent: { label: "执行意图", dot: "bg-primary" },
+  result: { label: "结果", dot: "bg-chart-2" },
+  round: { label: "规划轮次", dot: "bg-chart-5" },
+  user: { label: "用户", dot: "bg-muted-foreground/50" },
+  text: { label: "文本", dot: "bg-muted-foreground/50" },
+  llm_switch: { label: "模型切换", dot: "bg-chart-3" },
+  llm_failover: { label: "模型容灾", dot: "bg-chart-3" },
+  intercept_request: { label: "审批请求", dot: "bg-destructive" },
+};
+
+function kindMeta(a: Activity): { label: string; dot: string } {
+  // 未知 kind（后端新增事件类型）不要直接把英文枚举丢到界面上，统一兜底为「事件」。
+  const meta = KIND_META[a.kind] ?? { label: "事件", dot: "bg-muted-foreground/50" };
+  if (a.kind === "tool_use" && a.tool) return { ...meta, label: a.tool };
+  if (a.is_error) return { ...meta, dot: "bg-destructive" };
+  return meta;
+}
+
+/**
+ * 右栏实时执行流：紧凑时间线，最新事件置顶呼吸点，
+ * 状态色点区分事件类型，时间戳相对显示。
+ *
+ * 摘要一律经 activitySummary() 清洗成单行：原始 JSON 只留关键字段
+ * （{"assets":null,"count":0} → 「资产 0 条」），完整内容放在 title 里。
+ */
 export function ActivityPanel({ activity, fastReady }: ActivityPanelProps) {
-  const recentActivity = React.useMemo(
+  const stream = React.useMemo(
     () =>
       [...activity]
         .filter((a) => a.kind !== "usage")
         .sort((a, b) => b.seq - a.seq)
-        .slice(0, 6),
+        .slice(0, 12),
     [activity],
   );
 
-  function kindLabel(a: Activity): string {
-    if (a.kind === "tool_use") return a.tool ?? "tool_use";
-    if (a.kind === "tool_result") return "tool_result";
-    return a.kind;
-  }
-
-  function workerBg(w: string): string {
-    if (w === "planner") return "bg-violet-500/10 text-violet-400 border-violet-500/20";
-    if (w === "mainagent") return "bg-cyan-500/10 text-cyan-400 border-cyan-500/20";
-    return "bg-blue-500/10 text-blue-400 border-blue-500/20";
-  }
-
   return (
-    <Card className="p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-xs font-semibold">
-          <ActivityIcon className="size-3.5 text-muted-foreground" />
-          活动流
+    <Card className="gap-0 p-4" role="region" aria-label="实时执行流">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <ActivityIcon className="size-3.5 shrink-0 text-primary" aria-hidden="true" />
+          <span className={cn("truncate", SECTION_TITLE_CLASS)}>实时执行流</span>
+          <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{stream.length} 条</span>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-muted-foreground">
-            {activity.filter((a) => a.kind !== "usage").length} 条事件
-          </span>
-          <Link
-            href="/function/tasks"
-            className="flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground"
-          >
-            查看任务 <ArrowUpRightIcon className="size-3" />
-          </Link>
-        </div>
+        <Link
+          prefetch={false}
+          href="/function/tasks"
+          className="flex shrink-0 items-center gap-0.5 rounded text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+        >
+          查看任务 <ArrowUpRightIcon className="size-3" aria-hidden="true" />
+        </Link>
       </div>
 
-      <div className="mb-2.5 flex flex-wrap gap-1.5">
-        {(["tool_use", "tool_result", "text", "thinking", "result"] as const).map((kind) => {
-          const count = activity.filter((a) => a.kind === kind).length;
-          if (count === 0) return null;
-          return (
-            <span key={kind} className="rounded border bg-muted/20 px-1.5 py-0.5 text-[9px] text-muted-foreground">
-              {kind} <strong className="text-foreground/70">{count}</strong>
-            </span>
-          );
-        })}
-      </div>
-
-      <div className="divide-y">
-        {recentActivity.length === 0 ? (
-          <div className="py-4 text-center text-xs text-muted-foreground">
-            {fastReady ? "暂无活动记录" : <Skeleton className="mx-auto h-4 w-32" />}
-          </div>
-        ) : (
-          recentActivity.map((a) => (
-            <div key={a.seq} className="flex gap-2.5 py-2">
-              <span
-                className={cn(
-                  "shrink-0 self-start rounded border px-1.5 py-0.5 font-mono text-[9px]",
-                  workerBg(a.worker),
-                )}
-              >
-                {a.worker}
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="text-[11px] font-medium">{kindLabel(a)}</div>
-                <div className="mt-0.5 truncate text-[10px] text-muted-foreground">{a.summary}</div>
-              </div>
-              <div className="shrink-0 text-right">
-                <Badge variant="outline" className="px-1.5 py-0 text-[9px] text-muted-foreground">
-                  {a.kind}
-                </Badge>
-                <div className="mt-0.5 text-[9px] tabular-nums text-muted-foreground">{fmtRel(a.ts)}</div>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
+      {stream.length === 0 ? (
+        <div className="py-6 text-center text-xs text-muted-foreground">
+          {fastReady ? "暂无活动记录" : <Skeleton className="mx-auto h-4 w-32" />}
+        </div>
+      ) : (
+        <div className="-mr-1 max-h-[236px] overflow-y-auto pr-1 [mask-image:linear-gradient(to_bottom,black,black_calc(100%_-_24px),transparent)]">
+          <ol aria-label="执行事件时间线" className="relative flex flex-col">
+            {stream.map((a, index) => {
+              const meta = kindMeta(a);
+              const latest = index === 0;
+              const summary = activitySummary(a.summary);
+              return (
+                <li key={a.seq} className="relative flex gap-2.5 pb-3 last:pb-0">
+                  {/* 时间轴竖线 */}
+                  {index < stream.length - 1 ? (
+                    <span aria-hidden="true" className="absolute top-4 bottom-0 left-[3.75px] w-px bg-border/70" />
+                  ) : null}
+                  <span
+                    aria-hidden="true"
+                    className={cn("mt-1.5 size-2 shrink-0 rounded-full", meta.dot, latest && breathe.className)}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="min-w-0 truncate text-xs font-medium text-foreground">{meta.label}</span>
+                      <span className="flex shrink-0 items-baseline gap-1.5 text-[11px] text-muted-foreground tabular-nums">
+                        {a.worker ? (
+                          <span className="max-w-20 truncate font-mono text-muted-foreground/80">{a.worker}</span>
+                        ) : null}
+                        <span>{fmtRel(a.ts)}</span>
+                      </span>
+                    </div>
+                    <p
+                      className="mt-0.5 truncate text-xs leading-5 text-muted-foreground"
+                      title={a.summary || undefined}
+                    >
+                      {summary}
+                    </p>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+      )}
     </Card>
   );
 }

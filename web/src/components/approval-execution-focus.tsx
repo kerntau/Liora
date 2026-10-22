@@ -114,7 +114,7 @@ export function ApprovalExecutionFocus({
   return (
     <div
       role="status"
-      className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b px-4 py-2 text-xs"
+      className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border/60 bg-surface-muted/60 px-5 py-2.5 text-[12px]"
     >
       <span className={error ? "text-destructive" : "text-muted-foreground"}>
         {error

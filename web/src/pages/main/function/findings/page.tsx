@@ -2,12 +2,14 @@
 
 import * as React from "react";
 
-import { BugIcon, ClockIcon, InfoIcon, ShieldAlertIcon, TriangleAlertIcon } from "lucide-react";
+import { BugIcon, DownloadIcon, ListIcon, RefreshCwIcon } from "lucide-react";
 
+import { PageHeader } from "@/components/app/page-header";
+import { SectionCard } from "@/components/app/section-card";
 import { FindingRetestDialog } from "@/components/finding-retest-dialog";
 import { TablePagination } from "@/components/table-pagination";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -32,7 +34,6 @@ import type {
   FindingStatus,
   Severity,
 } from "@/lib/types";
-import { cn } from "@/lib/utils";
 
 import { AssetTreePanel } from "./_components/asset-tree-panel";
 import { ExportDialog, type ExportFormat, type ExportScope } from "./_components/export-dialog";
@@ -53,6 +54,8 @@ import {
   UNASSIGNED_TASK,
 } from "./_components/findings-table";
 import { FINDING_VIEWS, FindingsToolbar, FindingsViewTabs, type FindingView } from "./_components/findings-toolbar";
+import { SeverityStats } from "./_components/severity-stats";
+import { TableSkeleton } from "./_components/state-block";
 
 const FINDING_LIST_PREFERENCE_KEY = "artex_finding_list_preferences";
 
@@ -65,6 +68,8 @@ interface AssetTreeState {
   droppedKinds: string[];
   loaded: boolean;
   loading: boolean;
+  /** 拉取失败原因;首载失败要给重试,刷新失败要保留旧树并提示。 */
+  error: string | null;
 }
 
 const EMPTY_ASSET_TREE: AssetTreeState = {
@@ -74,6 +79,7 @@ const EMPTY_ASSET_TREE: AssetTreeState = {
   droppedKinds: [],
   loaded: false,
   loading: false,
+  error: null,
 };
 
 // 平铺视图的页码单独放 state(而非塞进快照),筛选一变就能连带重置并触发重新加载。
@@ -226,6 +232,8 @@ export default function FindingsPage() {
   const [exportScope, setExportScope] = React.useState<ExportScope>("filtered");
   const [exportFormat, setExportFormat] = React.useState<ExportFormat>("md-single");
   const [exporting, setExporting] = React.useState(false);
+  // 连点「导出」时两次点击可能落在同一次渲染里,仅靠 disabled 拦不住重复下载。
+  const exportLock = React.useRef(false);
 
   const toggleSelected = React.useCallback((id: string, checked: boolean) => {
     setSelectedIds((prev) => {
@@ -254,6 +262,8 @@ export default function FindingsPage() {
   }
 
   async function doExport() {
+    if (exportLock.current) return;
+    exportLock.current = true;
     setExporting(true);
     try {
       await api.exportFindings({
@@ -267,6 +277,7 @@ export default function FindingsPage() {
     } catch (e) {
       toast.error(`导出失败：${(e as Error).message}`);
     } finally {
+      exportLock.current = false;
       setExporting(false);
     }
   }
@@ -352,7 +363,7 @@ export default function FindingsPage() {
     const requestFilter = filterFingerprint;
     if (activeFilterFingerprint.current !== requestFilter) return;
     const request = ++assetTreeRequest.current;
-    setAssetTree((current) => ({ ...current, loading: true }));
+    setAssetTree((current) => ({ ...current, loading: true, error: null }));
     try {
       const result = await api.findingAssetTree({ severity, status, vulnclass, task, query, sort });
       if (request !== assetTreeRequest.current || activeFilterFingerprint.current !== requestFilter) return;
@@ -363,11 +374,12 @@ export default function FindingsPage() {
         droppedKinds: result.dropped_kinds ?? [],
         loaded: true,
         loading: false,
+        error: null,
       });
     } catch (e) {
       if (request !== assetTreeRequest.current || activeFilterFingerprint.current !== requestFilter) return;
-      setAssetTree((current) => ({ ...current, loading: false }));
-      toast.error(`资产树加载失败：${(e as Error).message}`);
+      // 首载失败不能落成空树(会被误读成「没有关联资产」),保留旧树并交给面板显示错误与重试。
+      setAssetTree((current) => ({ ...current, loading: false, error: (e as Error).message }));
     }
   }, [filterFingerprint, severity, status, vulnclass, task, query, sort]);
 
@@ -619,7 +631,14 @@ export default function FindingsPage() {
       api
         .findingStats()
         .then((snapshot) => {
-          setStats(snapshot);
+          // 聚合接口偶尔会少字段（例如 vulnclasses 缺失）。这里统一补齐，
+          // 否则下游 findings-toolbar 的 vulnclasses.map 会在数据不完整时整页崩掉。
+          setStats({
+            ...EMPTY_STATS,
+            ...snapshot,
+            vulnclasses: Array.isArray(snapshot?.vulnclasses) ? snapshot.vulnclasses : [],
+            tasks: Array.isArray(snapshot?.tasks) ? snapshot.tasks : [],
+          });
           setStatsLoaded(true);
         })
         .catch(() => {
@@ -630,7 +649,7 @@ export default function FindingsPage() {
 
   React.useEffect(() => {
     if (!statsLoaded) return;
-    if (vulnclass !== "all" && !stats.vulnclasses.includes(vulnclass)) setVulnclass("all");
+    if (vulnclass !== "all" && !(stats.vulnclasses ?? []).includes(vulnclass)) setVulnclass("all");
     if (
       task !== "all" &&
       task !== UNASSIGNED_TASK &&
@@ -792,15 +811,6 @@ export default function FindingsPage() {
     }
   }
 
-  const statCards = [
-    { label: "发现总数", value: stats.total, icon: BugIcon },
-    { label: "待处理", value: stats.pending, tone: "text-amber-500", icon: ClockIcon },
-    { label: "严重", value: stats.critical, tone: "text-rose-600", icon: ShieldAlertIcon },
-    { label: "高危", value: stats.high, tone: "text-red-500", icon: TriangleAlertIcon },
-    { label: "中危", value: stats.medium, tone: "text-amber-500", icon: TriangleAlertIcon },
-    { label: "低危", value: stats.low, tone: "text-slate-500", icon: InfoIcon },
-  ];
-
   // 导出弹窗里「当前筛选」的条数:两个视图的筛选一致,只是统计口径来源不同。
   // 平铺与资产视图共用 flat 列表状态,分组视图的口径来自组接口的 finding_total。
   const filteredTotal = view === "grouped" ? total : flat.total;
@@ -832,10 +842,24 @@ export default function FindingsPage() {
     onDelete: deleteFinding,
   };
 
+  const viewHint =
+    view === "flat"
+      ? "跨任务平铺，按严重度或时间排序"
+      : view === "grouped"
+        ? "按来源任务折叠，组内独立分页"
+        : "沿资产树下钻，右侧列表随所选节点筛选";
+
   // 平铺视图与资产视图右侧是同一张表 + 同一份分页,只是筛选条件不同。
   const flatListCard = (
-    <Card className="gap-0 py-0">
-      <CardContent className="relative px-0">
+    <SectionCard
+      icon={ListIcon}
+      title="发现列表"
+      description="点击行展开证据与报告，标题可进入详情。"
+      dense
+      className="relative"
+      bodyClassName="px-0"
+    >
+      <div className="relative">
         {/* 非首载刷新(切筛选/翻页/改行)只在表头压一条细进度条,不遮挡已加载的行。 */}
         {flat.pending && flat.loaded && (
           <div
@@ -845,13 +869,25 @@ export default function FindingsPage() {
           />
         )}
         {!flat.loaded && !flat.error ? (
-          <div className="flex min-h-36 items-center justify-center">
-            <Spinner />
-          </div>
+          <TableSkeleton rows={6} columns={6} />
         ) : (
           <>
+            {/* 翻页/刷新失败时旧行仍保留(不闪空表),但必须明确告知失败,否则分页已跳到
+                新页、表格却还是上一页的数据,看起来像「翻页没生效」。 */}
+            {flat.error && flat.items.length > 0 && (
+              <div
+                role="alert"
+                className="flex flex-wrap items-center justify-between gap-2 border-b border-destructive/20 bg-destructive/5 px-4 py-2 text-xs text-destructive"
+              >
+                <span className="min-w-0 [overflow-wrap:anywhere]">列表刷新失败：{flat.error}</span>
+                <Button size="sm" variant="outline" onClick={() => void loadFlat()}>
+                  重试
+                </Button>
+              </div>
+            )}
             <FindingsTable
               items={flat.items}
+              hideAssetColumn={view === "asset"}
               selectAllLabel="选择当前页全部"
               error={flat.error}
               onRetry={() => void loadFlat()}
@@ -875,42 +911,40 @@ export default function FindingsPage() {
             )}
           </>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </SectionCard>
   );
 
   return (
-    <div className="flex flex-1 flex-col gap-4 md:gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">发现</h1>
-          <p className="text-muted-foreground text-sm">跨任务漏洞汇总</p>
-        </div>
-        <FindingsViewTabs view={view} onViewChange={setView} />
-      </div>
-      <div className="flex flex-1 flex-col gap-4 md:gap-6">
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-          {statCards.map((stat) => {
-            const StatIcon = stat.icon;
-            return (
-              <Card key={stat.label} className="gap-1 py-4">
-                <CardHeader className="px-4">
-                  <CardDescription>{stat.label}</CardDescription>
-                  <CardTitle className={cn("flex items-center gap-2 text-2xl tabular-nums", stat.tone)}>
-                    <StatIcon className="size-5" aria-hidden="true" />
-                    {stat.value}
-                  </CardTitle>
-                </CardHeader>
-              </Card>
-            );
-          })}
-        </div>
+    <div className="flex flex-col gap-5">
+      <PageHeader
+        icon={BugIcon}
+        title="漏洞结果"
+        description="跨任务汇总已确认与待验证的安全问题：按严重度分级、按任务分组，或沿资产树下钻定位来源。"
+        actions={
+          <>
+            <Button size="sm" variant="outline" onClick={() => refresh()} aria-label="刷新发现列表">
+              <RefreshCwIcon data-icon="inline-start" />
+              刷新
+            </Button>
+            <Button size="sm" onClick={openExport}>
+              <DownloadIcon data-icon="inline-start" />
+              导出
+            </Button>
+          </>
+        }
+      />
 
+      <SeverityStats stats={stats} severity={severity} onSeverityChange={setSeverity} />
+
+      <Card className="gap-0 overflow-hidden py-0">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-5 pt-5 pb-3">
+          <FindingsViewTabs view={view} onViewChange={setView} />
+          <span className="hidden text-[12px] text-muted-foreground sm:inline">{viewHint}</span>
+        </div>
         <FindingsToolbar
           search={search}
           onSearchChange={setSearch}
-          severity={severity}
-          onSeverityChange={setSeverity}
           status={status}
           onStatusChange={setStatus}
           vulnclass={vulnclass}
@@ -922,50 +956,52 @@ export default function FindingsPage() {
           vulnclasses={stats.vulnclasses}
           tasks={stats.tasks}
           selectedCount={selectedIds.size}
-          onExport={openExport}
+          total={filteredTotal}
+          hasFilters={hasFilters}
+          onClearFilters={clearFilters}
         />
+      </Card>
 
-        {view === "flat" && flatListCard}
+      {view === "flat" && flatListCard}
 
-        {view === "asset" && (
-          <AssetTreePanel
-            nodes={assetTree.nodes}
-            scope={assetScope}
-            onScopeChange={setAssetScope}
-            loaded={assetTree.loaded}
-            loading={assetTree.loading}
-            truncated={assetTree.truncated}
-            droppedKinds={assetTree.droppedKinds}
-            findingTotal={assetTree.findingTotal}
-            onRefresh={() => void loadAssetTree()}
-            total={flat.total}
-          >
-            {flatListCard}
-          </AssetTreePanel>
-        )}
+      {view === "asset" && (
+        <AssetTreePanel
+          nodes={assetTree.nodes}
+          scope={assetScope}
+          onScopeChange={setAssetScope}
+          loaded={assetTree.loaded}
+          loading={assetTree.loading}
+          error={assetTree.error}
+          truncated={assetTree.truncated}
+          droppedKinds={assetTree.droppedKinds}
+          findingTotal={assetTree.findingTotal}
+          onRefresh={() => void loadAssetTree()}
+        >
+          {flatListCard}
+        </AssetTreePanel>
+      )}
 
-        {view === "grouped" && (
-          <FindingsGroups
-            groups={groups}
-            groupTotal={groupTotal}
-            groupsLoaded={groupsLoaded}
-            groupsPending={groupsPending}
-            groupsError={groupsError}
-            expandedGroups={expandedGroups}
-            groupFindings={groupFindings}
-            page={page}
-            pageSize={pageSize}
-            hasFilters={hasFilters}
-            rowProps={rowProps}
-            onToggleGroup={toggleGroup}
-            onLoadGroup={loadGroup}
-            onRefreshGroups={() => void refreshGroups()}
-            onClearFilters={clearFilters}
-            onPageChange={setPage}
-            onPageSizeChange={setPageSize}
-          />
-        )}
-      </div>
+      {view === "grouped" && (
+        <FindingsGroups
+          groups={groups}
+          groupTotal={groupTotal}
+          groupsLoaded={groupsLoaded}
+          groupsPending={groupsPending}
+          groupsError={groupsError}
+          expandedGroups={expandedGroups}
+          groupFindings={groupFindings}
+          page={page}
+          pageSize={pageSize}
+          hasFilters={hasFilters}
+          rowProps={rowProps}
+          onToggleGroup={toggleGroup}
+          onLoadGroup={loadGroup}
+          onRefreshGroups={() => void refreshGroups()}
+          onClearFilters={clearFilters}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+        />
+      )}
 
       {retestFinding?.finding_id ? (
         <FindingRetestDialog
@@ -996,7 +1032,7 @@ export default function FindingsPage() {
           setDeepenDescription("");
         }}
       >
-        <DialogContent>
+        <DialogContent busy={deepening}>
           <DialogHeader>
             <DialogTitle>深入利用漏洞</DialogTitle>
             <DialogDescription className="break-words">

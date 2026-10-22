@@ -38,7 +38,18 @@ test("task overview preserves goal, constraint and scope editing against the bac
       },
     }),
   );
-  await page.goto(`/function/tasks/detail?id=${id}`);
+  await page.goto(`/function/tasks/detail?id=${id}&tab=overview`);
+
+  // 新框架的任务详情页头：返回箭头 + 任务名 + 状态徽章 + #ID（不再有旧的小 logo）。
+  const taskTitle = page.getByRole("heading", { name: "MUI 总览回归" });
+  await expect(taskTitle).toBeVisible();
+  await expect(page.getByRole("button", { name: "返回上一页" })).toBeVisible();
+  await expect(page.getByText(`#${id}`, { exact: true })).toBeVisible();
+  // 状态徽章紧跟在标题后面（未运行时回落为引擎状态「空闲」）。
+  await expect(taskTitle.locator("xpath=following-sibling::span[1]")).toHaveText(/空闲|运行中|已暂停|已完成/);
+  // 旧的详情页小 logo 已随旧侧栏一起移除。
+  await expect(page.locator('[data-slot="sidebar"]')).toHaveCount(0);
+
   await page.getByRole("tab", { name: "总览", exact: true }).click();
   const goals = page.getByRole("region", { name: "目标管理", exact: true });
   await expect(goals).toBeVisible();
@@ -89,11 +100,20 @@ test("task overview preserves goal, constraint and scope editing against the bac
   await expect(page.locator('[data-slot="popover-content"]')).toHaveCount(0);
   await page.getByRole("button", { name: "暂停", exact: true }).click();
   await expect(page.getByRole("button", { name: "恢复", exact: true })).toBeEnabled();
+  // 暂停后状态徽章跟着变成「已暂停」。
+  await expect(taskTitle.locator("xpath=following-sibling::span[1]")).toHaveText("已暂停");
   await page.getByRole("button", { name: "归档任务", exact: true }).click();
   const archiveDialog = page.getByRole("alertdialog", { name: new RegExp(`归档任务 #${id}`) });
   await expect(archiveDialog).toBeVisible();
   await archiveDialog.getByRole("button", { name: "取消", exact: true }).click();
   await expect(archiveDialog).toHaveCount(0);
+
+  // 新框架导航：详情页高亮底部 Dock 里的「测试任务」。
+  const dock = page.locator('nav[aria-label="主导航"]');
+  await expect(dock).toBeVisible();
+  await expect(dock.locator('a[aria-current="page"]')).toHaveCount(1);
+  await expect(dock.locator('a[aria-current="page"]')).toHaveAttribute("href", "/function/tasks");
+
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: testInfo.outputPath("overview-desktop.png"), fullPage: true, animations: "disabled" });
   await page.setViewportSize({ width: 390, height: 844 });

@@ -35,6 +35,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { DeleteTaskOptions, Task } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 import {
   ARCHIVABLE_STATUSES,
@@ -53,45 +54,45 @@ import { DeleteTaskDialog } from "./delete-task-dialogs";
 export function TaskRowSkeleton() {
   return (
     <TableRow aria-hidden className="border-border/60">
-      <TableCell>
+      <TableCell className="pl-4 lg:pl-5">
         <div className="bg-muted h-4 w-4 animate-pulse rounded" />
       </TableCell>
       <TableCell>
-        <div className="bg-muted h-4 w-16 animate-pulse rounded" />
+        <div className="bg-muted h-4 w-10 animate-pulse rounded" />
       </TableCell>
       <TableCell>
         <div className="bg-muted h-4 w-28 animate-pulse rounded" />
       </TableCell>
       <TableCell>
-        <div className="bg-muted h-4 w-40 animate-pulse rounded" />
+        <div className="flex flex-col gap-1.5">
+          <div className="bg-muted h-3.5 w-40 animate-pulse rounded" />
+          <div className="bg-muted h-3 w-24 animate-pulse rounded" />
+        </div>
       </TableCell>
       <TableCell>
-        <div className="bg-muted h-4 w-32 animate-pulse rounded" />
+        <div className="bg-muted h-5 w-16 animate-pulse rounded-md" />
       </TableCell>
       <TableCell>
-        <div className="bg-muted h-4 w-16 animate-pulse rounded" />
-      </TableCell>
-      <TableCell>
-        <div className="bg-muted mx-auto h-4 w-20 animate-pulse rounded" />
-      </TableCell>
-      <TableCell>
-        <div className="bg-muted mx-auto h-4 w-10 animate-pulse rounded" />
-      </TableCell>
-      <TableCell>
-        <div className="bg-muted ml-auto h-4 w-24 animate-pulse rounded" />
+        <div className="bg-muted mx-auto h-3.5 w-10 animate-pulse rounded" />
       </TableCell>
       <TableCell>
         <div className="bg-muted ml-auto h-4 w-16 animate-pulse rounded" />
+      </TableCell>
+      <TableCell>
+        <div className="bg-muted ml-auto h-4 w-14 animate-pulse rounded" />
       </TableCell>
       <TableCell>
         <div className="bg-muted ml-auto h-4 w-12 animate-pulse rounded" />
       </TableCell>
       <TableCell>
-        <div className="bg-muted ml-auto h-4 w-16 animate-pulse rounded" />
+        <div className="bg-muted ml-auto h-4 w-24 animate-pulse rounded" />
       </TableCell>
     </TableRow>
   );
 }
+
+// 行内图标按钮:默认是低对比的次要色,悬停整行才提到正文色,避免操作列抢走数据列的注意力。
+const rowActionClass = "text-muted-foreground transition-colors group-hover:text-foreground";
 
 // TaskRow renders one row of the task table. Memoized so the per-second 运行时长 tick and
 // the POLL_MS list refresh only re-render the rows whose data actually moved — a table page
@@ -118,9 +119,11 @@ export const TaskRow = React.memo(function TaskRow({
   selected: boolean;
   onSelectedChange: (id: string, checked: boolean) => void;
 }) {
+  const hasGoals = typeof task.goals_total === "number" && task.goals_total > 0;
+  const inFlight = task.in_flight ?? 0;
   return (
     <TableRow className="group border-border/60" data-state={selected ? "selected" : undefined}>
-      <TableCell>
+      <TableCell className="pl-4 lg:pl-5">
         <Checkbox
           checked={selected}
           onCheckedChange={(checked) => onSelectedChange(task.id, checked === true)}
@@ -128,41 +131,49 @@ export const TaskRow = React.memo(function TaskRow({
         />
       </TableCell>
       <TableCell>
-        <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">{task.id}</code>
+        <code className="bg-surface-muted text-muted-foreground rounded-sm px-1.5 py-0.5 font-mono text-[11px]">
+          {task.id}
+        </code>
       </TableCell>
       <TableCell className="font-medium">
-        <div className="flex max-w-xs items-center gap-2">
+        <div className="flex min-w-0 items-center gap-1.5">
           <TaskNameEditor task={task} onRename={onRename} />
-          {task.active && <StarIcon className="size-4 shrink-0 fill-amber-400 text-amber-400" />}
-          {taskIsPinned(task) && <PinIcon className="text-primary size-4 shrink-0" aria-label="已置顶" />}
+          {task.active && <StarIcon className="fill-warning text-warning size-3.5 shrink-0" aria-label="当前活动任务" />}
+          {taskIsPinned(task) && <PinIcon className="text-primary size-3.5 shrink-0" aria-label="已置顶" />}
         </div>
       </TableCell>
-      <TableCell className="text-muted-foreground max-w-xs">
-        <Link
-          href={`/function/tasks/detail?id=${encodeURIComponent(task.id)}`}
-          className="block truncate rounded-sm hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          title={task.description}
-        >
-          {task.description}
-        </Link>
+      <TableCell className="whitespace-normal">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <Link
+            href={`/function/tasks/detail?id=${encodeURIComponent(task.id)}`}
+            className="text-foreground block truncate rounded-sm text-[13px] hover:text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            title={task.description}
+          >
+            {task.description}
+          </Link>
+          <span className="text-muted-foreground block truncate text-[12px]" title={task.goal}>
+            <span className="text-muted-foreground/70">目标 · </span>
+            {task.goal}
+          </span>
+        </div>
       </TableCell>
-      <TableCell className="text-muted-foreground max-w-xs truncate">{task.goal}</TableCell>
       <TableCell>
         <StatusBadge domain="task" value={task.status} dot />
       </TableCell>
-      <TableCell className="text-muted-foreground text-center text-xs tabular-nums">
-        {typeof task.goals_total === "number" && task.goals_total > 0 ? (
-          `${task.goals_met}/${task.goals_total}`
-        ) : (
-          <span className="text-muted-foreground">—</span>
-        )}
-      </TableCell>
-      <TableCell className="text-center text-xs tabular-nums">
-        {task.in_flight && task.in_flight > 0 ? (
-          <span className="text-foreground font-medium">{task.in_flight}</span>
-        ) : (
-          <span className="text-muted-foreground">0</span>
-        )}
+      <TableCell className="text-center">
+        <div className="flex flex-col items-center gap-0.5">
+          <span className="text-foreground text-[13px] tabular-nums">
+            {hasGoals ? `${task.goals_met}/${task.goals_total}` : <span className="text-muted-foreground">—</span>}
+          </span>
+          <span
+            className={cn(
+              "text-[12px] whitespace-nowrap tabular-nums",
+              inFlight > 0 ? "text-foreground font-medium" : "text-muted-foreground",
+            )}
+          >
+            Worker {inFlight}
+          </span>
+        </div>
       </TableCell>
       <TableCell className="text-muted-foreground text-right text-xs whitespace-nowrap tabular-nums">
         {fmtDateTime(task.created_unix)}
@@ -172,14 +183,14 @@ export const TaskRow = React.memo(function TaskRow({
           const secs = taskDuration(task, nowSec);
           if (secs <= 0) return <span className="text-muted-foreground">—</span>;
           return (
-            <span className={task.status === "running" ? "text-foreground" : "text-muted-foreground"}>
+            <span className={task.status === "running" ? "text-foreground font-medium" : "text-muted-foreground"}>
               {fmtDuration(secs)}
             </span>
           );
         })()}
       </TableCell>
       <TableCell
-        className="text-right text-xs whitespace-nowrap tabular-nums"
+        className="text-right text-[12px] tabular-nums"
         title={
           task.tokens
             ? `输入 ${task.tokens.input_tokens} · 缓存 ${task.tokens.cache_read_tokens} · 输出 ${task.tokens.output_tokens}`
@@ -187,20 +198,26 @@ export const TaskRow = React.memo(function TaskRow({
         }
       >
         {task.tokens ? (
-          <span className="text-muted-foreground">
-            入 <span className="text-foreground">{fmtTokens(task.tokens.input_tokens)}</span>
-            {" · 缓 "}
-            <span className="text-foreground">{fmtTokens(task.tokens.cache_read_tokens)}</span>
-            {" · 出 "}
-            <span className="text-foreground">{fmtTokens(task.tokens.output_tokens)}</span>
-          </span>
+          <div className="flex flex-col items-end gap-0.5 leading-tight">
+            <span className="text-foreground">入 {fmtTokens(task.tokens.input_tokens)}</span>
+            <span className="text-muted-foreground">
+              出 {fmtTokens(task.tokens.output_tokens)} · 缓 {fmtTokens(task.tokens.cache_read_tokens)}
+            </span>
+          </div>
         ) : (
-          "—"
+          <span className="text-muted-foreground">—</span>
         )}
       </TableCell>
-      <TableCell className="sticky right-0 z-10 bg-card text-right shadow-[-1px_0_0_0_hsl(var(--border))] group-hover:bg-muted/50">
+      <TableCell className="bg-card text-right group-hover:bg-[color-mix(in_srgb,var(--muted)_55%,transparent)] group-data-[state=selected]:bg-accent md:sticky md:right-0 md:z-10 md:shadow-[-1px_0_0_0_var(--border)]">
         <div className="flex items-center justify-end gap-0.5">
-          <Button size="icon" variant="ghost" asChild aria-label="查看任务详情" title="查看任务详情">
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            asChild
+            aria-label="查看任务详情"
+            title="查看任务详情"
+            className={rowActionClass}
+          >
             <Link href={`/function/tasks/detail?id=${encodeURIComponent(task.id)}`}>
               <EyeIcon />
             </Link>
@@ -295,7 +312,7 @@ function TaskNameEditor({ task, onRename }: { task: Task; onRename: (task: Task,
         type="button"
         variant="ghost"
         size="icon-xs"
-        className="shrink-0 opacity-100 transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100"
+        className="text-muted-foreground shrink-0 opacity-100 transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100"
         aria-label={`重命名任务 #${task.id}`}
         title="重命名"
         onClick={() => {
@@ -323,14 +340,19 @@ function TaskPinAction({ task, onTogglePinned }: { task: Task; onTogglePinned: (
     <Button
       type="button"
       variant="ghost"
-      size="icon"
+      size="icon-sm"
       disabled={pinning}
       aria-label={pinned ? `取消置顶任务 #${task.id}` : `置顶任务 #${task.id}`}
       title={pinned ? "取消置顶" : "置顶"}
+      className={rowActionClass}
       onClick={async () => {
+        if (pinning) return;
         setPinning(true);
         try {
           await onTogglePinned(task);
+        } catch {
+          // 失败提示由 onTogglePinned toast;这里吞掉异常避免未处理的 Promise 拒绝,
+          // 按钮在 finally 里恢复可点,用户可直接重试。
         } finally {
           setPinning(false);
         }
@@ -362,11 +384,12 @@ function TaskControlButton({
   const label = action === "resume" ? "继续任务" : "暂停任务";
   return (
     <Button
-      size="icon"
+      size="icon-sm"
       variant="ghost"
       aria-label={label}
       title={action ? label : "该状态不可暂停或继续"}
       disabled={!action || pending}
+      className={rowActionClass}
       onClick={async () => {
         if (!action) return;
         setPending(true);
@@ -418,10 +441,13 @@ export function ArchiveConfirmDialog({
             disabled={pending}
             onClick={async (event) => {
               event.preventDefault();
+              if (pending) return;
               setPending(true);
               try {
                 await onConfirm();
                 setOpen(false);
+              } catch {
+                // 归档失败时保持确认框打开(失败原因已由 onConfirm toast),便于重试。
               } finally {
                 setPending(false);
               }
@@ -439,7 +465,14 @@ export function ArchiveConfirmDialog({
 function TaskArchiveAction({ task, onArchive }: { task: Task; onArchive: (task: Task) => Promise<void> }) {
   const reason = archiveBlockReason(task);
   const trigger = (
-    <Button size="icon" variant="ghost" disabled={Boolean(reason)} aria-label={`归档任务 #${task.id}`}>
+    <Button
+      size="icon-sm"
+      variant="ghost"
+      disabled={Boolean(reason)}
+      aria-label={`归档任务 #${task.id}`}
+      title="归档任务"
+      className={rowActionClass}
+    >
       <ArchiveIcon />
     </Button>
   );

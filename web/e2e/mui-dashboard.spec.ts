@@ -109,6 +109,14 @@ test("dashboard filters both token sources by profile and date without losing re
     await route.fulfill({ json });
   });
   await page.goto("/dashboard");
+
+  // 新框架首屏是「指挥台」：页头标题 + 下方四个明细页签，不再是旧版纵向平铺的面板。
+  await expect(page.getByRole("heading", { name: "指挥台", exact: true })).toBeVisible();
+  for (const tab of ["任务与用量", "发现与资产", "流量", "系统状态"]) {
+    await expect(page.getByRole("tab", { name: new RegExp(tab) })).toBeVisible();
+  }
+  await expect(page.getByRole("tabpanel")).toBeVisible();
+
   const panel = page.getByRole("region", { name: "LLM Token 消耗" });
   await expect(panel.getByText("3.3k", { exact: true })).toBeVisible();
   const beta = panel.getByRole("button", { name: "Beta", exact: true });
@@ -129,12 +137,33 @@ test("dashboard filters both token sources by profile and date without losing re
   await expect(panel.getByRole("img", { name: "近 90 天 Token 使用趋势" })).toHaveText(/2 个日期/);
   await ledger.click();
   await expect(ledger).toHaveAttribute("aria-pressed", "true");
+
+  // 手动刷新：新框架里页头动作区的按钮名为「刷新」（旧版叫「刷新仪表盘数据」）。
   const previous = taskRequests;
-  await page.getByRole("button", { name: "刷新仪表盘数据" }).click();
+  await page.getByRole("button", { name: "刷新", exact: true }).click();
   await expect.poll(() => taskRequests).toBeGreaterThan(previous);
-  const taskLink = page.getByRole("link", { name: /Alpha fixture task/ });
-  await expect(taskLink).toHaveAttribute("href", "/function/tasks/detail?id=alpha-task");
-  await expect(page.getByRole("progressbar", { name: "进度", exact: true })).toHaveAttribute("aria-valuenow", "25");
+
+  // 任务深链：指挥台大屏的「打开任务详情」按钮指向任务详情页（带 tab 参数）。
+  const taskLink = page.getByRole("link", { name: "打开任务详情" });
+  await expect(taskLink).toHaveAttribute("href", "/function/tasks/detail?id=alpha-task&tab=overview");
+
+  // 整体进度：新框架用指挥台大屏的阶段进度条（旧版是无障碍名「进度」的进度条）。
+  const progress = page.getByRole("progressbar", { name: "任务整体进度" });
+  await expect(progress).toHaveAttribute("aria-valuenow", "25");
+
+  // 新框架导航：底部 Dock 承担页面导航，当前项 aria-current=page；左侧固定侧栏已移除。
+  const dock = page.locator('nav[aria-label="主导航"]');
+  await expect(dock).toBeVisible();
+  await expect(dock.locator('a[aria-current="page"]')).toHaveCount(1);
+  await expect(dock.locator('a[aria-current="page"]')).toHaveAttribute("href", "/dashboard");
+  await expect(page.locator('[data-slot="sidebar"]')).toHaveCount(0);
+  const contentLeft = await page.evaluate(() => {
+    const header = document.querySelector("header");
+    const content = header?.nextElementSibling as HTMLElement | null;
+    return content ? content.getBoundingClientRect().x : -1;
+  });
+  expect(contentLeft).toBeLessThanOrEqual(1);
+
   await page.screenshot({ path: testInfo.outputPath("dashboard-desktop.png"), fullPage: true, animations: "disabled" });
   await page.setViewportSize({ width: 390, height: 844 });
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

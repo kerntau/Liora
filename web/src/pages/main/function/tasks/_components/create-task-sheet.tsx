@@ -167,10 +167,13 @@ export function CreateTaskSheet({
   categories,
   onCreated,
   onCategoriesChanged,
+  triggerId,
 }: {
   categories: TaskCategory[];
   onCreated: () => void;
   onCategoriesChanged: () => void;
+  // 空态里的「创建第一个任务」用 id 复用同一个入口,避免页面上出现两个「新建任务」按钮。
+  triggerId?: string;
 }) {
   const [open, setOpen] = React.useState(false);
   const [name, setName] = React.useState("");
@@ -260,7 +263,7 @@ export function CreateTaskSheet({
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button size="sm">
+        <Button size="sm" id={triggerId}>
           <PlusIcon /> 新建任务
         </Button>
       </SheetTrigger>
@@ -272,8 +275,15 @@ export function CreateTaskSheet({
         className="w-full! max-w-none! gap-0 p-0 sm:w-[45vw]! sm:max-w-[45vw]!"
       >
         <SheetHeader className="border-b p-6">
-          <SheetTitle>新建任务</SheetTitle>
-          <SheetDescription>填写测试对象与目标，高级参数可按需展开。</SheetDescription>
+          <div className="flex items-start gap-3">
+            <span className="bg-primary/10 text-primary mt-0.5 grid size-9 shrink-0 place-items-center rounded-md">
+              <PlusIcon className="size-4" aria-hidden="true" />
+            </span>
+            <div className="flex min-w-0 flex-col gap-1">
+              <SheetTitle>新建任务</SheetTitle>
+              <SheetDescription>填写测试对象与目标，高级参数可按需展开。</SheetDescription>
+            </div>
+          </div>
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto p-6">
@@ -401,7 +411,7 @@ export function CreateTaskSheet({
           </div>
         </div>
 
-        <SheetFooter className="flex-row justify-end gap-2 border-t p-4">
+        <SheetFooter className="bg-surface-muted/60 flex-row justify-end gap-2 border-t p-4">
           <SheetClose asChild>
             <Button variant="outline">取消</Button>
           </SheetClose>

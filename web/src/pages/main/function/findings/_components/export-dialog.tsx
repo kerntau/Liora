@@ -50,7 +50,7 @@ export function ExportDialog({
 }: ExportDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent busy={exporting}>
         <DialogHeader>
           <DialogTitle>导出发现</DialogTitle>
           <DialogDescription>选择导出范围与格式,生成后浏览器会自动下载。</DialogDescription>
@@ -83,7 +83,7 @@ export function ExportDialog({
                 <RadioGroupItem id="export-format-md-single" value="md-single" /> Markdown 汇总报告（单个 .md 文件）
               </label>
               <label htmlFor="export-format-md-zip" className="flex items-center gap-2 text-sm">
-                <RadioGroupItem id="export-format-md-zip" value="md-zip" /> Markdown 分文件（一漏洞一 .md,打包 .zip）
+                <RadioGroupItem id="export-format-md-zip" value="md-zip" /> Markdown 分文件（一漏洞一 .md，打包 .zip）
               </label>
               <label htmlFor="export-format-csv" className="flex items-center gap-2 text-sm">
                 <RadioGroupItem id="export-format-csv" value="csv" /> CSV 表格（.csv）

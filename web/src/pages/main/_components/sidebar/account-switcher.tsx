@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { Check, KeyRound, LogOut } from "lucide-react";
+import { Check, ChevronDown, KeyRound, LogOut } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ import { ChangePasswordDialog } from "./change-password-dialog";
 
 export function AccountSwitcher({
   users,
+  labeled = false,
 }: {
   readonly users: ReadonlyArray<{
     readonly id: string;
@@ -28,6 +29,7 @@ export function AccountSwitcher({
     readonly avatar: string;
     readonly role: string;
   }>;
+  labeled?: boolean;
 }) {
   const [activeUser, setActiveUser] = useState(users[0]);
   const [pwOpen, setPwOpen] = useState(false);
@@ -49,20 +51,55 @@ export function AccountSwitcher({
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="rounded-lg max-sm:size-11"
-            aria-label={`账户菜单：${activeUser.name}`}
-            title={`账户菜单：${activeUser.name}`}
-          >
-            <Avatar className="size-8 rounded-lg">
-              <AvatarImage src={activeUser.avatar || undefined} alt="" />
-              <AvatarFallback>{getInitials(activeUser.name)}</AvatarFallback>
-            </Avatar>
-          </Button>
+          {labeled ? (
+            <Button
+              variant="ghost"
+              className="h-10 shrink-0 gap-2 rounded-xl px-1.5 pr-2 whitespace-nowrap hover:bg-muted max-sm:size-11 max-sm:justify-center max-sm:p-0"
+              aria-label={`账户菜单：${activeUser.name}`}
+              title={`账户菜单：${activeUser.name}`}
+            >
+              <Avatar className="size-8 rounded-lg ring-1 ring-border">
+                <AvatarImage src={activeUser.avatar || undefined} alt="" />
+                <AvatarFallback className="rounded-lg bg-primary/10 text-primary">
+                  {getInitials(activeUser.name)}
+                </AvatarFallback>
+              </Avatar>
+              <span className="hidden min-w-0 text-left leading-tight md:block">
+                <span className="block max-w-32 truncate text-[13px] font-semibold whitespace-nowrap text-foreground">
+                  {activeUser.name}
+                </span>
+                <span className="block text-[11px] text-muted-foreground">
+                  {{ admin: "管理员", operator: "操作员", viewer: "查看者" }[activeUser.role] ?? activeUser.role}
+                </span>
+              </span>
+              <ChevronDown className="hidden size-3.5 text-muted-foreground md:block" aria-hidden="true" />
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="rounded-lg max-sm:size-11"
+              aria-label={`账户菜单：${activeUser.name}`}
+              title={`账户菜单：${activeUser.name}`}
+            >
+              <Avatar className="size-8 rounded-lg">
+                <AvatarImage src={activeUser.avatar || undefined} alt="" />
+                <AvatarFallback>{getInitials(activeUser.name)}</AvatarFallback>
+              </Avatar>
+            </Button>
+          )}
         </DropdownMenuTrigger>
         <DropdownMenuContent className="min-w-56 space-y-1 rounded-lg" side="bottom" align="end" sideOffset={4}>
+          <DropdownMenuItem onClick={() => setPwOpen(true)}>
+            <KeyRound />
+            修改密码
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive">
+            <LogOut />
+            退出登录
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           {users.map((user) => (
             <DropdownMenuItem
               key={user.email}
@@ -92,15 +129,6 @@ export function AccountSwitcher({
               </div>
             </DropdownMenuItem>
           ))}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => setPwOpen(true)}>
-            <KeyRound />
-            修改密码
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive">
-            <LogOut />
-            退出登录
-          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
       <ChangePasswordDialog open={pwOpen} onOpenChange={setPwOpen} />

@@ -21,19 +21,30 @@ import {
   ArrowDownIcon,
   ArrowUpDownIcon,
   ArrowUpIcon,
+  ChevronDownIcon,
+  CircleAlertIcon,
   FolderInputIcon,
   GripVerticalIcon,
+  InboxIcon,
+  ListChecksIcon,
   PauseIcon,
   PlayIcon,
   PlusIcon,
+  RefreshCwIcon,
   SaveIcon,
   SearchIcon,
+  SearchXIcon,
+  Settings2Icon,
   TagsIcon,
+  TargetIcon,
   Trash2Icon,
   XIcon,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 
+import { PageHeader } from "@/components/app/page-header";
+import { SectionCard } from "@/components/app/section-card";
 import { StatusBadge } from "@/components/status-badge";
 import { TablePagination } from "@/components/table-pagination";
 import {
@@ -47,7 +58,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
@@ -232,6 +242,14 @@ function TasksPageInner() {
     [setSortPreference],
   );
 
+  // 搜索框清空后焦点要留在输入框里:点「清除搜索」时按钮会立刻卸载,
+  // 焦点会掉到 body,键盘用户得从头 Tab 回来。
+  const searchInputRef = React.useRef<HTMLInputElement>(null);
+  const clearQuery = React.useCallback(() => {
+    setQuery("");
+    searchInputRef.current?.focus();
+  }, []);
+
   // reset to page 1 whenever filters or ordering change
   // 首轮(含从 URL 还原)不重置,否则 ?page=3 会被立刻打回第 1 页。
   const skipPageResetRef = React.useRef(true);
@@ -261,9 +279,14 @@ function TasksPageInner() {
     return () => window.clearTimeout(timer);
   }, [categoryFilter, filtersHydrated, page, pathname, query, router, searchParams, statusFilter]);
 
+  // 删除/筛选后总页数可能变小,此时 page 仍停在旧值:直接用 page 切片会渲染出一张
+  // 「表头 + 0 行」的空表(要等 TablePagination 的 effect 把 page 拉回才恢复)。
+  // 切片统一用收敛后的页码,越界那一帧显示最后一页,而不是空表。
+  const lastPage = Math.max(1, Math.ceil(ordered.length / pageSize));
+  const currentPage = Math.min(Math.max(1, page), lastPage);
   const paginated = React.useMemo(
-    () => ordered.slice((page - 1) * pageSize, page * pageSize),
-    [ordered, page, pageSize],
+    () => ordered.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [ordered, currentPage, pageSize],
   );
 
   // 多选删除:选择跨翻页/筛选保留,只在任务真的消失(被删或后端不再返回)时收敛。
@@ -621,13 +644,15 @@ function TasksPageInner() {
   );
 
   // 后端把整批分类写入放在一个事务里，所以失败项只可能是勾选后又被删掉的任务。
+  // 返回是否真的改成功:确认框据此决定关闭还是留在原地(失败时整批都没动,
+  // 关掉对话框会让用户以为已生效,还得重新勾选一遍)。
   const moveSelectedTasksCategory = React.useCallback(
-    async (categoryID?: number) => {
+    async (categoryID?: number): Promise<boolean> => {
       const ids = [...selectedIds];
-      if (ids.length === 0 || movingCategory) return;
+      if (ids.length === 0 || movingCategory) return false;
       if (ids.length > 100) {
         toast.error("一次最多修改 100 个任务的分类");
-        return;
+        return false;
       }
       setMovingCategory(true);
       try {
@@ -647,8 +672,10 @@ function TasksPageInner() {
           toast.error(`${failed.length} 个任务未能移动：${details}${failed.length > 3 ? " 等" : ""}`);
         }
         refreshCategoriesAndTasks();
+        return succeeded.length > 0;
       } catch (error) {
         toast.error(`修改分类失败：${(error as Error).message}`);
+        return false;
       } finally {
         setMovingCategory(false);
       }
@@ -656,37 +683,100 @@ function TasksPageInner() {
     [movingCategory, refreshCategoriesAndTasks, selectedIds],
   );
 
+  // 头部轻量计数与手动刷新:纯本地视图动作,不改变轮询节奏。
+  const runningCount = React.useMemo(() => tasks.filter((task) => task.status === "running").length, [tasks]);
+  const refreshTasks = React.useCallback(() => {
+    lastRef.current = "";
+    void load();
+  }, [load]);
+  const resetFilters = React.useCallback(() => {
+    setQuery("");
+    setStatusFilter("all");
+    setCategoryFilter("all");
+    searchInputRef.current?.focus();
+  }, []);
+  // 空态里的「创建第一个任务」复用工具栏的新建任务按钮,避免出现两个同名可访问名称。
+  const openCreateTask = React.useCallback(() => {
+    document.getElementById("tasks-create-trigger")?.click();
+  }, []);
+
   return (
-    <Tabs value={activeTab} onValueChange={setActiveTab} className="gap-4">
-      <TabsList className="mx-4 lg:mx-6">
-        <TabsTrigger value="current">当前任务</TabsTrigger>
-        <TabsTrigger value="archived">已归档</TabsTrigger>
-      </TabsList>
-      <TabsContent value="current">
-        <Card>
-          <CardContent className="flex flex-col gap-4 px-0 pt-6">
-            <div className="flex flex-wrap items-center gap-2 px-4 lg:px-6">
-              <div className="relative w-full sm:max-w-xs">
-                <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
+    <div className="flex flex-col gap-5">
+      <PageHeader
+        icon={TargetIcon}
+        title="测试任务"
+        description="管理授权范围内的测试任务：跟踪运行状态与目标进度，归档已结束的任务。"
+        actions={
+          <>
+            <span className="app-chip h-8 tabular-nums">
+              <span
+                className={cn("size-1.5 rounded-full", runningCount > 0 ? "bg-success" : "bg-muted-foreground/40")}
+              />
+              运行中 <span className="font-semibold text-foreground">{runningCount}</span>
+            </span>
+            <Button variant="outline" size="sm" aria-label="刷新任务列表" onClick={refreshTasks}>
+              <RefreshCwIcon />
+              刷新
+            </Button>
+            {/* 全页唯一的新建入口：工具栏里那个同名按钮已移除，空态按钮按 id 复用它。 */}
+            <CreateTaskSheet
+              triggerId="tasks-create-trigger"
+              categories={categories}
+              onCreated={refreshCategoriesAndTasks}
+              onCategoriesChanged={refreshCategoriesAndTasks}
+            />
+          </>
+        }
+      />
+
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="gap-4">
+        <TabsList>
+          <TabsTrigger value="current">当前任务</TabsTrigger>
+          <TabsTrigger value="archived">已归档</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="current">
+          <SectionCard
+            icon={ListChecksIcon}
+            title="任务列表"
+            description="按状态与分类筛选；勾选任务后可批量暂停、归档或删除。"
+            dense
+            className="overflow-visible"
+            bodyClassName="px-0"
+          >
+            <div className="flex flex-wrap items-center gap-2 border-b border-border/60 px-5 py-3">
+              <div className="relative w-full min-w-0 sm:max-w-xs sm:flex-1">
+                <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
                 <Input
+                  ref={searchInputRef}
+                  aria-label="搜索任务"
                   placeholder="搜索描述 / 目标 / ID"
                   value={query}
                   onChange={(e: any) => setQuery(e.target.value)}
-                  className="pl-8"
+                  onKeyDown={(event) => {
+                    // 有内容时 Esc 只清空搜索,不冒泡去关外层弹层。
+                    if (event.key === "Escape" && query) {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      clearQuery();
+                    }
+                  }}
+                  className="h-8 pl-8 text-[13px]"
                 />
                 {query && (
                   <button
                     type="button"
-                    onClick={() => setQuery("")}
+                    onClick={clearQuery}
                     aria-label="清除搜索"
-                    className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2"
+                    className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2 rounded-sm focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
                   >
                     <XIcon className="size-4" />
                   </button>
                 )}
               </div>
+
               <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as TaskStatus | "all")}>
-                <SelectTrigger className="w-36">
+                <SelectTrigger className="w-[8.5rem] text-[13px]">
                   <SelectValue placeholder="状态" />
                 </SelectTrigger>
                 <SelectContent>
@@ -700,8 +790,9 @@ function TasksPageInner() {
                   </SelectGroup>
                 </SelectContent>
               </Select>
+
               <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                <SelectTrigger className="w-40">
+                <SelectTrigger className="w-40 text-[13px]">
                   <SelectValue placeholder="任务分类" />
                 </SelectTrigger>
                 <SelectContent>
@@ -716,69 +807,21 @@ function TasksPageInner() {
                   </SelectGroup>
                 </SelectContent>
               </Select>
-              <span className="text-muted-foreground text-xs tabular-nums">
-                {filtered.length}/{tasks.length} 条
+
+              <span className="text-muted-foreground text-[12px] whitespace-nowrap tabular-nums">
+                {filtered.length === tasks.length ? (
+                  <>
+                    共 <span className="font-medium text-foreground">{filtered.length}</span> 条
+                  </>
+                ) : (
+                  <>
+                    筛选 <span className="font-medium text-foreground">{filtered.length}</span> / 共 {tasks.length} 条
+                  </>
+                )}
               </span>
-              {selectedIds.size > 0 && (
-                <>
-                  <span className="text-xs tabular-nums">已选 {selectedIds.size} 个</span>
-                  <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
-                    取消选择
-                  </Button>
-                  {pausableTaskIDs.length > 0 && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={batchControlling !== null}
-                      onClick={() => void controlSelectedTasks("pause", pausableTaskIDs)}
-                    >
-                      {batchControlling === "pause" ? (
-                        <Spinner data-icon="inline-start" />
-                      ) : (
-                        <PauseIcon data-icon="inline-start" />
-                      )}
-                      暂停 {pausableTaskIDs.length}
-                    </Button>
-                  )}
-                  {resumableTaskIDs.length > 0 && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={batchControlling !== null}
-                      onClick={() => void controlSelectedTasks("resume", resumableTaskIDs)}
-                    >
-                      {batchControlling === "resume" ? (
-                        <Spinner data-icon="inline-start" />
-                      ) : (
-                        <PlayIcon data-icon="inline-start" />
-                      )}
-                      继续 {resumableTaskIDs.length}
-                    </Button>
-                  )}
-                  {archivableTaskIDs.length > 0 && (
-                    <ArchiveConfirmDialog
-                      count={archivableTaskIDs.length}
-                      onConfirm={archiveSelectedTasks}
-                      trigger={
-                        <Button size="sm" variant="outline">
-                          <ArchiveIcon data-icon="inline-start" />
-                          归档 {archivableTaskIDs.length}
-                        </Button>
-                      }
-                    />
-                  )}
-                  <MoveTasksCategoryDialog
-                    categories={categories}
-                    count={selectedIds.size}
-                    moving={movingCategory}
-                    onMove={moveSelectedTasksCategory}
-                  />
-                  <BulkDeleteTasksDialog ids={[...selectedIds]} onDelete={deleteTasks} />
-                </>
-              )}
-              <details className="rounded-lg border px-3 py-1.5">
-                <summary className="cursor-pointer text-sm font-medium">更多管理</summary>
-                <div className="flex flex-wrap gap-2 pt-3">
+
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                <MoreManageMenu>
                   <ConcurrencySettingsDialog />
                   <CategoryManagementSheet
                     categories={categories}
@@ -786,39 +829,111 @@ function TasksPageInner() {
                     onChanged={refreshCategoriesAndTasks}
                     onTaskMoved={applyTaskCategoryMove}
                   />
-                </div>
-              </details>
-              <CreateTaskSheet
-                categories={categories}
-                onCreated={refreshCategoriesAndTasks}
-                onCategoriesChanged={refreshCategoriesAndTasks}
-              />
+                </MoreManageMenu>
+              </div>
             </div>
 
-            {tasksLoaded && tasks.length === 0 && loadError ? (
-              <div
-                role="alert"
-                className="mx-4 flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-20 text-muted-foreground text-sm lg:mx-6"
-              >
-                <div className="text-foreground">任务列表加载失败</div>
-                <div className="max-w-md text-center text-xs [overflow-wrap:anywhere]">{loadError}</div>
-                <Button size="sm" variant="outline" onClick={load}>
-                  重试
+            {selectedIds.size > 0 && (
+              <div className="border-primary/15 bg-brand-soft flex flex-wrap items-center gap-2 border-b px-5 py-2">
+                <span className="text-[13px] font-medium tabular-nums">已选 {selectedIds.size} 个</span>
+                <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
+                  取消选择
                 </Button>
+                {pausableTaskIDs.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={batchControlling !== null}
+                    onClick={() => void controlSelectedTasks("pause", pausableTaskIDs)}
+                  >
+                    {batchControlling === "pause" ? (
+                      <Spinner data-icon="inline-start" />
+                    ) : (
+                      <PauseIcon data-icon="inline-start" />
+                    )}
+                    暂停 {pausableTaskIDs.length}
+                  </Button>
+                )}
+                {resumableTaskIDs.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={batchControlling !== null}
+                    onClick={() => void controlSelectedTasks("resume", resumableTaskIDs)}
+                  >
+                    {batchControlling === "resume" ? (
+                      <Spinner data-icon="inline-start" />
+                    ) : (
+                      <PlayIcon data-icon="inline-start" />
+                    )}
+                    继续 {resumableTaskIDs.length}
+                  </Button>
+                )}
+                {archivableTaskIDs.length > 0 && (
+                  <ArchiveConfirmDialog
+                    count={archivableTaskIDs.length}
+                    onConfirm={archiveSelectedTasks}
+                    trigger={
+                      <Button size="sm" variant="outline">
+                        <ArchiveIcon data-icon="inline-start" />
+                        归档 {archivableTaskIDs.length}
+                      </Button>
+                    }
+                  />
+                )}
+                <MoveTasksCategoryDialog
+                  categories={categories}
+                  count={selectedIds.size}
+                  moving={movingCategory}
+                  onMove={moveSelectedTasksCategory}
+                />
+                <BulkDeleteTasksDialog ids={[...selectedIds]} onDelete={deleteTasks} />
               </div>
+            )}
+
+            {tasksLoaded && tasks.length === 0 && loadError ? (
+              <TaskEmptyState
+                role="alert"
+                icon={CircleAlertIcon}
+                tone="destructive"
+                title="任务列表加载失败"
+                description={loadError}
+                action={
+                  <Button size="sm" variant="outline" onClick={refreshTasks}>
+                    重试
+                  </Button>
+                }
+              />
             ) : tasksLoaded && tasks.length === 0 ? (
-              <div className="text-muted-foreground mx-4 flex items-center justify-center rounded-lg border border-dashed py-20 text-sm lg:mx-6">
-                暂无任务，点击右上角「新建任务」开始。
-              </div>
+              <TaskEmptyState
+                icon={InboxIcon}
+                title="暂无测试任务"
+                description="新建任务并填写测试对象与目标，Agent 会按授权范围开始自动探索。"
+                action={
+                  // 页头已有唯一的主操作「新建任务」，空态这里只做引导，用 outline
+                  // 避免同一屏出现两个 primary（REFINE-SPEC 二.8）。
+                  <Button size="sm" variant="outline" onClick={openCreateTask}>
+                    <PlusIcon data-icon="inline-start" />
+                    创建第一个任务
+                  </Button>
+                }
+              />
             ) : tasksLoaded && filtered.length === 0 ? (
-              <div className="text-muted-foreground mx-4 flex items-center justify-center rounded-lg border border-dashed py-20 text-sm lg:mx-6">
-                没有匹配的任务。
-              </div>
+              <TaskEmptyState
+                icon={SearchXIcon}
+                title="没有匹配的任务"
+                description="换一个关键词，或把状态与分类筛选恢复为全部。"
+                action={
+                  <Button size="sm" variant="outline" onClick={resetFilters}>
+                    清除筛选
+                  </Button>
+                }
+              />
             ) : (
-              <Table className="**:data-[slot='table-cell']:px-4 **:data-[slot='table-head']:px-4">
-                <TableHeader className="[&_tr]:border-t">
-                  <TableRow>
-                    <TableHead className="w-10">
+              <Table className="min-w-[1100px] [&_tbody_[data-slot=table-cell]]:py-2">
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent [&_[data-slot=table-head]]:h-9">
+                    <TableHead className="w-10 pl-4 lg:pl-5">
                       <Checkbox
                         checked={headerChecked}
                         onCheckedChange={(checked) => toggleSelectedPage(checked === true)}
@@ -830,27 +945,27 @@ function TasksPageInner() {
                       label="ID"
                       activeField={sortField}
                       direction={sortDirection}
-                      className="font-mono"
+                      className="w-16 font-mono"
                       onSort={sortTasksBy}
                     />
-                    <TableHead>名称</TableHead>
-                    <TableHead>描述</TableHead>
-                    <TableHead>目标</TableHead>
+                    <TableHead className="w-[172px]">名称</TableHead>
+                    <TableHead className="w-[196px]">描述 / 目标</TableHead>
                     <SortableTaskHead
                       field="status"
                       label="状态"
                       activeField={sortField}
                       direction={sortDirection}
+                      className="w-[96px]"
                       onSort={sortTasksBy}
                     />
-                    <TableHead className="text-center">目标进度</TableHead>
-                    <TableHead className="text-center">运行中 Worker</TableHead>
+                    <TableHead className="w-[80px] text-center">目标进度</TableHead>
                     <SortableTaskHead
                       field="created"
                       label="创建时间"
                       activeField={sortField}
                       direction={sortDirection}
                       align="right"
+                      className="w-[92px]"
                       onSort={sortTasksBy}
                     />
                     <SortableTaskHead
@@ -859,10 +974,11 @@ function TasksPageInner() {
                       activeField={sortField}
                       direction={sortDirection}
                       align="right"
+                      className="w-[80px]"
                       onSort={sortTasksBy}
                     />
-                    <TableHead className="text-right">Token</TableHead>
-                    <TableHead className="sticky right-0 z-10 bg-card text-right shadow-[-1px_0_0_0_hsl(var(--border))]">
+                    <TableHead className="w-[120px] text-right">Token</TableHead>
+                    <TableHead className="bg-surface-muted w-[176px] text-right md:sticky md:right-0 md:z-10 md:shadow-[-1px_0_0_0_var(--border)]">
                       操作
                     </TableHead>
                   </TableRow>
@@ -891,6 +1007,11 @@ function TasksPageInner() {
                 </TableBody>
               </Table>
             )}
+            {tasksLoaded && filtered.length > 0 && (
+              <p className="text-muted-foreground px-5 pt-2 text-[12px] md:hidden">
+                左右滑动表格可查看全部列与行内操作
+              </p>
+            )}
             <TablePagination
               page={page}
               pageSize={pageSize}
@@ -901,13 +1022,77 @@ function TasksPageInner() {
                 setPage(1);
               }}
             />
-          </CardContent>
-        </Card>
-      </TabsContent>
-      <TabsContent value="archived">
-        <TaskArchivesPanel onChanged={load} />
-      </TabsContent>
-    </Tabs>
+          </SectionCard>
+        </TabsContent>
+
+        <TabsContent value="archived">
+          <TaskArchivesPanel onChanged={load} onGoCurrent={() => setActiveTab("current")} />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+// MoreManageMenu 保留「更多管理」这个原生 details 入口(e2e 与键盘都按它定位),
+// 只是把它做成一枚按钮样式的触发器和浮层,并在点击外部时自动收起。
+function MoreManageMenu({ children }: { children: React.ReactNode }) {
+  const detailsRef = React.useRef<HTMLDetailsElement>(null);
+
+  React.useEffect(() => {
+    const closeOnOutside = (event: PointerEvent) => {
+      const el = detailsRef.current;
+      if (!el?.open) return;
+      if (event.target instanceof Node && el.contains(event.target)) return;
+      el.open = false;
+    };
+    document.addEventListener("pointerdown", closeOnOutside);
+    return () => document.removeEventListener("pointerdown", closeOnOutside);
+  }, []);
+
+  return (
+    <details ref={detailsRef} className="group/more relative">
+      <summary className="border-border bg-card text-foreground hover:border-primary/30 hover:bg-accent hover:text-accent-foreground flex h-8 cursor-pointer list-none items-center gap-1.5 rounded-md border px-2.5 text-[13px] font-medium transition-colors select-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none [&::-webkit-details-marker]:hidden">
+        <Settings2Icon className="text-muted-foreground size-3.5" />
+        更多管理
+        <ChevronDownIcon className="text-muted-foreground size-3.5 transition-transform group-open/more:rotate-180" />
+      </summary>
+      <div className="border-border bg-popover absolute top-[calc(100%+6px)] right-0 z-40 w-60 rounded-lg border p-1.5 shadow-[var(--shadow-raised)]">
+        <p className="text-muted-foreground px-2 pt-1 pb-1.5 text-[11px]">分类与调度</p>
+        <div className="flex flex-col gap-1">{children}</div>
+      </div>
+    </details>
+  );
+}
+
+// TaskEmptyState 统一了「加载失败 / 暂无任务 / 无匹配」三种空态:图标块 + 标题 + 说明 + 动作,
+// 让列表在没有数据时仍然给出下一步,而不是一条居中的灰字。
+function TaskEmptyState({
+  icon: Icon,
+  title,
+  description,
+  action,
+  role,
+  tone = "neutral",
+}: {
+  icon: LucideIcon;
+  title: string;
+  description: React.ReactNode;
+  action?: React.ReactNode;
+  role?: React.AriaRole;
+  tone?: "neutral" | "destructive";
+}) {
+  return (
+    <div role={role} className="flex flex-col items-center justify-center gap-1.5 px-6 py-6 text-center">
+      <Icon
+        className={cn("size-6", tone === "destructive" ? "text-destructive" : "text-muted-foreground/60")}
+        aria-hidden="true"
+      />
+      <div className="flex max-w-md flex-col gap-1">
+        <p className="text-foreground text-[13px] font-semibold">{title}</p>
+        <p className="text-muted-foreground text-[12px] leading-5 [overflow-wrap:anywhere]">{description}</p>
+      </div>
+      {action ? <div className="flex flex-wrap items-center justify-center gap-2">{action}</div> : null}
+    </div>
   );
 }
 
@@ -976,7 +1161,8 @@ function MoveTasksCategoryDialog({
   categories: TaskCategory[];
   count: number;
   moving: boolean;
-  onMove: (categoryID?: number) => Promise<void>;
+  // 返回 false 表示整批都没改成:确认框保持打开,用户可直接换个分类重试。
+  onMove: (categoryID?: number) => Promise<boolean>;
 }) {
   const [open, setOpen] = React.useState(false);
   const [target, setTarget] = React.useState(UNCATEGORIZED_VALUE);
@@ -1027,7 +1213,9 @@ function MoveTasksCategoryDialog({
           <Button
             disabled={moving}
             onClick={() => {
-              void onMove(target === UNCATEGORIZED_VALUE ? undefined : Number(target)).then(() => setOpen(false));
+              void onMove(target === UNCATEGORIZED_VALUE ? undefined : Number(target)).then((moved) => {
+                if (moved) setOpen(false);
+              });
             }}
           >
             {moving && <Spinner data-icon="inline-start" />}
@@ -1295,7 +1483,7 @@ function CategoryManagementSheet({
     <>
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetTrigger asChild>
-          <Button size="sm" variant="outline">
+          <Button size="sm" variant="ghost" className="w-full justify-start">
             <TagsIcon data-icon="inline-start" />
             分类管理
           </Button>

@@ -2,16 +2,16 @@
 
 import * as React from "react";
 import { toast } from "@/components/ui/sonner";
-import { PlusIcon, RefreshCwIcon, ServerIcon, Trash2Icon } from "lucide-react";
+import { PlusIcon, RefreshCwIcon, ServerIcon, ShieldCheckIcon, Trash2Icon } from "lucide-react";
 
+import { PageHeader } from "@/components/app/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import {
   Sheet,
   SheetContent,
@@ -26,6 +26,21 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { useAsyncData } from "@/hooks/use-async-data";
 import type { MCPServer, MCPTool, Agent } from "@/lib/types";
+import { cn } from "@/lib/utils";
+
+function StatePill({ enabled }: { enabled: boolean }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-medium whitespace-nowrap",
+        enabled ? "border-success/25 bg-success/10 text-success" : "border-border bg-muted text-muted-foreground",
+      )}
+    >
+      <span className={cn("size-1.5 rounded-full", enabled ? "bg-success" : "bg-muted-foreground/50")} />
+      {enabled ? "已启用" : "已停用"}
+    </span>
+  );
+}
 
 type Transport = "stdio" | "http" | "sse";
 type FormState = {
@@ -75,6 +90,12 @@ export default function MCPPage() {
   const [editing, setEditing] = React.useState<MCPServer | null>(null); // null = add mode
   const [tab, setTab] = React.useState<"config" | "tools">("config");
   const [form, setForm] = React.useState<FormState>(emptyForm);
+  // 校验错误就地显示在字段下方并聚焦到出错的输入框：只弹 toast 的话，抽屉里
+  // 一屏有七八个字段，用户既看不出是哪一项，读屏也拿不到错误与字段的关联。
+  const [formErrors, setFormErrors] = React.useState<{ name?: string; command?: string; url?: string }>({});
+  const nameRef = React.useRef<HTMLInputElement>(null);
+  const commandRef = React.useRef<HTMLInputElement>(null);
+  const urlRef = React.useRef<HTMLInputElement>(null);
   const [saving, setSaving] = React.useState(false);
   const [tools, setTools] = React.useState<MCPTool[]>([]);
   const [toolsLoading, setToolsLoading] = React.useState(false);
@@ -130,6 +151,8 @@ export default function MCPPage() {
 
   function setF(patch: Partial<FormState>) {
     setForm((f) => ({ ...f, ...patch }));
+    // 改动任何字段都先收起旧的校验提示，避免提示与当前内容对不上。
+    setFormErrors((prev) => (prev.name || prev.command || prev.url ? {} : prev));
   }
 
   function parseEnv(text: string): Record<string, string> {
@@ -156,6 +179,7 @@ export default function MCPPage() {
     setToolsLoading(false);
     setEditing(null);
     setForm(emptyForm);
+    setFormErrors({});
     setTools([]);
     setToolsError(null);
     setTab("config");
@@ -173,6 +197,7 @@ export default function MCPPage() {
       env: envToText(s.env),
       insecure: s.insecure ?? false,
     });
+    setFormErrors({});
     setTab("config");
     setOpen(true);
     loadTools(s.id);
@@ -195,16 +220,19 @@ export default function MCPPage() {
   }
 
   async function saveForm() {
-    if (!form.name.trim()) {
-      toast.error("请填写名称");
-      return;
-    }
-    if (form.transport === "stdio" && !form.command.trim()) {
-      toast.error("请填写命令");
-      return;
-    }
-    if (form.transport !== "stdio" && !form.url.trim()) {
-      toast.error("请填写远程 URL");
+    const errors: { name?: string; command?: string; url?: string } = {};
+    if (!form.name.trim()) errors.name = "请填写名称";
+    if (form.transport === "stdio" && !form.command.trim()) errors.command = "请填写命令";
+    if (form.transport !== "stdio" && !form.url.trim()) errors.url = "请填写远程 URL";
+    setFormErrors(errors);
+    if (errors.name || errors.command || errors.url) {
+      // 聚焦到第一个出错的字段：抽屉内容可滚动，提示可能正好在视口外。
+      const target = [
+        errors.name ? nameRef : null,
+        errors.command ? commandRef : null,
+        errors.url ? urlRef : null,
+      ].find((ref) => ref !== null);
+      target?.current?.focus();
       return;
     }
     setSaving(true);
@@ -302,10 +330,16 @@ export default function MCPPage() {
     if (agentsFailed) {
       return <AuthErrorRow message="Agent 列表加载失败，暂无法查看或修改授权。" onRetry={loadAgents} />;
     }
+    if (agents.length === 0) {
+      return <p className="text-[12px] text-muted-foreground">暂无 Agent，创建 Agent 后可在这里授权。</p>;
+    }
     return (
-      <div className="flex flex-wrap gap-x-4 gap-y-2">
+      <div className="flex flex-wrap gap-1.5">
         {agents.map((a) => (
-          <label key={a.key} className="flex items-center gap-2 text-sm">
+          <label
+            key={a.key}
+            className="flex items-center gap-2 rounded-lg border border-border/70 bg-card px-2 py-1 text-[12px] text-foreground"
+          >
             <Checkbox
               checked={(visibility[server.id] ?? []).includes(a.id)}
               onCheckedChange={() => toggleVisibility(server.id, a.id, a.name)}
@@ -353,10 +387,18 @@ export default function MCPPage() {
           <Label htmlFor="m-name">名称</Label>
           <Input
             id="m-name"
+            ref={nameRef}
             placeholder="filesystem"
             value={form.name}
+            aria-invalid={formErrors.name ? true : undefined}
+            aria-describedby={formErrors.name ? "m-name-error" : undefined}
             onChange={(e) => setF({ name: e.target.value })}
           />
+          {formErrors.name && (
+            <p id="m-name-error" role="alert" className="text-destructive text-xs">
+              {formErrors.name}
+            </p>
+          )}
         </div>
         {form.transport === "stdio" ? (
           <>
@@ -364,11 +406,19 @@ export default function MCPPage() {
               <Label htmlFor="m-cmd">命令</Label>
               <Input
                 id="m-cmd"
+                ref={commandRef}
                 className="font-mono"
                 placeholder="npx"
                 value={form.command}
+                aria-invalid={formErrors.command ? true : undefined}
+                aria-describedby={formErrors.command ? "m-cmd-error" : undefined}
                 onChange={(e) => setF({ command: e.target.value })}
               />
+              {formErrors.command && (
+                <p id="m-cmd-error" role="alert" className="text-destructive text-xs">
+                  {formErrors.command}
+                </p>
+              )}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="m-args">参数（空格分隔）</Label>
@@ -386,11 +436,19 @@ export default function MCPPage() {
             <Label htmlFor="m-url">远程 URL</Label>
             <Input
               id="m-url"
+              ref={urlRef}
               className="font-mono"
               placeholder="https://mcp.example.com/mcp"
               value={form.url}
+              aria-invalid={formErrors.url ? true : undefined}
+              aria-describedby={formErrors.url ? "m-url-error" : undefined}
               onChange={(e) => setF({ url: e.target.value })}
             />
+            {formErrors.url && (
+              <p id="m-url-error" role="alert" className="text-destructive text-xs">
+                {formErrors.url}
+              </p>
+            )}
             <label className="flex items-center gap-2 text-sm">
               <Checkbox
                 checked={form.insecure}
@@ -468,12 +526,33 @@ export default function MCPPage() {
     );
   }
 
+  const enabledCount = servers.filter((s) => s.enabled).length;
+  const toolCount = servers.reduce((n, s) => n + (s.tools?.length ?? 0), 0);
+
   return (
-    <div className="flex flex-1 flex-col gap-4 md:gap-6">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">MCP</h1>
-        <p className="text-muted-foreground text-sm">外部 MCP 工具服务器 · 按 Agent 授权可见</p>
-      </div>
+    <div className="flex flex-1 flex-col gap-5">
+      <PageHeader
+        icon={ServerIcon}
+        title="MCP"
+        description="外部 MCP 工具服务器，按 Agent 授权可见；支持本地 stdio 与远程 http。"
+        // 没有任何工具时不再报「0 个工具」：卡片里已经写了「尚未发现工具」，
+        // 同一条信息在两处出现属于重复计数。
+        meta={[
+          <span className="tabular-nums">共 {servers.length} 个服务器</span>,
+          <span className="tabular-nums">已启用 {enabledCount} 个</span>,
+          toolCount > 0 ? <span className="tabular-nums">共 {toolCount} 个工具</span> : null,
+        ]}
+        actions={
+          <>
+            <Button size="sm" variant="outline" onClick={() => serversQ.reload()} disabled={serversQ.refreshing}>
+              <RefreshCwIcon className={cn("size-3.5", serversQ.refreshing && "animate-spin")} /> 刷新
+            </Button>
+            <Button size="sm" onClick={openAdd}>
+              <PlusIcon /> 添加 MCP
+            </Button>
+          </>
+        }
+      />
 
       <AsyncState
         status={serversQ.status}
@@ -481,69 +560,94 @@ export default function MCPPage() {
         onRetry={serversQ.reload}
         refreshing={serversQ.refreshing}
         skeleton={
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-hidden="true">
-            {[0, 1, 2, 3].map((i) => (
-              <Skeleton key={i} className="h-[116px] rounded-xl" />
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2" aria-hidden="true">
+            {[0, 1].map((i) => (
+              <Skeleton key={i} className="h-44 rounded-lg" />
             ))}
           </div>
         }
       >
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <button
-          type="button"
-          onClick={openAdd}
-          className="text-foreground/70 border-foreground/70 hover:bg-muted/60 hover:shadow-sm flex min-h-[116px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed transition"
-        >
-          <PlusIcon className="size-6" />
-          <span className="text-sm">添加 MCP</span>
-        </button>
-
-        {servers.map((s) => (
-          <Card
-            key={s.id}
-            onClick={() => openEdit(s)}
-            className="hover:border-primary/60 cursor-pointer gap-3 transition hover:shadow-sm"
-          >
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <ServerIcon className="text-muted-foreground size-4 shrink-0" />
-                <CardTitle className="min-w-0 flex-1 truncate text-base">
-                  <button type="button" className="max-w-full truncate rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={`编辑 MCP ${s.name}`} onClick={(event) => { event.stopPropagation(); openEdit(s); }}>
-                    {s.name}
-                  </button>
-                </CardTitle>
-                <Badge variant="outline" className="uppercase">
-                  {s.transport}
-                </Badge>
-                <div className="ml-auto flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                  <Switch
-                    checked={s.enabled}
-                    onCheckedChange={() => toggleEnabled(s)}
-                    aria-label={`启用 MCP ${s.name}`}
-                  />
-                  <Button
-                    size="icon"
-                    variant="outline"
-                    aria-label={`删除 MCP ${s.name}`}
-                    onClick={() => setPendingDelete(s)}
+        {servers.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-border/60 py-6 text-center">
+            <ServerIcon className="size-6 text-muted-foreground/50" />
+            <p className="text-[13px] font-medium text-foreground">还没有 MCP 服务器</p>
+            <p className="max-w-md text-[12px] leading-5 text-muted-foreground">
+              点右上角「添加 MCP」接入 stdio 或远程 http 服务器，发现工具后即可按 Agent 授权可见。
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {servers.map((s) => (
+              <Card
+                key={s.id}
+                onClick={() => openEdit(s)}
+                className="cursor-pointer gap-0 py-0 transition-colors hover:border-primary/40"
+              >
+                <div className="flex items-start gap-3 p-4">
+                  <span
+                    className={cn(
+                      "grid size-9 shrink-0 place-items-center rounded-lg",
+                      s.enabled ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
+                    )}
                   >
-                    <Trash2Icon className="text-destructive" />
-                  </Button>
+                    <ServerIcon className="size-4" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        className="max-w-full truncate rounded-sm text-left text-[13px] font-semibold text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label={`编辑 MCP ${s.name}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openEdit(s);
+                        }}
+                      >
+                        {s.name}
+                      </button>
+                      <span className="shrink-0 rounded-full border border-border bg-surface-muted px-2 py-0.5 font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
+                        {s.transport}
+                      </span>
+                      <StatePill enabled={s.enabled} />
+                    </div>
+                    <p className="mt-0.5 truncate text-[12px] text-muted-foreground">
+                      {s.tools && s.tools.length > 0 ? `${s.tools.length} 个工具` : "尚未发现工具"}
+                      {s.url ? `，${s.url}` : s.command ? `，${s.command}` : ""}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                    <Switch
+                      checked={s.enabled}
+                      onCheckedChange={() => toggleEnabled(s)}
+                      aria-label={`启用 MCP ${s.name}`}
+                    />
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      className="text-muted-foreground hover:text-destructive"
+                      aria-label={`删除 MCP ${s.name}`}
+                      onClick={() => setPendingDelete(s)}
+                    >
+                      <Trash2Icon className="size-4" />
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            </CardHeader>
-            <CardContent className="grid gap-3">
-              <p className="text-muted-foreground text-sm">
-                {s.tools && s.tools.length > 0 ? `${s.tools.length} 个工具` : "尚未发现工具"}
-              </p>
-              <div role="group" aria-label={`${s.name} 的 Agent 授权`} className="grid gap-2" onClick={(e) => e.stopPropagation()}>
-                <span className="text-muted-foreground text-xs">可见性（按 Agent 授权）</span>
-                {renderVisibility(s)}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+                <div
+                  role="group"
+                  aria-label={`${s.name} 的 Agent 授权`}
+                  className="mx-4 mb-4 grid gap-2 rounded-lg bg-surface-muted p-3"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <span className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                    <ShieldCheckIcon className="size-3.5" />
+                    可见性（按 Agent 授权）
+                  </span>
+                  {renderVisibility(s)}
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
       </AsyncState>
 
       <Sheet open={open} onOpenChange={setOpen}>
@@ -552,9 +656,14 @@ export default function MCPPage() {
           busy={saving}
           className="w-full! data-[side=right]:sm:max-w-lg"
         >
-          <SheetHeader>
-            <SheetTitle>{editing ? editing.name : "添加 MCP 服务器"}</SheetTitle>
-            <SheetDescription>
+          <SheetHeader className="gap-2 border-b border-border/70 px-4 pt-4 pb-3">
+            <SheetTitle className="flex items-center gap-2">
+              <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+                <ServerIcon className="size-4" />
+              </span>
+              {editing ? editing.name : "添加 MCP 服务器"}
+            </SheetTitle>
+            <SheetDescription className="text-xs">
               stdio（本地起进程）或 http（远程 Streamable HTTP）
             </SheetDescription>
           </SheetHeader>

@@ -1,10 +1,12 @@
 "use client";
 
+import type { ElementType, ReactNode } from "react";
+
 import { ActivityIcon, BugIcon, NetworkIcon, TargetIcon, ZapIcon } from "lucide-react";
 
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 
-import { fmtTokens } from "./format";
+import { fmtCount, fmtTokens } from "./format";
 import { LiveDot, StatValue } from "./shared";
 
 interface StatCardsProps {
@@ -19,6 +21,16 @@ interface StatCardsProps {
   trafficCount: number;
   trafficCapture: boolean | undefined;
   tokens: { input: number; output: number; cacheRead: number };
+}
+
+/** 统计卡头部：12px 标签 + 14px 图标，五张卡同尺寸同基线。 */
+function StatLabel({ icon: Icon, children }: { icon: ElementType; children: ReactNode }) {
+  return (
+    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+      <Icon className="size-3.5 shrink-0" aria-hidden="true" />
+      <span className="truncate">{children}</span>
+    </div>
+  );
 }
 
 export function StatCards({
@@ -37,19 +49,17 @@ export function StatCards({
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
       {/* 活跃任务 */}
-      <Card className="gap-1">
+      <Card size="sm" className="gap-1.5">
         <CardHeader className="pb-0">
-          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-            <TargetIcon className="size-3" /> 活跃任务
-          </div>
+          <StatLabel icon={TargetIcon}>活跃任务</StatLabel>
           <div className="flex items-baseline gap-1.5">
             <StatValue ready={tasksReady}>
-              <span className="text-2xl font-semibold tabular-nums">{tasksByStatus.running ?? 0}</span>
-              <span className="text-xs text-muted-foreground">/ {tasksTotal}</span>
+              <span className="text-2xl leading-8 font-semibold tabular-nums">{tasksByStatus.running ?? 0}</span>
+              <span className="text-xs text-muted-foreground tabular-nums">/ {fmtCount(tasksTotal)}</span>
             </StatValue>
           </div>
         </CardHeader>
-        <CardContent className="flex flex-wrap gap-x-2.5 gap-y-0.5 text-[10px]">
+        <CardContent className="flex flex-wrap gap-x-2.5 gap-y-0.5 text-xs">
           {(tasksByStatus.running ?? 0) > 0 && <span className="text-blue-400">探索 {tasksByStatus.running}</span>}
           {(tasksByStatus.paused ?? 0) > 0 && <span className="text-amber-400">暂停 {tasksByStatus.paused}</span>}
           {(tasksByStatus.done ?? 0) > 0 && <span className="text-emerald-400">完成 {tasksByStatus.done}</span>}
@@ -58,16 +68,14 @@ export function StatCards({
       </Card>
 
       {/* 确认发现 */}
-      <Card className="gap-1">
+      <Card size="sm" className="gap-1.5">
         <CardHeader className="pb-0">
-          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-            <BugIcon className="size-3" /> 确认发现
-          </div>
+          <StatLabel icon={BugIcon}>确认发现</StatLabel>
           <StatValue ready={fastReady}>
-            <div className="text-2xl font-semibold tabular-nums">{findingsTotal}</div>
+            <div className="text-2xl leading-8 font-semibold tabular-nums">{fmtCount(findingsTotal)}</div>
           </StatValue>
         </CardHeader>
-        <CardContent className="flex flex-wrap gap-2.5 text-[10px]">
+        <CardContent className="flex flex-wrap gap-2.5 text-xs tabular-nums">
           <span className="text-rose-500">严重 {findingsBySev.critical}</span>
           <span className="text-red-400">高危 {findingsBySev.high}</span>
           <span className="text-amber-400">中危 {findingsBySev.medium}</span>
@@ -76,29 +84,25 @@ export function StatCards({
       </Card>
 
       {/* 资产节点 */}
-      <Card className="gap-1">
+      <Card size="sm" className="gap-1.5">
         <CardHeader className="pb-0">
-          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-            <NetworkIcon className="size-3" /> 资产节点
-          </div>
+          <StatLabel icon={NetworkIcon}>资产节点</StatLabel>
           <StatValue ready={slowReady}>
-            <div className="text-2xl font-semibold tabular-nums">{totalAssets}</div>
+            <div className="text-2xl leading-8 font-semibold tabular-nums">{fmtCount(totalAssets)}</div>
           </StatValue>
         </CardHeader>
-        <CardContent className="text-[10px] text-muted-foreground">跨任务共享</CardContent>
+        <CardContent className="text-xs text-muted-foreground">跨任务共享</CardContent>
       </Card>
 
       {/* 流量交互 */}
-      <Card className="gap-1">
+      <Card size="sm" className="gap-1.5">
         <CardHeader className="pb-0">
-          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-            <ActivityIcon className="size-3" /> 流量交互
-          </div>
+          <StatLabel icon={ActivityIcon}>流量交互</StatLabel>
           <StatValue ready={slowReady}>
-            <div className="text-2xl font-semibold tabular-nums">{trafficCount}</div>
+            <div className="text-2xl leading-8 font-semibold tabular-nums">{fmtCount(trafficCount)}</div>
           </StatValue>
         </CardHeader>
-        <CardContent className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+        <CardContent className="flex items-center gap-1.5 text-xs text-muted-foreground">
           {trafficCapture ? (
             <>
               <LiveDot />
@@ -111,16 +115,16 @@ export function StatCards({
       </Card>
 
       {/* LLM 用量 */}
-      <Card className="gap-1">
+      <Card size="sm" className="gap-1.5">
         <CardHeader className="pb-0">
-          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-            <ZapIcon className="size-3" /> Token 用量
-          </div>
+          <StatLabel icon={ZapIcon}>Token 用量</StatLabel>
           <StatValue ready={fastReady}>
-            <div className="text-2xl font-semibold tabular-nums">{fmtTokens(tokens.input + tokens.output) || "—"}</div>
+            <div className="text-2xl leading-8 font-semibold tabular-nums">
+              {fmtTokens(tokens.input + tokens.output) || "—"}
+            </div>
           </StatValue>
         </CardHeader>
-        <CardContent className="text-[10px] text-muted-foreground">
+        <CardContent className="text-xs text-muted-foreground">
           入 {fmtTokens(tokens.input)}（含缓存 {fmtTokens(tokens.cacheRead)}）· 出 {fmtTokens(tokens.output)}
         </CardContent>
       </Card>

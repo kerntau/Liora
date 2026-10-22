@@ -149,25 +149,30 @@ test("mention anchor keeps typing focus and Escape dismisses only its candidates
   expect(errors).toEqual([]);
 });
 
-test("nested select Escape preserves preferences and dropdown keyboard focus returns", async ({ page }) => {
+test("nested select Escape preserves the popover and dropdown keyboard focus returns", async ({ page }) => {
   const errors = await fixture(page);
-  await page.goto("/function/tasks");
-  const preferencesTrigger = page.locator('header [data-slot="popover-trigger"]');
-  await preferencesTrigger.click();
-  const preferences = page.locator('[data-slot="popover-content"]');
-  const select = preferences.getByRole("combobox").first();
+  // 重构后顶栏不再有「布局与外观偏好」弹层（随左侧导航一起移除），
+  // 现在唯一带嵌套 Select 的浮层是任务详情页的「任务 LLM 配置链」Popover：
+  // 用它继续守住「Esc 只关一层」的语义。
+  await page.goto("/function/tasks/detail?id=42");
+  const popoverTrigger = page.getByRole("button", { name: "查看或切换任务 LLM 配置" });
+  await expect(popoverTrigger).toBeVisible();
+  await popoverTrigger.click();
+  const popover = page.locator('[data-slot="popover-content"]');
+  await expect(popover).toBeVisible();
+  const select = popover.locator('[data-slot="select-trigger"]');
   await select.focus();
   await select.press("ArrowDown");
   await expect(page.getByRole("listbox")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("listbox")).toHaveCount(0);
-  await expect(preferences).toBeVisible();
+  await expect(popover).toBeVisible();
   await expect(select).toBeFocused();
   await page.keyboard.press("Escape");
-  await expect(preferences).toHaveCount(0);
-  await expect(preferencesTrigger).toBeFocused();
+  await expect(popover).toHaveCount(0);
+  await expect(popoverTrigger).toBeFocused();
 
-  const account = page.locator('[data-slot="dropdown-menu-trigger"]').filter({ hasText: "管理员" });
+  const account = page.getByRole("button", { name: "账户菜单：管理员" });
   await account.focus();
   await account.press("ArrowDown");
   const changePassword = page.getByRole("menuitem", { name: "修改密码" });

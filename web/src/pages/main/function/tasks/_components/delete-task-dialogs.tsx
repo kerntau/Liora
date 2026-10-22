@@ -82,7 +82,7 @@ function DeleteOptionFields({
   };
 
   return (
-    <FieldSet disabled={disabled}>
+    <FieldSet disabled={disabled} className="border-border/70 bg-surface-muted rounded-xl border p-4">
       <FieldLegend variant="label">同时清理关联数据</FieldLegend>
       <FieldGroup className="gap-3">
         <Field orientation="horizontal">
@@ -174,10 +174,14 @@ export function DeleteTaskDialog({
   };
 
   const handleDelete = async () => {
+    if (deleting) return;
     setDeleting(true);
     try {
       await onDelete(task.id, options);
       setOpen(false);
+    } catch {
+      // 失败提示由 onDelete 负责;这里必须吞掉异常——否则 void handleDelete() 会变成
+      // 未处理的 Promise 拒绝,同时弹窗要留在原地让用户改选项重试。
     } finally {
       setDeleting(false);
     }
@@ -186,8 +190,14 @@ export function DeleteTaskDialog({
   return (
     <AlertDialog open={open} onOpenChange={handleOpenChange}>
       <AlertDialogTrigger asChild>
-        <Button size="icon" variant="outline" aria-label="删除任务">
-          <Trash2Icon className="text-destructive" />
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          aria-label="删除任务"
+          title="删除任务"
+          className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive group-hover:text-foreground"
+        >
+          <Trash2Icon />
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent>
@@ -263,8 +273,8 @@ export function BulkDeleteTasksDialog({
   return (
     <AlertDialog open={open} onOpenChange={handleOpenChange}>
       <AlertDialogTrigger asChild>
-        <Button size="sm" variant="outline">
-          <Trash2Icon className="text-destructive" /> 删除所选 {ids.length}
+        <Button size="sm" variant="destructive">
+          <Trash2Icon data-icon="inline-start" /> 删除所选 {ids.length}
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent className="max-h-[85vh] overflow-y-auto">

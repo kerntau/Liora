@@ -2,7 +2,18 @@
 
 import * as React from "react";
 import { toast } from "@/components/ui/sonner";
-import { PlayIcon, PlusIcon, RotateCcwIcon, SaveIcon, SearchIcon, Trash2Icon } from "lucide-react";
+import {
+  AlertTriangleIcon,
+  PlayIcon,
+  PlusIcon,
+  RotateCcwIcon,
+  SaveIcon,
+  SearchIcon,
+  ShieldAlertIcon,
+  SparklesIcon,
+  Trash2Icon,
+  WrenchIcon,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,13 +30,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Sheet,
@@ -35,15 +39,36 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { AsyncState } from "@/components/async-state";
+import { PageHeader } from "@/components/app/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { useAsyncData } from "@/hooks/use-async-data";
 import type { Agent, Tool } from "@/lib/types";
 
 // Traffic tools are host tools gated by the global 流量捕获 switch: bindable, but
 // only usable when capture is on. Keep in sync with traffic.SeedToolMetas.
 const TRAFFIC_TOOL_KEYS = new Set(["traffic_search", "traffic_get"]);
+
+// Tools that can execute commands or mutate files are surfaced with a warning
+// tone so a binding decision is never made on a neutral-looking card.
+const DANGEROUS_TOOL_KEYS = new Set([
+  "Bash",
+  "Write",
+  "Edit",
+  "MultiEdit",
+  "shell_open",
+  "shell_send",
+  "shell_read",
+  "shell_close",
+  "shell_list",
+]);
+
+function isDangerousTool(tool: Tool) {
+  if (DANGEROUS_TOOL_KEYS.has(tool.key)) return true;
+  return tool.kind === "shell" || tool.kind === "command" || tool.kind === "script";
+}
 
 // paramRows flattens schema.properties into an ordered row list for editing.
 // name/type/required are read-only (welded to the Go handler); description/default
@@ -220,12 +245,19 @@ function ToolEditor({
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4">
         {trafficGated && (
-          <div className="border-amber-500/40 bg-amber-500/10 text-muted-foreground rounded-md border px-3 py-2 text-xs">
-            该工具依赖<b>流量捕获</b>。请先在「系统配置」开启流量捕获，才能绑定给 Agent 并启用。
+          <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+            <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+            <span>该工具依赖<b>流量捕获</b>。请先在「系统配置」开启流量捕获，才能绑定给 Agent 并启用。</span>
+          </div>
+        )}
+        {isDangerousTool(tool) && (
+          <div className="flex items-start gap-2 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+            <ShieldAlertIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+            <span>该工具可执行命令或写入文件，属于高危能力；仅绑定给确实需要的 Agent，并保持最小授权。</span>
           </div>
         )}
         {/* binding + switch */}
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-lg border border-border/70 bg-surface-muted/40 p-4">
           <div className="grid gap-1.5">
             <Label id="tool-bind-agents-label" className="text-muted-foreground text-xs">
               绑定 Agent（决定该工具给哪些 Agent）
@@ -263,7 +295,7 @@ function ToolEditor({
           <Label htmlFor="builtin-tool-description" className="text-muted-foreground text-xs">工具描述（发送给模型）</Label>
           <Textarea
             id="builtin-tool-description"
-            className="font-mono text-xs"
+            className="font-mono text-xs leading-5"
             rows={6}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
@@ -272,16 +304,19 @@ function ToolEditor({
 
         {/* params */}
         <div className="grid gap-2">
-          <Label className="text-muted-foreground text-xs">
-            参数（名称 / 类型 / 必填只读；描述与默认值可改）
-          </Label>
+          <div className="flex items-center justify-between gap-2">
+            <Label className="text-muted-foreground text-xs">
+              参数（名称 / 类型 / 必填只读；描述与默认值可改）
+            </Label>
+            <span className="text-[12px] tabular-nums text-muted-foreground">{rows.length} 个</span>
+          </div>
           {rows.length === 0 && <span className="text-muted-foreground text-xs">（无参数）</span>}
           {rows.map((r, i) => (
             <div
               key={(r.parentKey ?? "") + "." + r.name}
               className={r.parentKey
-                ? "border-l-2 border-muted ml-3 pl-3 grid gap-2 py-2"
-                : "grid gap-2 rounded-md border p-3"
+                ? "ml-3 grid gap-2 border-l-2 border-border py-2 pl-3"
+                : "grid gap-2 rounded-lg border border-border/70 bg-card p-3"
               }
             >
               <div className="flex flex-wrap items-center gap-2">
@@ -301,7 +336,7 @@ function ToolEditor({
               </div>
               <div className="grid gap-2">
                 <div className="grid gap-1">
-                  <Label htmlFor={`tool-param-description-${i}`} className="text-muted-foreground text-[11px]">描述</Label>
+                  <Label htmlFor={`tool-param-description-${i}`} className="text-muted-foreground text-[12px]">描述</Label>
                   <Input
                     id={`tool-param-description-${i}`}
                     aria-label={`参数 ${r.parentKey ? `${r.parentKey}.` : ""}${r.name} 描述`}
@@ -311,7 +346,7 @@ function ToolEditor({
                   />
                 </div>
                 <div className="grid gap-1">
-                  <Label htmlFor={`tool-param-default-${i}`} className="text-muted-foreground text-[11px]">默认值</Label>
+                  <Label htmlFor={`tool-param-default-${i}`} className="text-muted-foreground text-[12px]">默认值</Label>
                   <Input
                     id={`tool-param-default-${i}`}
                     aria-label={`参数 ${r.parentKey ? `${r.parentKey}.` : ""}${r.name} 默认值`}
@@ -354,9 +389,9 @@ function ToolEditor({
 // ToolGridSkeleton keeps the grid footprint while the first page loads.
 function ToolGridSkeleton() {
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-hidden="true">
-      {[0, 1, 2].map((i) => (
-        <Skeleton key={i} className="h-[118px] rounded-lg" />
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-hidden="true">
+      {[0, 1, 2, 3, 4, 5].map((i) => (
+        <Skeleton key={i} className="h-[146px] rounded-lg" />
       ))}
     </div>
   );
@@ -364,53 +399,80 @@ function ToolGridSkeleton() {
 
 // ToolGridCard is one clickable tile in the catalog grid.
 function ToolGridCard({ tool, onClick }: { tool: Tool; onClick: () => void }) {
+  const danger = isDangerousTool(tool);
   return (
     <button
       type="button"
       onClick={onClick}
-      className="hover:border-primary/50 hover:bg-muted/40 focus-visible:ring-ring flex flex-col gap-2 rounded-lg border p-4 text-left transition-colors focus-visible:ring-2 focus-visible:outline-none"
+      className="group flex min-w-0 flex-col gap-3 rounded-lg border border-border bg-card p-4 text-left shadow-2xs transition-colors hover:border-primary/40 hover:bg-surface-muted/30 focus-visible:ring-2 focus-visible:ring-ring/45 focus-visible:outline-none"
     >
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="font-mono text-sm font-medium">{tool.key}</span>
-        {tool.system ? (
-          <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
-            系统
-          </Badge>
-        ) : (
-          <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
-            自定义·{tool.kind}
-          </Badge>
-        )}
-        {tool.deferred && (
-          <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
-            deferred
-          </Badge>
-        )}
-        {!tool.enabled && (
-          <Badge variant="outline" className="text-destructive px-1.5 py-0 text-[10px]">
-            已停用
-          </Badge>
-        )}
-        <Badge
-          variant="secondary"
-          className="ml-auto px-1.5 py-0 text-[10px] tabular-nums"
+      <div className="flex min-w-0 items-start gap-2.5">
+        <span
+          className={cn(
+            "grid size-8 shrink-0 place-items-center rounded-lg",
+            danger ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary",
+          )}
+          aria-hidden="true"
+        >
+          {danger ? <ShieldAlertIcon className="size-4" /> : <WrenchIcon className="size-4" />}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate font-mono text-[13px] font-medium text-foreground">{tool.key}</span>
+            {danger ? (
+              <span className="shrink-0 rounded-full border border-destructive/20 bg-destructive/10 px-1.5 py-0.5 text-[11px] font-semibold text-destructive">
+                高危
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-0.5 line-clamp-2 min-h-8 text-[12px] leading-4 text-muted-foreground">
+            {tool.description || "（无描述）"}
+          </p>
+        </div>
+        <span
+          className={cn(
+            "shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold",
+            tool.enabled
+              ? "border-success/20 bg-success/10 text-success"
+              : "border-transparent bg-muted text-muted-foreground",
+          )}
+        >
+          {tool.enabled ? "启用" : "已停用"}
+        </span>
+      </div>
+
+      <div className="mt-auto flex min-w-0 items-center justify-between gap-2 border-t border-border/60 pt-2.5">
+        <div className="flex min-w-0 flex-wrap items-center gap-1">
+          <span className="rounded-full border border-border bg-surface-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+            {tool.system ? "系统" : `自定义 · ${tool.kind}`}
+          </span>
+          {tool.deferred ? (
+            <span
+              className="rounded-full border border-border bg-surface-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
+              title="deferred：默认不注入模型上下文，按需加载"
+            >
+              延迟加载
+            </span>
+          ) : null}
+          {tool.agents.length === 0 ? (
+            <span className="text-[11px] text-muted-foreground">未绑定 Agent</span>
+          ) : (
+            tool.agents.slice(0, 3).map((a) => (
+              <span key={a} className="max-w-24 truncate rounded-full border border-border px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+                {a}
+              </span>
+            ))
+          )}
+          {tool.agents.length > 3 ? (
+            <span className="text-[11px] text-muted-foreground">+{tool.agents.length - 3}</span>
+          ) : null}
+        </div>
+        <span
+          className="shrink-0 text-[12px] tabular-nums text-muted-foreground"
           title={`累计调用 ${tool.calls ?? 0} 次`}
         >
-          调用 {tool.calls ?? 0}
-        </Badge>
-      </div>
-      <p className="text-muted-foreground line-clamp-1 h-4 text-xs">
-        {tool.description || "（无描述）"}
-      </p>
-      <div className="mt-auto flex flex-wrap gap-1 pt-1">
-        {tool.agents.length === 0 && (
-          <span className="text-muted-foreground text-[10px]">（未绑定 Agent）</span>
-        )}
-        {tool.agents.map((a) => (
-          <Badge key={a} variant="outline" className="px-1.5 py-0 text-[10px]">
-            {a}
-          </Badge>
-        ))}
+          {tool.calls ?? 0} 次
+        </span>
       </div>
     </button>
   );
@@ -462,122 +524,122 @@ export default function ToolsPage() {
   const openTool = (t: Tool) => (t.system ? setSelectedKey(t.key) : setCustomEdit(t));
 
   return (
-    <div className="flex flex-1 flex-col gap-4 md:gap-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">工具</h1>
-          <p className="text-muted-foreground text-sm">系统工具的描述/绑定，以及自定义工具(command/script/http)</p>
-        </div>
-        <div className="relative w-64">
-          <SearchIcon className="text-muted-foreground absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2" />
-          <Input
-            aria-label="搜索工具"
-            className="h-8 pl-8 text-sm"
-            placeholder="搜索工具名、描述、Agent…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-        </div>
-      </div>
+    <div className="flex min-w-0 flex-1 flex-col gap-5">
+      <PageHeader
+        icon={WrenchIcon}
+        title="工具"
+        description="管理系统工具的描述、参数默认值与 Agent 绑定，并维护 command / script / http 自定义工具。"
+        // 总数 = 系统 + 自定义，三个数字并列是同一口径的重复计数（用户已指出）。
+        // 只在确有自定义工具时补一句自定义数，否则「共 N 个工具」已经说完了。
+        meta={[
+          <span className="tabular-nums">共 {tools.length} 个工具</span>,
+          allCustomCount > 0 ? (
+            <span className="tabular-nums">其中自定义 {allCustomCount} 个</span>
+          ) : null,
+        ]}
+        actions={
+          <Button size="sm" onClick={() => setCustomEdit("new")}>
+            <PlusIcon className="size-4" /> 新建自定义工具
+          </Button>
+        }
+      />
 
       {(agentsFailed || captureFailed) && (
         <div
           role="alert"
-          className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs"
+          className="flex flex-wrap items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 px-4 py-2 text-xs text-warning"
         >
+          <AlertTriangleIcon className="size-4 shrink-0" aria-hidden="true" />
           <span className="min-w-0 flex-1">
             {agentsFailed && "Agent 列表加载失败，工具绑定显示可能不完整。"}
             {captureFailed && "系统设置加载失败，流量工具的门控状态未知。"}
           </span>
-          <button
-            type="button"
-            onClick={loadSide}
-            className="shrink-0 text-foreground underline underline-offset-2"
-          >
+          <Button size="sm" variant="outline" className="h-7" onClick={loadSide}>
             重试
-          </button>
+          </Button>
         </div>
       )}
 
-      <Tabs defaultValue="system">
-        <TabsList>
-          <TabsTrigger value="system">系统工具</TabsTrigger>
-          <TabsTrigger value="custom">自定义工具</TabsTrigger>
-        </TabsList>
+      <Tabs defaultValue="system" className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/60 bg-card px-4 py-2 shadow-[var(--shadow-card)]">
+          {/* 与同排的 32px 搜索框同高，避免工具栏出现 36/32 两种高度。 */}
+          <TabsList className="h-8!">
+            <TabsTrigger value="system">系统工具</TabsTrigger>
+            <TabsTrigger value="custom">自定义工具</TabsTrigger>
+          </TabsList>
+          <div className="relative w-full min-w-0 sm:max-w-xs">
+            <SearchIcon className="text-muted-foreground absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" aria-hidden="true" />
+            <Input
+              aria-label="搜索工具"
+              className="h-8 pl-8 text-[13px]"
+              placeholder="搜索工具名、描述、Agent…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+          {query.trim() ? (
+            <span className="ml-auto shrink-0 text-[12px] tabular-nums text-muted-foreground">
+              {systemTools.length + customTools.length} / {tools.length} 个匹配
+            </span>
+          ) : null}
+        </div>
 
         <TabsContent value="system">
-          <Card>
-            <CardHeader>
-              <CardTitle>系统工具</CardTitle>
-              <CardDescription>
-                {query.trim()
-                  ? `${systemTools.length} / ${allSystemCount} 个匹配，点击卡片编辑描述、参数默认值与 Agent 绑定`
-                  : `共 ${allSystemCount} 个，点击卡片编辑描述、参数默认值与 Agent 绑定`}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <AsyncState
-                status={toolsQ.status}
-                error={toolsQ.error}
-                onRetry={reload}
-                refreshing={toolsQ.refreshing}
-                isEmpty={systemTools.length === 0}
-                skeleton={<ToolGridSkeleton />}
-                empty={
-                  <p className="text-muted-foreground py-6 text-center text-sm">
-                    {query.trim() ? "没有匹配的系统工具" : "（暂无系统工具，等待后端 seed）"}
-                  </p>
-                }
-              >
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {systemTools.map((t) => (
-                    <ToolGridCard key={t.key} tool={t} onClick={() => openTool(t)} />
-                  ))}
-                </div>
-              </AsyncState>
-            </CardContent>
-          </Card>
+          <AsyncState
+            status={toolsQ.status}
+            error={toolsQ.error}
+            onRetry={reload}
+            refreshing={toolsQ.refreshing}
+            isEmpty={systemTools.length === 0}
+            skeleton={<ToolGridSkeleton />}
+            empty={
+              <div className="flex flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-border/60 py-8 text-center">
+                <WrenchIcon className="size-6 text-muted-foreground/50" aria-hidden="true" />
+                <p className="text-[13px] font-medium text-foreground">
+                  {query.trim() ? "没有匹配的系统工具" : "暂无系统工具"}
+                </p>
+                <p className="max-w-sm text-[12px] leading-5 text-muted-foreground">
+                  {query.trim() ? "换一个关键词，或清空搜索查看全部系统工具。" : "等待后端初始化内置工具后即可在此绑定。"}
+                </p>
+              </div>
+            }
+          >
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {systemTools.map((t) => (
+                <ToolGridCard key={t.key} tool={t} onClick={() => openTool(t)} />
+              ))}
+            </div>
+          </AsyncState>
         </TabsContent>
 
         <TabsContent value="custom">
-          <Card>
-            <CardHeader>
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <CardTitle>自定义工具</CardTitle>
-                  <CardDescription>
-                    {query.trim()
-                      ? `shell/command/script/http，${customTools.length} / ${allCustomCount} 个匹配，点击卡片编辑`
-                      : `shell(bash 声明) / command(命令) / script(Python) / http(API)，共 ${allCustomCount} 个，点击卡片编辑`}
-                  </CardDescription>
-                </div>
-                <Button size="sm" onClick={() => setCustomEdit("new")}>
-                  <PlusIcon /> 新建自定义工具
-                </Button>
+          <AsyncState
+            status={toolsQ.status}
+            error={toolsQ.error}
+            onRetry={reload}
+            refreshing={toolsQ.refreshing}
+            isEmpty={customTools.length === 0}
+            skeleton={<ToolGridSkeleton />}
+            empty={
+              <div className="flex flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-border/60 py-8 text-center">
+                <SparklesIcon className="size-6 text-muted-foreground/50" aria-hidden="true" />
+                <p className="text-[13px] font-medium text-foreground">
+                  {query.trim() ? "没有匹配的自定义工具" : "还没有自定义工具"}
+                </p>
+                <p className="max-w-sm text-[12px] leading-5 text-muted-foreground">
+                  {query.trim()
+                    ? "换一个关键词，或清空搜索查看全部自定义工具。"
+                    : "点右上角「新建自定义工具」，把常用命令、脚本或 HTTP 接口封装成工具并绑定给 Agent。"}
+                </p>
               </div>
-            </CardHeader>
-            <CardContent>
-              <AsyncState
-                status={toolsQ.status}
-                error={toolsQ.error}
-                onRetry={reload}
-                refreshing={toolsQ.refreshing}
-                isEmpty={customTools.length === 0}
-                skeleton={<ToolGridSkeleton />}
-                empty={
-                  <p className="text-muted-foreground py-6 text-center text-sm">
-                    {query.trim() ? "没有匹配的自定义工具" : "（暂无自定义工具，点击右上角「新建自定义工具」）"}
-                  </p>
-                }
-              >
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {customTools.map((t) => (
-                    <ToolGridCard key={t.key} tool={t} onClick={() => openTool(t)} />
-                  ))}
-                </div>
-              </AsyncState>
-            </CardContent>
-          </Card>
+            }
+          >
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {customTools.map((t) => (
+                <ToolGridCard key={t.key} tool={t} onClick={() => openTool(t)} />
+              ))}
+            </div>
+          </AsyncState>
         </TabsContent>
       </Tabs>
 

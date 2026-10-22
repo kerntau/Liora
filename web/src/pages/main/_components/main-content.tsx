@@ -4,16 +4,9 @@ import { type ReactNode, useEffect, useState } from "react";
 
 import { usePathname } from "@/lib/router-compat";
 
-import { Separator } from "@/components/ui/separator";
-import { SidebarTrigger } from "@/components/ui/sidebar";
-import { useCurrentUser } from "@/hooks/use-current-user";
 import { api } from "@/lib/api";
-import { cn } from "@/lib/utils";
 
-import { AccountSwitcher } from "./sidebar/account-switcher";
-import { LayoutControls } from "./sidebar/layout-controls";
-import { SearchDialog } from "./sidebar/search-dialog";
-import { ThemeSwitcher } from "./sidebar/theme-switcher";
+import { AppHeader } from "./app-header";
 
 function normalizePath(pathname: string) {
   const p = (() => {
@@ -28,13 +21,7 @@ function normalizePath(pathname: string) {
   return p.replace(/\/+$/, "") || "/";
 }
 
-// 任务详情页保持原样：它自带头部/Tabs 与内边距，这里不再叠加全局头部和 padding。
-function isFullBleed(pathname: string) {
-  return normalizePath(pathname).startsWith("/function/tasks/");
-}
-
 // 静态导出没有框架级的 metadata，按路由统一维护 document.title。
-// 标题统一以「页面 · 品牌」收尾，保证任何页面都能从标题栏认出站点。
 const BRAND = "Liora · 灵探";
 const ROUTE_TITLES: Record<string, string> = {
   "/dashboard": "总览",
@@ -57,7 +44,6 @@ const ROUTE_TITLES: Record<string, string> = {
 };
 
 export function MainContent({ children }: { children: ReactNode }) {
-  const currentUser = useCurrentUser();
   const pathname = usePathname();
   const [version, setVersion] = useState("");
 
@@ -68,46 +54,17 @@ export function MainContent({ children }: { children: ReactNode }) {
       .catch(() => setVersion(""));
   }, []);
 
-  // 放在早退之前：任务详情页是全幅渲染，也照样需要标题。
   useEffect(() => {
     const page = ROUTE_TITLES[normalizePath(pathname)];
-    document.title = page ? `${page} · ${BRAND}` : BRAND;
+    document.title = page ? page + " · " + BRAND : BRAND;
   }, [pathname]);
-
-  if (isFullBleed(pathname)) {
-    return <>{children}</>;
-  }
 
   return (
     <>
-      <header
-        className={cn(
-          "flex h-12 shrink-0 items-center gap-2 border-b transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12",
-          "[html[data-navbar-style=sticky]_&]:sticky [html[data-navbar-style=sticky]_&]:top-0 [html[data-navbar-style=sticky]_&]:z-50 [html[data-navbar-style=sticky]_&]:overflow-hidden [html[data-navbar-style=sticky]_&]:rounded-t-[inherit] [html[data-navbar-style=sticky]_&]:bg-background/50 [html[data-navbar-style=sticky]_&]:backdrop-blur-md",
-        )}
-      >
-        <div className="flex min-w-0 w-full items-center justify-between gap-2 px-3 sm:px-4 lg:px-6">
-          <div className="flex min-w-0 items-center gap-1 lg:gap-2">
-            <SidebarTrigger className="-ml-1 max-sm:size-11" aria-label="切换侧边栏" />
-            <Separator
-              orientation="vertical"
-              className="mx-1 data-[orientation=vertical]:h-4 data-[orientation=vertical]:self-center sm:mx-2"
-            />
-            <SearchDialog />
-          </div>
-          <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-            {version && (
-              <span className="hidden font-medium text-muted-foreground text-xs tabular-nums lg:inline">
-                版本 · {version}
-              </span>
-            )}
-            <LayoutControls />
-            <ThemeSwitcher />
-            <AccountSwitcher users={[currentUser]} />
-          </div>
-        </div>
-      </header>
-      <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden p-4 has-data-[content-padding=false]:p-0 md:p-6 md:has-data-[content-padding=false]:p-0">
+      <AppHeader version={version} />
+      {/* 底部留白给浮动 Dock（桌面端 64px 横条 + 16px 边距，移动端 48px 圆钮 + 16px 边距），
+          否则页面最后一个卡片会被压在 Dock 底下点不到。 */}
+      <div className="mx-auto min-h-0 w-full max-w-screen-2xl min-w-0 flex-1 overflow-x-hidden px-4 pt-4 pb-20 md:px-6 md:pt-5 md:pb-24">
         {children}
       </div>
     </>

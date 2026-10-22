@@ -8,7 +8,7 @@ function Pagination({ className, ...props }: React.ComponentProps<"nav">) {
   return (
     <nav
       role="navigation"
-      aria-label="pagination"
+      aria-label="分页"
       data-slot="pagination"
       className={cn("mx-auto flex w-full justify-center", className)}
       {...props}
@@ -23,7 +23,7 @@ function PaginationContent({
   return (
     <ul
       data-slot="pagination-content"
-      className={cn("flex items-center gap-0.5", className)}
+      className={cn("flex items-center gap-1", className)}
       {...props}
     />
   )
@@ -63,12 +63,12 @@ function PaginationLink({
 
 function PaginationPrevious({
   className,
-  text = "Previous",
+  text = "上一页",
   ...props
 }: React.ComponentProps<typeof PaginationLink> & { text?: string }) {
   return (
     <PaginationLink
-      aria-label="Go to previous page"
+      aria-label="上一页"
       size="default"
       className={cn("pl-1.5!", className)}
       {...props}
@@ -81,12 +81,12 @@ function PaginationPrevious({
 
 function PaginationNext({
   className,
-  text = "Next",
+  text = "下一页",
   ...props
 }: React.ComponentProps<typeof PaginationLink> & { text?: string }) {
   return (
     <PaginationLink
-      aria-label="Go to next page"
+      aria-label="下一页"
       size="default"
       className={cn("pr-1.5!", className)}
       {...props}
@@ -111,9 +111,8 @@ function PaginationEllipsis({
       )}
       {...props}
     >
-      <MoreHorizontalIcon
-      />
-      <span className="sr-only">More pages</span>
+      <MoreHorizontalIcon />
+      <span className="sr-only">更多页</span>
     </span>
   )
 }

@@ -1,14 +1,13 @@
 "use client";
 
-import { BugIcon, DownloadIcon, SearchIcon } from "lucide-react";
+import { BugIcon, SearchIcon, XIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { statusMeta } from "@/lib/status";
-import type { FindingStatus, FindingTaskOption, Severity } from "@/lib/types";
+import type { FindingStatus, FindingTaskOption } from "@/lib/types";
 
 import { FINDING_STATUSES, UNASSIGNED_TASK } from "./findings-table";
 
@@ -39,8 +38,6 @@ export function FindingsViewTabs({ view, onViewChange }: FindingsViewTabsProps) 
 interface FindingsToolbarProps {
   search: string;
   onSearchChange: (value: string) => void;
-  severity: "all" | Severity;
-  onSeverityChange: (value: "all" | Severity) => void;
   status: "all" | FindingStatus;
   onStatusChange: (value: "all" | FindingStatus) => void;
   vulnclass: string;
@@ -50,20 +47,24 @@ interface FindingsToolbarProps {
   sort: "severity" | "time";
   onSortChange: (value: "severity" | "time") => void;
   /** 漏洞类型下拉的选项,来自全表聚合。 */
-  vulnclasses: string[];
+  vulnclasses?: string[];
   /** 任务下拉的选项(含漏洞条数),来自全表聚合。 */
   tasks?: FindingTaskOption[];
   /** 跨页勾选的条数,为 0 时不显示。 */
   selectedCount: number;
-  onExport: () => void;
+  /** 当前筛选口径下的条数(分组视图取 finding_total)。 */
+  total: number;
+  /** 有任一筛选生效时给「清除筛选」,与空态里的入口一致。 */
+  hasFilters: boolean;
+  onClearFilters: () => void;
 }
 
-// FindingsToolbar 只渲染筛选控件与导出入口;筛选状态与请求时序仍由页面持有。
+// FindingsToolbar 只渲染筛选控件与计数;筛选状态与请求时序仍由页面持有。
+// 主操作(导出)放在页头,这里保持「搜索 → 筛选 → 计数」的阅读顺序。
+// 严重度筛选由页首的分布卡承担,工具栏不再重复一组等级切换。
 export function FindingsToolbar({
   search,
   onSearchChange,
-  severity,
-  onSeverityChange,
   status,
   onStatusChange,
   vulnclass,
@@ -75,48 +76,28 @@ export function FindingsToolbar({
   vulnclasses,
   tasks,
   selectedCount,
-  onExport,
+  total,
+  hasFilters,
+  onClearFilters,
 }: FindingsToolbarProps) {
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <InputGroup className="w-full sm:w-72">
+    <div className="flex flex-wrap items-center gap-2 px-5 pb-4">
+      <InputGroup className="w-full sm:w-64">
         <InputGroupInput
           type="search"
           value={search}
           onChange={(event) => onSearchChange(event.target.value)}
           placeholder="检索漏洞内容"
           aria-label="检索漏洞内容"
+          className="text-[13px]"
         />
         <InputGroupAddon>
           <SearchIcon aria-hidden="true" />
         </InputGroupAddon>
       </InputGroup>
 
-      <ToggleGroup
-        type="single"
-        value={severity}
-        onValueChange={(value) => value && onSeverityChange(value as "all" | Severity)}
-        variant="outline"
-        size="sm"
-        spacing={0}
-      >
-        {(
-          [
-            ["all", "全部"],
-            ["critical", "严重"],
-            ["high", "高危"],
-            ["medium", "中危"],
-            ["low", "低危"],
-          ] as const
-        ).map(([val, label]) => (
-          <ToggleGroupItem key={val} value={val} aria-label={`按${label}等级筛选`}>
-            {label}
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
-
       <Select value={status} onValueChange={(v) => onStatusChange(v as "all" | FindingStatus)}>
-        <SelectTrigger size="sm" className="w-32">
+        <SelectTrigger className="w-[calc(50%-0.25rem)] text-[13px] sm:w-32">
           <SelectValue placeholder="状态" />
         </SelectTrigger>
         <SelectContent>
@@ -130,12 +111,12 @@ export function FindingsToolbar({
       </Select>
 
       <Select value={vulnclass} onValueChange={onVulnclassChange}>
-        <SelectTrigger size="sm" className="w-40">
+        <SelectTrigger className="w-[calc(50%-0.25rem)] text-[13px] sm:w-40">
           <SelectValue placeholder="漏洞类型" />
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="all">全部类型</SelectItem>
-          {vulnclasses.map((vc) => (
+          {(vulnclasses ?? []).map((vc) => (
             <SelectItem key={vc} value={vc}>
               {vc}
             </SelectItem>
@@ -144,7 +125,7 @@ export function FindingsToolbar({
       </Select>
 
       <Select value={task} onValueChange={onTaskChange}>
-        <SelectTrigger size="sm" className="w-48">
+        <SelectTrigger className="w-[calc(50%-0.25rem)] text-[13px] sm:w-48">
           <SelectValue placeholder="任务" />
         </SelectTrigger>
         <SelectContent>
@@ -171,7 +152,7 @@ export function FindingsToolbar({
       </Select>
 
       <Select value={sort} onValueChange={(v) => onSortChange(v as "severity" | "time")}>
-        <SelectTrigger size="sm" className="w-36">
+        <SelectTrigger className="w-[calc(50%-0.25rem)] text-[13px] sm:w-36">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -180,13 +161,23 @@ export function FindingsToolbar({
         </SelectContent>
       </Select>
 
-      <div className="ml-auto flex items-center gap-3">
-        {selectedCount > 0 && (
-          <span className="text-xs text-muted-foreground tabular-nums">已选 {selectedCount} 条</span>
-        )}
-        <Button size="sm" variant="outline" onClick={onExport}>
-          <DownloadIcon /> 导出
+      {hasFilters && (
+        <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={onClearFilters}>
+          <XIcon data-icon="inline-start" />
+          重置筛选
         </Button>
+      )}
+
+      {/* 计数只在这里出现一次：页头、严重度面板与列表卡片头都不再重复。 */}
+      <div className="ml-auto flex flex-wrap items-center gap-2 text-[12px] text-muted-foreground">
+        {selectedCount > 0 && (
+          <span className="app-chip h-6 tabular-nums">
+            已选 <span className="font-semibold text-foreground">{selectedCount}</span> 条
+          </span>
+        )}
+        <span className="tabular-nums whitespace-nowrap">
+          共 <span className="font-medium text-foreground">{total}</span> 条
+        </span>
       </div>
     </div>
   );

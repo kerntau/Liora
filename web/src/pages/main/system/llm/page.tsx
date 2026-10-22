@@ -3,6 +3,10 @@
 import * as React from "react";
 
 import {
+  BrainCircuitIcon,
+  CheckCircle2Icon,
+  ChevronDownIcon,
+  GaugeIcon,
   Loader2Icon,
   PlugZapIcon,
   PlusIcon,
@@ -11,19 +15,19 @@ import {
   SaveIcon,
   StarIcon,
   Trash2Icon,
+  TriangleAlertIcon,
   ZapIcon,
 } from "lucide-react";
 
+import { PageHeader } from "@/components/app/page-header";
 import { AsyncState } from "@/components/async-state";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
@@ -78,30 +82,91 @@ function cooldownText(secs: number) {
 
 // 一个配置在卡片上显示的「是否正常」。没填 Key 的配置根本发不出请求，比熔断更该先说；
 // 其余状态来自轮询的熔断记录（轮询关着时不会产生新记录，此时「正常」= 没有已知故障）。
-type Health = { label: string; cls: string; hint?: string };
+type Tone = "success" | "warning" | "danger" | "muted" | "primary";
+const TONE_CLASS: Record<Tone, string> = {
+  success: "border-success/25 bg-success/10 text-success",
+  warning: "border-warning/25 bg-warning/10 text-warning",
+  danger: "border-destructive/25 bg-destructive/10 text-destructive",
+  muted: "border-border bg-muted text-muted-foreground",
+  primary: "border-primary/20 bg-primary/10 text-primary",
+};
+
+function StatusPill({
+  tone,
+  children,
+  title,
+  className,
+}: {
+  tone: Tone;
+  children: React.ReactNode;
+  title?: string;
+  className?: string;
+}) {
+  return (
+    <span
+      title={title}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium whitespace-nowrap",
+        TONE_CLASS[tone],
+        className,
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
+function StatTile({
+  icon: Icon,
+  label,
+  value,
+  caption,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: React.ReactNode;
+  caption?: React.ReactNode;
+}) {
+  return (
+    <Card className="gap-0 px-4 py-3.5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{label}</div>
+          <div className="mt-0.5 truncate text-[22px] leading-7 font-semibold tabular-nums text-foreground">{value}</div>
+          {caption ? <div className="mt-0.5 truncate text-[12px] text-muted-foreground">{caption}</div> : null}
+        </div>
+        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+          <Icon className="size-4" />
+        </span>
+      </div>
+    </Card>
+  );
+}
+
+type Health = { label: string; tone: Tone; hint?: string };
 function healthOf(p: LLMProfile, m?: LLMPoolMember): Health {
   if (!p.api_key_hint) {
     return {
       label: "未配置 Key",
-      cls: "border-muted-foreground/40 text-muted-foreground",
+      tone: "muted",
       hint: "未填 API Key，无法调用",
     };
   }
   if (m?.state === "tripped") {
     return {
       label: m.cooldown_secs > 0 ? `已熔断 · ${cooldownText(m.cooldown_secs)}` : "已熔断",
-      cls: "border-destructive/50 text-destructive",
+      tone: "danger",
       hint: m.last_error,
     };
   }
   if (m?.state === "degraded") {
     return {
       label: `异常 · 失败 ${m.fails} 次`,
-      cls: "border-amber-500/50 text-amber-600 dark:text-amber-400",
+      tone: "warning",
       hint: m.last_error,
     };
   }
-  return { label: "正常", cls: "border-emerald-500/50 text-emerald-600 dark:text-emerald-400" };
+  return { label: "正常", tone: "success" };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -171,22 +236,26 @@ function PoolSheet({
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="flex flex-col gap-0 p-0 data-[side=right]:sm:max-w-lg">
-        <SheetHeader className="px-4">
-          <SheetTitle className="flex items-center gap-2">
-            <ZapIcon className="size-4" /> LLM 轮询 · 故障转移
+        <SheetHeader className="gap-2 border-b border-border/70 px-5 pt-5 pb-4">
+          <SheetTitle className="flex items-center gap-2.5">
+            <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+              <ZapIcon className="size-4" />
+            </span>
+            LLM 轮询 · 故障转移
           </SheetTitle>
-          <SheetDescription>
+          <SheetDescription className="text-xs leading-5">
             开启后，<b>未指定模型</b>的 Agent 在当前配置不可用（余额不足 / Key 失效 / 限流 /
             服务异常）时自动切到下一个配置。
           </SheetDescription>
         </SheetHeader>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pb-6">
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto bg-surface-muted px-5 py-4 pb-6">
           {poolError && (
             <div
               role="alert"
-              className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs"
+              className="flex flex-wrap items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning"
             >
+              <TriangleAlertIcon className="size-3.5 shrink-0" />
               <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
                 轮询状态加载失败：{poolError.message}
                 {!pool && "（下方开关的真实状态未知，先重试再改）"}
@@ -194,16 +263,34 @@ function PoolSheet({
               <button
                 type="button"
                 onClick={() => void onReload()}
-                className="shrink-0 text-foreground underline underline-offset-2"
+                className="shrink-0 font-medium text-foreground underline underline-offset-2"
               >
                 重试
               </button>
             </div>
           )}
-          <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
-            <div className="grid gap-0.5">
-              <Label className="text-sm">启用轮询</Label>
-              <p className="text-muted-foreground text-xs">默认关闭。关闭时始终只用激活配置，失败即失败。</p>
+
+          <div className="grid grid-cols-3 divide-x divide-border/70 overflow-hidden rounded-lg border border-border/70 bg-card">
+            <div className="px-3 py-2.5">
+              <div className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">状态</div>
+              <div className="mt-0.5 text-[13px] font-semibold">{enabled ? "已开启" : "未开启"}</div>
+            </div>
+            <div className="px-3 py-2.5">
+              <div className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">链上配置</div>
+              <div className="mt-0.5 text-[13px] font-semibold tabular-nums">{inChain.length}</div>
+            </div>
+            <div className="px-3 py-2.5">
+              <div className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">熔断中</div>
+              <div className={cn("mt-0.5 text-[13px] font-semibold tabular-nums", tripped.length > 0 && "text-destructive")}>
+                {tripped.length}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-4 rounded-lg border border-border/70 bg-card p-4">
+            <div className="grid gap-1">
+              <Label className="text-[13px]">启用轮询</Label>
+              <p className="text-muted-foreground text-xs leading-5">默认关闭。关闭时始终只用激活配置，失败即失败。</p>
             </div>
             <Switch
               checked={enabled}
@@ -215,10 +302,10 @@ function PoolSheet({
 
           {enabled && (
             <>
-              <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
-                <div className="grid gap-0.5">
-                  <Label className="text-sm">指定模型失败时也兜底</Label>
-                  <p className="text-muted-foreground text-xs">
+              <div className="flex items-center justify-between gap-4 rounded-lg border border-border/70 bg-card p-4">
+                <div className="grid gap-1">
+                  <Label className="text-[13px]">指定模型失败时也兜底</Label>
+                  <p className="text-muted-foreground text-xs leading-5">
                     默认关闭：Agent 或任务指定了某个配置就只用它，失败即失败（不会悄悄换成别的模型）。
                     开启后，指定的配置失败时也会回落到下面的轮询链。
                   </p>
@@ -231,57 +318,61 @@ function PoolSheet({
                 />
               </div>
 
-              <Separator />
-
-              <div className="grid gap-2">
-                <div className="flex items-center justify-between">
-                  <Label className="text-sm">轮询顺序</Label>
+              <div className="grid gap-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-[13px]">轮询顺序</Label>
+                    <StatusPill tone="muted" className="font-mono tabular-nums">
+                      {inChain.length} 个
+                    </StatusPill>
+                  </div>
                   {tripped.length > 0 && (
-                    <Button size="sm" variant="ghost" disabled={recovering} onClick={() => void recover()}>
+                    <Button size="sm" variant="outline" disabled={recovering} onClick={() => void recover()}>
                       <RotateCcwIcon /> 全部恢复
                     </Button>
                   )}
                 </div>
                 {inChain.length < 2 && (
-                  <p className="text-muted-foreground text-xs">
+                  <p className="rounded-lg border border-dashed border-border/70 px-3 py-2 text-muted-foreground text-xs leading-5">
                     当前只有 {inChain.length} 个可用配置，轮询不会生效——至少需要 2 个已填 API Key 且参与轮询的配置。
                   </p>
                 )}
                 {chain.map((m) => {
                   const excluded = m.excluded && !m.active;
                   const order = excluded ? null : inChain.findIndex((x) => x.profile_id === m.profile_id) + 1;
+                  const statePill =
+                    m.state === "tripped" ? (
+                      <StatusPill tone="danger">
+                        {m.cooldown_secs > 0 ? `熔断 · 冷却 ${cooldownText(m.cooldown_secs)}` : "已熔断"}
+                      </StatusPill>
+                    ) : m.state === "degraded" ? (
+                      <StatusPill tone="warning">连续失败 {m.fails} 次</StatusPill>
+                    ) : (
+                      <StatusPill tone="success">正常</StatusPill>
+                    );
                   return (
                     <div
                       key={m.profile_id}
                       className={cn(
-                        "grid gap-1 rounded-lg border p-2.5 text-sm",
-                        excluded && "opacity-55",
-                        m.state === "tripped" && "border-destructive/40",
+                        "grid gap-2 rounded-lg border border-border/70 bg-card p-3 text-sm",
+                        excluded && "opacity-60",
+                        m.state === "tripped" && "border-destructive/30",
                       )}
                     >
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <span className="w-5 shrink-0 text-center font-mono text-muted-foreground text-xs">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+                        <span className="grid size-6 shrink-0 place-items-center rounded-md bg-primary/10 font-mono text-[11px] font-semibold text-primary tabular-nums">
                           {order ?? "—"}
                         </span>
-                        <span className="font-medium">{m.name}</span>
-                        {m.active && (
-                          <Badge variant="outline" className="border-amber-400/50 text-amber-500">
-                            激活
-                          </Badge>
-                        )}
-                        {excluded && <Badge variant="outline">不参与轮询</Badge>}
+                        <span className="truncate text-[13px] font-semibold">{m.name}</span>
+                        {m.active && <StatusPill tone="primary">激活</StatusPill>}
+                        {excluded && <StatusPill tone="muted">不参与轮询</StatusPill>}
                         <div className="ml-auto flex items-center gap-2">
-                          {m.state === "tripped" && m.cooldown_secs > 0 && (
-                            <span className="text-muted-foreground text-xs">冷却 {cooldownText(m.cooldown_secs)}</span>
-                          )}
-                          {m.state === "degraded" && (
-                            <span className="text-muted-foreground text-xs">连续失败 {m.fails} 次</span>
-                          )}
+                          {statePill}
                           {m.state !== "ok" && (
                             <Button
-                              size="icon"
+                              size="icon-sm"
                               variant="ghost"
-                              className="size-7"
+                              className="size-7 text-muted-foreground"
                               aria-label="立即恢复"
                               title="立即恢复：清除熔断，下次调用重试该配置"
                               disabled={recovering}
@@ -292,12 +383,15 @@ function PoolSheet({
                           )}
                         </div>
                       </div>
-                      <div className="flex flex-wrap items-center gap-x-3 pl-7 text-muted-foreground text-xs">
-                        <code className="truncate font-mono">{m.model}</code>
-                        {!m.active && <span>优先级 {m.priority}</span>}
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground text-xs">
+                        <code className="min-w-0 truncate font-mono">{m.model}</code>
+                        {!m.active && <span className="tabular-nums">优先级 {m.priority}</span>}
                       </div>
                       {m.last_error && (
-                        <p className="truncate pl-7 font-mono text-muted-foreground text-xs" title={m.last_error}>
+                        <p
+                          className="truncate rounded-md bg-destructive/5 px-2 py-1 font-mono text-[11px] text-destructive"
+                          title={m.last_error}
+                        >
                           {m.last_error}
                         </p>
                       )}
@@ -305,15 +399,17 @@ function PoolSheet({
                   );
                 })}
                 {chain.length === 0 && (
-                  <div className="rounded-lg border border-dashed p-4 text-center text-muted-foreground text-sm">
-                    暂无配置
+                  <div className="flex flex-col items-center gap-1 rounded-lg border border-dashed border-border/70 bg-card px-4 py-8 text-center">
+                    <ZapIcon className="size-7 text-muted-foreground/50" />
+                    <p className="mt-1 text-[13px] font-medium">暂无配置</p>
+                    <p className="text-xs text-muted-foreground">先添加模型配置，再回来调整轮询顺序。</p>
                   </div>
                 )}
               </div>
 
-              <div className="rounded-lg border border-dashed p-3 text-muted-foreground text-xs leading-relaxed">
-                激活配置恒为第 1 顺位，其余按优先级从高到低（在各配置里设置）。某个配置失败后进入冷却 （60s → 5min →
-                30min），冷却期内被跳过，恢复后自动切回。上下文窗口装不下当前请求的配置会被跳过。 指定了模型的 Agent
+              <div className="rounded-lg border border-border/70 bg-surface-muted p-3 text-muted-foreground text-[12px] leading-5">
+                激活配置恒为第 1 顺位，其余按优先级从高到低（在各配置里设置）。某个配置失败后进入冷却（60s → 5min →
+                30min），冷却期内被跳过，恢复后自动切回。上下文窗口装不下当前请求的配置会被跳过。指定了模型的 Agent
                 与任务默认不参与轮询。
               </div>
             </>
@@ -506,24 +602,30 @@ function ProfileSheet({
         busy={saving}
         className="flex flex-col gap-0 p-0 data-[side=right]:w-full data-[side=right]:sm:min-w-[420px] data-[side=right]:sm:max-w-xl"
       >
-        <SheetHeader className="px-4">
-          <SheetTitle className="flex items-center gap-2">
-            {isNew ? "新建模型配置" : `编辑：${profile?.name}`}
-            {profile?.is_default && (
-              <Badge variant="outline" className="border-amber-400/50 text-amber-500">
-                激活中
-              </Badge>
-            )}
+        <SheetHeader className="gap-2 border-b border-border/70 px-5 pt-5 pb-4">
+          <SheetTitle className="flex flex-wrap items-center gap-2.5">
+            <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+              <BrainCircuitIcon className="size-4" />
+            </span>
+            <span className="min-w-0 truncate">{isNew ? "新建模型配置" : `编辑：${profile?.name}`}</span>
+            {profile?.is_default && <StatusPill tone="primary">激活中</StatusPill>}
           </SheetTitle>
-          <SheetDescription>
+          <SheetDescription className="text-xs leading-5">
             {isNew
               ? "新建后不会自动激活，请在卡片上「设为激活」以启用。"
               : "修改后点击保存；激活配置保存后对全部 Agent 立即生效。"}
           </SheetDescription>
         </SheetHeader>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pb-4">
-          <div className="grid gap-4 sm:grid-cols-2">
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto bg-surface-muted px-5 py-4 pb-4">
+          <section className="grid gap-4 rounded-lg border border-border/70 bg-card p-4">
+            <div className="flex items-center gap-2">
+              <span className="grid size-6 place-items-center rounded-md bg-primary/10 text-primary">
+                <PlugZapIcon className="size-3.5" />
+              </span>
+              <h3 className="text-[13px] font-semibold">连接与凭据</h3>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">
               <Label htmlFor="p-name">名称</Label>
               <Input
@@ -531,14 +633,19 @@ function ProfileSheet({
                 placeholder="例如：OpenAI 生产"
                 value={name}
                 aria-invalid={nameInvalid || undefined}
+                aria-describedby={nameInvalid ? "p-name-error" : undefined}
                 onChange={(e) => setName(e.target.value)}
               />
-              {nameInvalid && <p className="text-destructive text-xs">请填写名称</p>}
+              {nameInvalid && (
+                <p id="p-name-error" role="alert" className="text-destructive text-xs">
+                  请填写名称
+                </p>
+              )}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="p-format">格式</Label>
               <Select value={format} onValueChange={(v) => setFormat(v as "anthropic" | "openai" | "openai-responses")}>
-                <SelectTrigger id="p-format">
+                <SelectTrigger id="p-format" className="w-full">
                   <SelectValue placeholder="选择格式" />
                 </SelectTrigger>
                 <SelectContent>
@@ -559,6 +666,7 @@ function ProfileSheet({
                 placeholder="填写模型标识"
                 value={model}
                 aria-invalid={modelInvalid || undefined}
+                aria-describedby={modelInvalid ? "p-model-error" : undefined}
                 onChange={(e) => setModel(e.target.value)}
               />
               {/* modal: 这个 Popover 的内容被 portal 到 <body>，在 Sheet 的滚动锁之外，
@@ -596,7 +704,11 @@ function ProfileSheet({
                 )}
               </Popover>
             </div>
-            {modelInvalid && <p className="text-destructive text-xs">请填写模型标识</p>}
+            {modelInvalid && (
+              <p id="p-model-error" role="alert" className="text-destructive text-xs">
+                请填写模型标识
+              </p>
+            )}
           </div>
 
           <div className="grid gap-2">
@@ -620,10 +732,19 @@ function ProfileSheet({
               onChange={(e) => setApiKey(e.target.value)}
             />
           </div>
+          </section>
 
-          <details className="rounded-lg border p-3">
-            <summary className="cursor-pointer text-sm font-medium">高级参数</summary>
-            <div className="grid gap-4 pt-4">
+          <details className="group rounded-lg border border-border/70 bg-card">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-[13px] font-medium [&::-webkit-details-marker]:hidden">
+              <span className="flex items-center gap-2">
+                <span className="grid size-6 place-items-center rounded-md bg-muted text-muted-foreground">
+                  <GaugeIcon className="size-3.5" />
+                </span>
+                高级参数
+              </span>
+              <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+            </summary>
+            <div className="grid gap-4 border-t border-border/70 px-4 py-4">
               <div className="grid gap-2">
                 <Label htmlFor="p-proxy">代理（可选）</Label>
                 <Input
@@ -682,7 +803,7 @@ function ProfileSheet({
                 1M）；设太高会导致压缩不触发。
               </p>
 
-              <div className="grid gap-3 rounded-lg border p-3">
+              <div className="grid gap-3 rounded-lg border border-border/70 bg-surface-muted p-3">
                 <div className="flex items-center justify-between gap-4">
                   <div className="grid gap-0.5">
                     <Label htmlFor="p-priority" className="text-sm">
@@ -723,7 +844,7 @@ function ProfileSheet({
                 </div>
               </div>
 
-              <div className="grid gap-3 rounded-lg border p-3">
+              <div className="grid gap-3 rounded-lg border border-border/70 bg-surface-muted p-3">
                 <div className="flex items-center justify-between gap-4">
                   <div className="grid gap-0.5">
                     <Label htmlFor="p-max-tokens" className="text-sm">
@@ -769,7 +890,7 @@ function ProfileSheet({
                 </div>
               </div>
 
-              <div className="grid gap-3 rounded-lg border p-3">
+              <div className="grid gap-3 rounded-lg border border-border/70 bg-surface-muted p-3">
                 <div className="flex items-center justify-between gap-4">
                   <div className="grid gap-0.5">
                     <Label htmlFor="p-thinking-type" className="text-sm">思考开关 · thinking.type</Label>
@@ -823,22 +944,29 @@ function ProfileSheet({
           <div
             role={testResult.ok ? "status" : "alert"}
             className={cn(
-              "mx-4 mb-3 rounded-lg border p-2.5 text-xs",
+              "mx-5 mb-3 flex items-start gap-2 rounded-lg border p-3 text-xs",
               testResult.ok
-                ? "border-emerald-500/40 text-emerald-700 dark:text-emerald-400"
-                : "border-destructive/40 text-destructive",
+                ? "border-success/25 bg-success/10 text-success"
+                : "border-destructive/25 bg-destructive/10 text-destructive",
             )}
           >
-            <div className="font-medium">{testResult.title}</div>
-            {testResult.detail && (
-              <p className="mt-0.5 max-h-24 overflow-y-auto whitespace-pre-wrap break-words font-mono">
-                {testResult.detail}
-              </p>
+            {testResult.ok ? (
+              <CheckCircle2Icon className="mt-0.5 size-4 shrink-0" />
+            ) : (
+              <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" />
             )}
+            <div className="min-w-0">
+              <div className="font-semibold">{testResult.title}</div>
+              {testResult.detail && (
+                <p className="mt-1 max-h-24 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-5">
+                  {testResult.detail}
+                </p>
+              )}
+            </div>
           </div>
         )}
 
-        <div className="flex gap-2 border-t px-4 py-3">
+        <div className="flex flex-wrap gap-2 border-t border-border/70 bg-card px-5 py-3">
           <Button variant="outline" onClick={testConnection} disabled={testing || saving}>
             {testing ? <Loader2Icon className="animate-spin" /> : <PlugZapIcon />}
             {testing ? "测试中…" : "测试连接"}
@@ -866,6 +994,9 @@ export default function LLMPage() {
   const [pool, setPool] = React.useState<LLMPoolStatus | null>(null);
   const [poolError, setPoolError] = React.useState<Error | null>(null);
   const [poolOpen, setPoolOpen] = React.useState(false);
+  // 页签内容默认在切走时卸载：重试面板的状态在组件内部，一卸载就等于把没保存的
+  // 编辑悄悄清空。首次进入后让它常驻（配合 forceMount + 隐藏），切页签不再丢输入。
+  const [retryMounted, setRetryMounted] = React.useState(false);
   const [confirmDelete, setConfirmDelete] = React.useState<LLMProfile | null>(null);
   const [deleting, setDeleting] = React.useState(false);
   // 抽屉的开关和内容分开存：关闭时 editing 保持不变，否则关闭动画期间标题会从
@@ -934,31 +1065,57 @@ export default function LLMPage() {
   }
 
   const poolOn = pool?.enabled ?? false;
+  const activeProfile = profiles.find((p) => p.is_default);
+  const trippedCount = pool?.chain.filter((m) => m.state === "tripped").length ?? 0;
 
   return (
-    <div className="flex flex-1 flex-col gap-4 md:gap-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="font-semibold text-xl tracking-tight">AI 配置</h1>
-          <p className="text-muted-foreground text-sm">配置模型连接，星标为当前默认配置。点击卡片可编辑并测试连接。</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant="outline" onClick={() => setPoolOpen(true)}>
-            <ZapIcon /> 轮询配置
-            {poolOn && (
-              <Badge variant="outline" className="ml-1 border-emerald-500/50 text-emerald-600 dark:text-emerald-400">
-                已开启
-              </Badge>
-            )}
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => openEditor(null)}>
-            <PlusIcon /> 新建
-          </Button>
-        </div>
+    <div className="flex flex-1 flex-col gap-5">
+      <PageHeader
+        icon={BrainCircuitIcon}
+        title="AI 配置"
+        description="配置模型连接与故障转移；星标为当前默认配置，点击卡片可编辑并测试连接。"
+        actions={
+          <>
+            <Button size="sm" variant="outline" onClick={() => setPoolOpen(true)}>
+              <ZapIcon /> 轮询配置
+            </Button>
+            <Button size="sm" onClick={() => openEditor(null)}>
+              <PlusIcon /> 新建配置
+            </Button>
+          </>
+        }
+      />
+
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+        <StatTile icon={BrainCircuitIcon} label="模型端点" value={profiles.length} caption="已保存的配置" />
+        <StatTile
+          icon={StarIcon}
+          label="当前激活"
+          value={activeProfile?.name ?? "未设置"}
+          caption={activeProfile?.model ?? "在卡片上设为激活"}
+        />
+        <StatTile
+          icon={ZapIcon}
+          label="故障转移"
+          value={poolOn ? "已开启" : "未开启"}
+          caption={`${pool?.chain.length ?? 0} 个配置在轮询链`}
+        />
+        <StatTile
+          icon={TriangleAlertIcon}
+          label="熔断中"
+          value={trippedCount}
+          caption={trippedCount > 0 ? "等待冷却或手动恢复" : "当前无熔断配置"}
+        />
       </div>
 
-      <Tabs defaultValue="profiles" className="flex-1">
-        <TabsList>
+      <Tabs
+        defaultValue="profiles"
+        className="flex-1"
+        onValueChange={(value) => {
+          if (value === "retry") setRetryMounted(true);
+        }}
+      >
+        <TabsList className="w-fit">
           <TabsTrigger value="profiles">模型配置</TabsTrigger>
           <TabsTrigger value="retry">重试与退避</TabsTrigger>
         </TabsList>
@@ -971,65 +1128,77 @@ export default function LLMPage() {
             refreshing={profilesQ.refreshing}
             isEmpty={profiles.length === 0}
             empty={
-              <div className="rounded-lg border border-dashed p-10 text-center text-muted-foreground text-sm">
-                还没有模型配置，点击右上角「新建」创建第一个。
+              <div className="flex flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-border/60 py-6 text-center">
+                <BrainCircuitIcon className="size-6 text-muted-foreground/50" />
+                <p className="text-[13px] font-medium text-foreground">还没有模型配置</p>
+                <p className="max-w-sm text-[12px] leading-5 text-muted-foreground">
+                  点右上角「新建」添加端点并填写 API Key，测试通过后设为激活，Agent 才能开始调用模型。
+                </p>
               </div>
             }
             skeleton={
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-                {[0, 1, 2].map((i) => (
-                  <Skeleton key={i} className="h-36 w-full rounded-xl" />
+              <div className="grid gap-4 sm:grid-cols-2">
+                {[0, 1].map((i) => (
+                  <Skeleton key={i} className="h-36 w-full rounded-lg" />
                 ))}
               </div>
             }
           >
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {profiles.map((p) => {
-                const h = healthOf(p, health.get(p.id));
-                return (
-                  // biome-ignore lint/a11y/useSemanticElements: 卡片内含自己的操作按钮，用原生 <button> 会造成按钮嵌套（非法 HTML）
-                  <Card
-                    key={p.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => openEditor(p)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        openEditor(p);
-                      }
-                    }}
-                    className={cn(
-                      // 卡片本身是 role="button" 的焦点目标，键盘 Tab 必须能看到焦点环
-                      "cursor-pointer gap-0 py-4 outline-none transition-colors hover:border-foreground/30 focus-visible:ring-2 focus-visible:ring-ring",
-                      p.is_default && "border-amber-400/50 bg-amber-400/5",
-                    )}
-                  >
-                    <CardContent className="grid gap-2 px-4">
-                      <div className="flex items-start gap-2">
-                        <StarIcon
+            <div className="grid gap-4 sm:grid-cols-2">
+                {profiles.map((p) => {
+                  const h = healthOf(p, health.get(p.id));
+                  return (
+                    // biome-ignore lint/a11y/useSemanticElements: 卡片内含自己的操作按钮，用原生 <button> 会造成按钮嵌套（非法 HTML）
+                    <Card
+                      key={p.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => openEditor(p)}
+                      onKeyDown={(e) => {
+                        // 卡片里还有「设为激活」「删除配置」两个按钮：它们在键盘上按下
+                        // Enter/空格时事件会冒泡到这里，导致同时打开编辑抽屉、把确认框
+                        // 盖住。只处理焦点真正落在卡片本身的情况。
+                        if (e.target !== e.currentTarget) return;
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          openEditor(p);
+                        }
+                      }}
+                      className={cn(
+                        // 卡片本身是 role="button" 的焦点目标，键盘 Tab 必须能看到焦点环
+                        "cursor-pointer gap-0 py-0 outline-none transition-colors hover:border-primary/40 focus-visible:ring-2 focus-visible:ring-ring",
+                        p.is_default && "border-primary/30 bg-primary/[0.03]",
+                      )}
+                    >
+                      <div className="flex items-start gap-3 px-4 pt-3.5">
+                        <span
                           className={cn(
-                            "mt-0.5 size-4 shrink-0",
-                            p.is_default ? "fill-amber-400 text-amber-400" : "text-muted-foreground",
+                            "grid size-9 shrink-0 place-items-center rounded-lg",
+                            p.is_default ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
                           )}
-                        />
+                        >
+                          <StarIcon className={cn("size-4", p.is_default && "fill-primary")} />
+                        </span>
                         <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="truncate font-medium text-sm">{p.name}</span>
-                            <Badge variant="outline" className="uppercase">
-                              {p.format}
-                            </Badge>
-                            <Badge variant="outline" className={cn("ml-auto", h.cls)} title={h.hint}>
+                          <div className="flex min-w-0 flex-wrap items-center gap-2">
+                            <span className="truncate text-[13px] font-semibold text-foreground">{p.name}</span>
+                            {p.is_default && <StatusPill tone="primary">默认</StatusPill>}
+                            <StatusPill tone={h.tone} title={h.hint} className="ml-auto">
                               {h.label}
-                            </Badge>
+                            </StatusPill>
                           </div>
-                          <code className="mt-1 block truncate font-mono text-muted-foreground text-xs">{p.model}</code>
+                          <div className="mt-1 flex min-w-0 items-center gap-2">
+                            <code className="min-w-0 truncate font-mono text-[12px] text-muted-foreground">{p.model}</code>
+                            <span className="shrink-0 rounded-full border border-border bg-surface-muted px-1.5 py-0.5 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
+                              {p.format}
+                            </span>
+                          </div>
                         </div>
                       </div>
 
-                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 pl-6 text-muted-foreground text-xs">
-                        {p.api_key_hint && <span>{p.api_key_hint}</span>}
-                        <span>
+                      <div className="mx-4 mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-surface-muted px-3 py-1.5 text-[12px] text-muted-foreground">
+                        {p.api_key_hint && <span className="font-mono">{p.api_key_hint}</span>}
+                        <span className="tabular-nums">
                           {p.rate_per_second}/s · {p.rate_per_minute}/min
                         </span>
                         {p.proxy && <span className="truncate">代理 {p.proxy}</span>}
@@ -1039,14 +1208,14 @@ export default function LLMPage() {
                         {/* 轮询相关的两个字段只在轮询开着时才有意义，关着时不占版面 */}
                         {poolOn &&
                           !p.is_default &&
-                          (p.pool_exclude ? <span>不参与轮询</span> : <span>优先级 {p.priority ?? 0}</span>)}
+                          (p.pool_exclude ? <span>不参与轮询</span> : <span className="tabular-nums">优先级 {p.priority ?? 0}</span>)}
                       </div>
 
-                      <div className="mt-1 flex gap-2">
+                      <div className="flex items-center justify-end gap-2 px-4 py-2.5">
                         <Button
                           size="sm"
-                          variant="outline"
-                          className="flex-1"
+                          variant={p.is_default ? "secondary" : "outline"}
+                          className="h-8"
                           disabled={p.is_default}
                           onClick={(e) => {
                             e.stopPropagation();
@@ -1056,28 +1225,30 @@ export default function LLMPage() {
                           {p.is_default ? "已激活" : "设为激活"}
                         </Button>
                         <Button
-                          size="icon"
-                          variant="outline"
+                          size="icon-sm"
+                          variant="ghost"
+                          className="text-muted-foreground hover:text-destructive"
                           aria-label={`删除配置：${p.name}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             setConfirmDelete(p);
                           }}
                         >
-                          <Trash2Icon className="text-destructive" />
+                          <Trash2Icon className="size-4" />
                         </Button>
                       </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
+                    </Card>
+                  );
+                })}
             </div>
           </AsyncState>
         </TabsContent>
 
-        <TabsContent value="retry" className="mt-4">
-          <RetryPolicyPanel />
-        </TabsContent>
+        {retryMounted && (
+          <TabsContent value="retry" forceMount className="mt-4 data-[state=inactive]:hidden">
+            <RetryPolicyPanel />
+          </TabsContent>
+        )}
       </Tabs>
 
       <ProfileSheet profile={editing} open={editOpen} onOpenChange={setEditOpen} onSaved={() => void load()} />

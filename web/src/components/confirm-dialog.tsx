@@ -46,6 +46,10 @@ export function ConfirmDialog({
     try {
       await onConfirm();
       onOpenChange(false);
+    } catch {
+      // 约定:onConfirm 抛错表示失败,失败提示由调用方 toast;这里吞掉异常,
+      // 既保持「失败不关闭」的既有行为,也不会让 void handleConfirm() 变成
+      // 未处理的 Promise 拒绝。
     } finally {
       setBusy(false);
     }

@@ -2,34 +2,42 @@
 
 import * as React from "react";
 
-import { AlertTriangleIcon, RefreshCwIcon } from "lucide-react";
+import { AlertTriangleIcon, PlusIcon, RefreshCwIcon, ScanLineIcon } from "lucide-react";
 
+import { PageHeader } from "@/components/app/page-header";
+import { toast } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
 import { usePolling } from "@/hooks/use-polling";
 import { api } from "@/lib/api";
+import Link from "@/lib/router-compat";
+import { slideUp, staggerClass } from "@/lib/motion";
+import { cn } from "@/lib/utils";
+
+import { CockpitShell } from "../_components/cockpit-shell";
 import type {
   Activity,
   ConvTokenSummary,
   Finding,
   InterceptPending,
   LLMProfile,
+  Severity,
   Settings,
   Stats,
   Task,
   TrafficExchange,
   UsageStats,
 } from "@/lib/types";
-import { cn } from "@/lib/utils";
 
 import { ActivityPanel } from "./_components/activity-panel";
 import { ApprovalPanel } from "./_components/approval-panel";
-import { AssetPanel } from "./_components/asset-panel";
-import { FindingPanel } from "./_components/finding-panel";
-import { StatCards } from "./_components/stat-cards";
-import { TaskPanel } from "./_components/task-panel";
-import { TokenCharts } from "./_components/token-charts";
-import { TrafficPanel } from "./_components/traffic-panel";
+import { DashboardDetailTabs } from "./_components/detail-tabs";
 import { useTokenStats } from "./_components/use-token-stats";
+import { OrchestrationCard } from "./_components/console/orchestration-card";
+import { CommandDeck } from "./_components/console/project-cards";
+import { FindingsCard } from "./_components/console/rail-cards";
+import { ScopeCard } from "./_components/console/scope-card";
+import { coveragePercent } from "./_components/console/helpers";
+import { useTaskConsole } from "./_components/console/use-task-console";
 
 // ── polling ──────────────────────────────────────────────────────────────────
 
@@ -320,96 +328,216 @@ export default function DashboardPage() {
     dailyTokenData,
   } = useTokenStats({ tasks, convTokens, usageStats, llmProfiles, defaultProfileId });
 
+  // ── project cockpit ───────────────────────────────────────────────────────
+  const [selectedTaskId, setSelectedTaskId] = React.useState("");
+  const [controlling, setControlling] = React.useState(false);
+
+  React.useEffect(() => {
+    if (tasks.length === 0) {
+      setSelectedTaskId("");
+      return;
+    }
+    setSelectedTaskId((previous) => {
+      if (tasks.some((task) => task.id === previous)) return previous;
+      return tasks.find((task) => task.status === "running")?.id ?? tasks[0].id;
+    });
+  }, [tasks]);
+
+  const selectedTask = React.useMemo(
+    () => tasks.find((task) => task.id === selectedTaskId) ?? tasks[0] ?? null,
+    [tasks, selectedTaskId],
+  );
+  const consoleData = useTaskConsole(selectedTask?.id ?? null);
+  const coveragePct =
+    consoleData.coverage?.enabled && consoleData.coverage.pct != null
+      ? coveragePercent(consoleData.coverage.pct)
+      : null;
+
+  const scopedFindings = React.useMemo(
+    () => (selectedTask ? findings.filter((finding) => String(finding.task_id) === selectedTask.id) : findings),
+    [findings, selectedTask],
+  );
+  const scopedSev = React.useMemo(() => {
+    const counts: Record<Severity, number> = { critical: 0, high: 0, medium: 0, low: 0 };
+    for (const finding of scopedFindings) {
+      if (finding.severity in counts) counts[finding.severity as Severity]++;
+    }
+    return counts;
+  }, [scopedFindings]);
+  const verifiedFindings = React.useMemo(
+    () => scopedFindings.filter((finding) => ["confirmed", "fixed", "resolved"].includes(finding.status)).length,
+    [scopedFindings],
+  );
+
+  const controlSelectedTask = React.useCallback(
+    async (action: "pause" | "resume") => {
+      if (!selectedTask) return;
+      setControlling(true);
+      try {
+        await api.controlTask(selectedTask.id, action);
+        toast.success(action === "pause" ? "任务已暂停" : "任务已继续");
+        startRefresh();
+      } catch (error) {
+        toast.error(`操作失败：${(error as Error).message}`);
+      } finally {
+        setControlling(false);
+      }
+    },
+    [selectedTask, startRefresh],
+  );
+
   // ── render ────────────────────────────────────────────────────────────────
 
+  const deckAnim = slideUp.className;
+
   return (
-    <div className="flex flex-1 flex-col gap-4 pb-6">
-      {/* ── Header ── */}
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight">总览</h1>
-          <p className="text-xs text-muted-foreground">系统全局状态 · 实时刷新</p>
-        </div>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="刷新仪表盘数据"
-          aria-busy={refreshing || undefined}
-          disabled={refreshing}
-          onClick={startRefresh}
-        >
-          <RefreshCwIcon className={cn("size-4", refreshing && "animate-spin")} />
-        </Button>
-      </div>
+    <div className="flex flex-1 flex-col gap-5 pb-6">
+      {/* 压缩后的页头：标题一行 + meta 一行，操作区不变 */}
+      <PageHeader
+        icon={ScanLineIcon}
+        title="指挥台"
+        meta={[
+          selectedTask ? (
+            <span className="inline-flex min-w-0 items-center gap-1.5">
+              当前项目
+              <span className="max-w-56 truncate font-medium text-foreground">
+                {selectedTask.name || selectedTask.description || `任务 #${selectedTask.id}`}
+              </span>
+            </span>
+          ) : null,
+          <span className="tabular-nums">自动刷新 5s / 15s</span>,
+        ]}
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={startRefresh}
+              disabled={refreshing}
+              aria-busy={refreshing || undefined}
+            >
+              <RefreshCwIcon data-icon="inline-start" className={cn(refreshing && "animate-spin")} />
+              刷新
+            </Button>
+            <Button asChild size="sm">
+              <Link prefetch={false} href="/function/tasks">
+                <PlusIcon data-icon="inline-start" />
+                新建任务
+              </Link>
+            </Button>
+          </>
+        }
+      />
 
       {anyFailed && (
         <div
           role="alert"
-          className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-muted-foreground"
+          className="flex flex-wrap items-center gap-2 rounded-xl border border-warning/25 bg-warning/5 px-3 py-2 text-xs text-muted-foreground"
         >
-          <AlertTriangleIcon className="size-3.5 shrink-0 text-amber-500" />
+          <AlertTriangleIcon className="size-3.5 shrink-0 text-warning" aria-hidden="true" />
           <span className="min-w-0 flex-1">
             {allFailed ? "数据加载失败" : "部分面板加载失败"}：
             <span className="font-medium text-foreground/80">{failedSummary}</span>
             （已保留上次结果，将自动重试）
           </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="ml-auto h-6 px-2 text-xs"
-            disabled={refreshing}
-            onClick={startRefresh}
-          >
+          <Button variant="ghost" size="xs" className="ml-auto" disabled={refreshing} onClick={startRefresh}>
             立即重试
           </Button>
         </div>
       )}
 
-      {/* ── Row 1: 5 stat cards ── */}
-      <StatCards
+      {/* 首屏指挥台：大屏 + 范围/编排（主区）｜实时流 / 漏洞分布 / 待审批（右栏，内部滚动） */}
+      <section aria-label="指挥台" className="mx-auto w-full max-w-screen-2xl min-w-0">
+        <CockpitShell
+          mainClassName={deckAnim}
+          railClassName={cn(
+            deckAnim,
+            staggerClass(1),
+            "lg:max-h-[calc(100dvh-18rem)] lg:overflow-y-auto lg:overscroll-contain lg:pr-1 lg:[&>*]:shrink-0",
+          )}
+          main={
+            <>
+              <CommandDeck
+                tasks={tasks}
+                task={selectedTask}
+                selectedId={selectedTask?.id ?? ""}
+                onSelect={setSelectedTaskId}
+                refreshing={refreshing}
+                onRefresh={startRefresh}
+                coveragePct={coveragePct}
+                verifiedFindings={verifiedFindings}
+                tokensUsed={{ input: displayedTokens.input, output: displayedTokens.output }}
+                controlling={controlling}
+                onControl={controlSelectedTask}
+              />
+
+              <div className="grid min-w-0 gap-4 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.35fr)]">
+                <ScopeCard
+                  task={selectedTask}
+                  scope={consoleData.scope}
+                  goals={consoleData.goals}
+                  constraints={consoleData.constraints}
+                  loading={consoleData.loading}
+                />
+                <OrchestrationCard
+                  task={selectedTask}
+                  assets={consoleData.coverage?.denominator ?? totalAssets}
+                  findings={scopedFindings.length}
+                  verified={verifiedFindings}
+                  goals={consoleData.goals.length}
+                  scopeRows={consoleData.scope.length}
+                  coveragePct={coveragePct}
+                />
+              </div>
+            </>
+          }
+          rail={
+            <>
+              <ActivityPanel activity={activity} fastReady={fastReady} />
+              <FindingsCard counts={scopedSev} total={scopedFindings.length} />
+              <ApprovalPanel pending={pending} />
+            </>
+          }
+        />
+      </section>
+
+      {/* 首屏之下的全部明细：四个标签页承载，不再纵向平铺 */}
+      <DashboardDetailTabs
+        tasks={tasks}
         tasksReady={tasksReady}
-        tasksTotal={tasks.length}
         tasksByStatus={tasksByStatus}
-        fastReady={fastReady}
-        findingsTotal={findings.length}
+        selectedId={selectedTask?.id ?? ""}
+        onSelect={setSelectedTaskId}
+        findings={findings}
+        scopedFindings={scopedFindings}
         findingsBySev={findingsBySev}
-        slowReady={slowReady}
+        fastReady={fastReady}
+        assetCounts={assetCounts}
         totalAssets={totalAssets}
-        trafficCount={traffic.length}
-        trafficCapture={settings?.traffic_capture}
+        slowReady={slowReady}
+        traffic={traffic}
+        stats={stats}
+        settings={settings}
+        activeProfile={activeProfile}
+        coverage={consoleData.coverage}
+        coveragePct={coveragePct}
         tokens={displayedTokens}
+        tokenCharts={{
+          llmProfiles,
+          defaultProfileId,
+          tokenVersion,
+          onTokenVersionChange: setTokenVersion,
+          tokenTab,
+          onTokenTabChange: setTokenTab,
+          tokenDays,
+          onTokenDaysChange: setTokenDays,
+          tokenByProfile,
+          displayedTokens,
+          dailyTokenData,
+        }}
+        sources={sources}
+        failedPanels={failedPanels}
       />
-
-      {/* ── Row 2: LLM Token 消耗 ── */}
-      <TokenCharts
-        llmProfiles={llmProfiles}
-        defaultProfileId={defaultProfileId}
-        tokenVersion={tokenVersion}
-        onTokenVersionChange={setTokenVersion}
-        tokenTab={tokenTab}
-        onTokenTabChange={setTokenTab}
-        tokenDays={tokenDays}
-        onTokenDaysChange={setTokenDays}
-        tokenByProfile={tokenByProfile}
-        displayedTokens={displayedTokens}
-        dailyTokenData={dailyTokenData}
-      />
-
-      {/* ── Row 3: 活动流 | 发现 ── */}
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <ActivityPanel activity={activity} fastReady={fastReady} />
-        <FindingPanel findings={findings} fastReady={fastReady} />
-      </div>
-
-      {/* ── Row 4: 任务表格 ── */}
-      <TaskPanel tasks={tasks} tasksReady={tasksReady} />
-
-      {/* ── Row 5: 资产分布 | 流量状态码 | 拦截 & 待审批 ── */}
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-        <AssetPanel assetCounts={assetCounts} totalAssets={totalAssets} />
-        <TrafficPanel traffic={traffic} />
-        <ApprovalPanel stats={stats} settings={settings} activeProfile={activeProfile} pending={pending} />
-      </div>
     </div>
   );
 }

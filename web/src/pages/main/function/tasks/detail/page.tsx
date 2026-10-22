@@ -5,9 +5,21 @@ import * as React from "react";
 import Link from "@/lib/router-compat";
 import { usePathname, useRouter, useSearchParams } from "@/lib/router-compat";
 
-import { ArchiveIcon, ArrowLeftIcon, BrainIcon, CheckIcon, CircleAlertIcon, PauseIcon, PlayIcon } from "lucide-react";
+import {
+  ActivityIcon,
+  ArchiveIcon,
+  ArrowLeftIcon,
+  BrainIcon,
+  CalendarDaysIcon,
+  CheckIcon,
+  CircleAlertIcon,
+  PauseIcon,
+  PlayIcon,
+  TargetIcon,
+} from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 
+import { MetaItems } from "@/components/app/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { TaskLLMProfileChain } from "@/components/task-llm-profile-chain";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -32,14 +44,14 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Separator } from "@/components/ui/separator";
-import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePolling } from "@/hooks/use-polling";
 import { api } from "@/lib/api";
+import { PAGE_TITLE_CLASS } from "@/lib/typography";
 import type { InterceptApprovalRow, LLMProfile, Task } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 import { AssetsTab } from "./_tabs/assets-tab";
 import { BroadcastTab } from "./_tabs/broadcast-tab";
@@ -66,6 +78,10 @@ const TABS = [
 const DEFAULT_TAB = "sessions";
 const TAB_VALUES = new Set(TABS.map((tab) => tab.value));
 
+// engine_mode 是后端枚举（exploring|paused|stalled|idle）。认不出的值（老数据、
+// 新引擎）不能直接当标签渲染，否则会把英文枚举漏到界面上；此时回退到任务状态。
+const ENGINE_MODES = new Set(["exploring", "paused", "stalled", "idle"]);
+
 // 非法或缺失的 tab 参数回落到默认页签，手工改 URL 不会渲染出空白内容区。
 function normalizeTab(value: string | null) {
   return value && TAB_VALUES.has(value) ? value : DEFAULT_TAB;
@@ -81,6 +97,14 @@ function taskProfileIDs(task: Task): string[] {
     return task.llm_profile_ids.map(String);
   }
   return task.llm_profile_id ? [String(task.llm_profile_id)] : [];
+}
+
+// 头部只展示到日期的创建时间，避免不同 locale 的格式抖动。
+function formatDay(value?: string): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function TaskLLMControl({ task, profiles, onUpdated }: { task: Task; profiles: LLMProfile[]; onUpdated: () => void }) {
@@ -174,7 +198,12 @@ function TaskLLMControl({ task, profiles, onUpdated }: { task: Task; profiles: L
           {backupCount > 0 && <span className="hidden text-muted-foreground xl:inline">+{backupCount}</span>}
         </Button>
       </PopoverTrigger>
-      <PopoverContent ref={popoverContentRef} aria-label="任务 LLM 配置链" align="start" className="w-[min(28rem,calc(100vw-2rem))] gap-4 p-4">
+      <PopoverContent
+        ref={popoverContentRef}
+        aria-label="任务 LLM 配置链"
+        align="start"
+        className="w-[min(28rem,calc(100vw-2rem))] gap-4 p-4"
+      >
         <PopoverHeader>
           <PopoverTitle>任务 LLM 配置链</PopoverTitle>
           <PopoverDescription>{editorDescription}</PopoverDescription>
@@ -369,7 +398,7 @@ function TaskDetailInner() {
 
   if (!task) {
     const backToList = (
-      <Button asChild variant="outline">
+      <Button asChild variant="outline" size="sm">
         <Link href="/function/tasks">
           <ArrowLeftIcon /> 返回任务列表
         </Link>
@@ -377,8 +406,14 @@ function TaskDetailInner() {
     );
     if (!loaded) {
       return (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-10 text-center">
-          <p className="text-muted-foreground">加载中…</p>
+        <div
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+          className="flex flex-1 flex-col items-center justify-center gap-3 p-10 text-center"
+        >
+          <Spinner className="size-5 text-muted-foreground" />
+          <p className="text-[13px] text-muted-foreground">加载中…</p>
         </div>
       );
     }
@@ -386,30 +421,45 @@ function TaskDetailInner() {
     // 其它错误(网络/5xx/超时)按「加载失败」给重试,不能谎报为已删除。
     if (loadError && !notFound) {
       return (
-        <div
-          role="alert"
-          className="flex flex-1 flex-col items-center justify-center gap-2 p-10 text-center text-muted-foreground text-sm"
-        >
-          <div className="text-foreground">任务加载失败</div>
-          <div className="max-w-md text-xs [overflow-wrap:anywhere]">{loadError.message}</div>
-          <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
-            <Button size="sm" variant="outline" onClick={load}>
-              重试
-            </Button>
-            {backToList}
+        <div role="alert" className="flex flex-1 items-center justify-center p-6">
+          <div className="w-full max-w-md rounded-lg border border-border bg-card p-6 text-center shadow-[var(--shadow-card)]">
+            <span className="mx-auto grid size-10 place-items-center rounded-md bg-destructive/10 text-destructive">
+              <CircleAlertIcon className="size-5" aria-hidden="true" />
+            </span>
+            <div className="mt-3 text-[14px] font-semibold text-foreground">任务加载失败</div>
+            <p className="mt-1 text-[12px] leading-5 text-muted-foreground [overflow-wrap:anywhere]">
+              {loadError.message}
+            </p>
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+              <Button size="sm" variant="outline" onClick={load}>
+                重试
+              </Button>
+              {backToList}
+            </div>
           </div>
         </div>
       );
     }
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 p-10 text-center">
-        <p className="text-muted-foreground">任务 {id} 已被删除、归档或不存在</p>
-        {backToList}
+      <div className="flex flex-1 items-center justify-center p-6">
+        <div className="w-full max-w-md rounded-lg border border-border bg-card p-6 text-center shadow-[var(--shadow-card)]">
+          <span className="mx-auto grid size-10 place-items-center rounded-md bg-surface-muted text-muted-foreground">
+            <CircleAlertIcon className="size-5" aria-hidden="true" />
+          </span>
+          <p className="mt-3 text-[13px] leading-6 text-muted-foreground">任务 {id} 已被删除、归档或不存在</p>
+          <div className="mt-4 flex justify-center">{backToList}</div>
+        </div>
       </div>
     );
   }
 
   const completed = task.status === "done";
+  const lastActivityDate = task.last_activity ? new Date(task.last_activity) : null;
+  // 没有（或非法的）最近活动时间时整条省略：只留「最近活动 —」会是一个悬空的破折号。
+  const lastActivityAt =
+    lastActivityDate && !Number.isNaN(lastActivityDate.getTime())
+      ? lastActivityDate.toLocaleTimeString("zh-CN")
+      : "";
   const interceptPendingCount = Math.max(pendingInterceptTotal, pendingIntercepts.length);
   const terminal = ["done", "failed", "timeout"].includes(task.status);
   const archiveLifecycleEligible = terminal || paused || task.status === "paused";
@@ -419,6 +469,7 @@ function TaskDetailInner() {
     archiveDisabledReason = `任务被未归档任务 #${task.archive_blocked_by_task_id} 直接继承，请先归档依赖任务`;
   }
   const engineMode = paused ? "paused" : (task.engine_mode ?? "idle");
+  const knownEngineMode = ENGINE_MODES.has(engineMode);
   let controlVariant: "default" | "secondary" | "outline" = "outline";
   let controlIcon = <PauseIcon data-icon="inline-start" />;
   let controlLabel = "暂停";
@@ -442,80 +493,139 @@ function TaskDetailInner() {
     </Button>
   );
 
+  const useEngineStatus = !terminal && knownEngineMode;
+  const statusDomain = useEngineStatus ? "engine" : "task";
+  const statusValue = useEngineStatus ? engineMode : (paused ? "paused" : task.status);
+
   return (
-    <Tabs value={tab} onValueChange={selectTab} className="flex flex-1 flex-col gap-0">
-      {/* Top fixed area */}
-      <header className="sticky top-0 z-10 flex flex-col gap-2 border-b bg-background/95 px-4 py-2.5 backdrop-blur lg:px-6">
-        <div className="flex items-center gap-2">
-          <SidebarTrigger className="-ml-1" />
-          <Button type="button" variant="ghost" size="icon" className="size-7" aria-label="返回上一页" onClick={goBack}>
-            <ArrowLeftIcon />
-          </Button>
-          <h1 className="min-w-0 flex-1 truncate text-sm font-semibold" title={task.name || task.description}>
-            {task.name || task.description}
-          </h1>
-          <code className="hidden rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground sm:inline">
-            {task.id}
-          </code>
-          <Separator orientation="vertical" className="mx-1 hidden h-4 sm:block" />
-          <TaskLLMControl task={task} profiles={profiles} onUpdated={load} />
-          <StatusBadge domain={terminal ? "task" : "engine"} value={terminal ? task.status : engineMode} dot />
-          {canArchive ? (
-            <AlertDialog>
-              <AlertDialogTrigger asChild>{archiveTrigger}</AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>归档任务 #{task.id}？</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    任务图谱、关联记录、独占资产与流量、工作文件和 LLM
-                    历史将压缩到冷存储。归档完成后可在任务列表的“已归档”页还原。
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>取消</AlertDialogCancel>
-                  <AlertDialogAction onClick={() => void archiveTask()}>确认归档</AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          ) : (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex">{archiveTrigger}</span>
-              </TooltipTrigger>
-              <TooltipContent>{archiveDisabledReason}</TooltipContent>
-            </Tooltip>
-          )}
-          <AsyncButton
-            size="sm"
-            variant={controlVariant}
-            loading={controlling}
-            onClick={togglePause}
-            disabled={terminal}
-          >
-            {controlling ? null : controlIcon}
-            {controlLabel}
-          </AsyncButton>
-        </div>
-        <p className="truncate text-xs text-muted-foreground">{task.goal}</p>
-        {/* Tabs */}
-        <div className="no-scrollbar min-w-0 overflow-x-auto">
-          <TabsList variant="default" className="min-w-max">
-            {TABS.map((t) => (
-              <TabsTrigger key={t.value} value={t.value}>
-                {t.label}
-                {t.value === "intercept" && interceptPendingCount > 0 && (
-                  <span className="ml-1.5 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold leading-none text-white">
-                    {interceptPendingCount > 99 ? "99+" : interceptPendingCount}
+    <Tabs value={tab} onValueChange={selectTab} className="flex flex-col gap-5">
+      {/* 头部：左侧返回箭头 + 任务名 + 状态徽章 + ID，右侧操作；页签贴在同一块头部下方。
+          全局顶栏已经承载品牌 Logo，这里不再重复一个 logo。 */}
+      <header className="border-border/60 border-b">
+        <div className="flex min-w-0 flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="text-muted-foreground -ml-1.5 shrink-0"
+              aria-label="返回上一页"
+              onClick={goBack}
+            >
+              <ArrowLeftIcon />
+            </Button>
+            {/* 标题 + 状态 + 编号作为一个整体：编号不再单独做成带边框的胶囊，
+                否则会被读成「被推到右边」的第三个控件。 */}
+            <div className="flex min-w-0 items-center gap-2">
+              <h1
+                className={cn("min-w-0 max-w-[min(100%,36rem)] truncate", PAGE_TITLE_CLASS)}
+                title={task.name || task.description}
+              >
+                {task.name || task.description}
+              </h1>
+              <StatusBadge domain={statusDomain} value={statusValue} dot className="shrink-0" />
+              <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">#{task.id}</span>
+            </div>
+            <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2">
+              <TaskLLMControl task={task} profiles={profiles} onUpdated={load} />
+              {canArchive ? (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>{archiveTrigger}</AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>归档任务 #{task.id}？</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        任务图谱、关联记录、独占资产与流量、工作文件和 LLM
+                        历史将压缩到冷存储。归档完成后可在任务列表的“已归档”页还原。
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>取消</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => void archiveTask()}>确认归档</AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              ) : (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex">{archiveTrigger}</span>
+                  </TooltipTrigger>
+                  <TooltipContent>{archiveDisabledReason}</TooltipContent>
+                </Tooltip>
+              )}
+              <AsyncButton
+                size="sm"
+                variant={controlVariant}
+                loading={controlling}
+                onClick={togglePause}
+                disabled={terminal}
+                className="shrink-0"
+              >
+                {controlling ? null : controlIcon}
+                {controlLabel}
+              </AsyncButton>
+            </div>
+          </div>
+
+          {/* 第二行：目标摘要 + 只读元信息。 */}
+          <div className="flex min-w-0 items-center gap-2">
+            <TargetIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <span className="shrink-0 text-[12px] text-muted-foreground">目标</span>
+            <p className="min-w-0 flex-1 truncate text-[13px] text-foreground/80" title={task.goal || task.description}>
+              {task.goal?.trim() || "未填写测试目标"}
+            </p>
+            <MetaItems
+              className="hidden shrink-0 lg:flex"
+              items={[
+                <span className="inline-flex items-center gap-1 tabular-nums">
+                  <CalendarDaysIcon className="size-3" aria-hidden="true" />
+                  创建 {formatDay(task.created_at)}
+                </span>,
+                lastActivityAt ? (
+                  <span className="inline-flex items-center gap-1 tabular-nums">
+                    <ActivityIcon className="size-3" aria-hidden="true" />
+                    最近活动 {lastActivityAt}
                   </span>
-                )}
-              </TabsTrigger>
-            ))}
-          </TabsList>
+                ) : null,
+              ]}
+            />
+          </div>
+
+          {/* 第三行：下划线型页签，横向可滚动；角标用浅色胶囊而不是实心色块。 */}
+          <div className="no-scrollbar -mb-px flex min-w-0 overflow-x-auto">
+            {/* tabs.tsx 的基线里带 dark:bg-muted/50，深色下会在页签条后面铺一条底色，这里压回透明。 */}
+            <TabsList variant="line" className="h-10! min-w-max gap-0.5 bg-transparent p-0 dark:bg-transparent">
+              {TABS.map((t) => (
+                <TabsTrigger
+                  key={t.value}
+                  value={t.value}
+                  // 下划线型页签只要底部指示条，不要选中块的底色（深色下 dark: 变体会盖掉
+                  // line 变体的透明背景，出现一块突兀的实心色块）。
+                  className="h-10 flex-none gap-1.5 rounded-none px-3 text-[13px] after:bottom-0! data-active:ring-0! dark:data-active:bg-transparent"
+                >
+                  {t.label}
+                  {t.value === "intercept" && interceptPendingCount > 0 && (
+                    <span
+                      title={`${interceptPendingCount} 条待审批`}
+                      className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500/15 px-1 text-[10px] font-semibold leading-none text-amber-700 tabular-nums dark:text-amber-400"
+                    >
+                      {interceptPendingCount > 99 ? "99+" : interceptPendingCount}
+                    </span>
+                  )}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </div>
+          {/* 角标只有一个数字，读屏把页签念成「拦截审批 3」，数字含义不明。页签的可访问名
+              保持不变（e2e 依赖），另外用一个独立实时区说明它，并顺带播报新到的审批请求。 */}
+          <span className="sr-only" role="status">
+            {interceptPendingCount > 0 ? `拦截审批有 ${interceptPendingCount} 条待处理` : ""}
+          </span>
         </div>
       </header>
 
-      {/* Tab content */}
-      <div className="flex-1 p-4 lg:p-6">
+      {/* 内容区：各页签内部自行使用 SectionCard，容器留白由 MainContent 统一提供。 */}
+      <div className="flex min-w-0 flex-col">
         <TabsContent value="sessions" className="mt-0">
           <SessionsTab taskId={id} pendingIntercepts={pendingIntercepts} />
         </TabsContent>

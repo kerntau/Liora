@@ -2,11 +2,20 @@ import { defineConfig, loadEnv } from "@rsbuild/core";
 import { pluginReact } from "@rsbuild/plugin-react";
 
 import { APP_CONFIG } from "./src/config/app-config";
-import routes from "./src/routes.json";
 import { getThemeBootScript } from "./src/scripts/theme-boot";
 
 const { parsed, publicVars } = loadEnv({ prefixes: ["PUBLIC_LIORA_"] });
-const routePaths = new Set(Object.values(routes));
+
+/** /api 交给代理，其余交给 SPA 路由（含 not-found 页面）。 */
+function isApiPath(pathname: string) {
+  return pathname === "/api" || pathname.startsWith("/api/");
+}
+
+/** 带扩展名的路径（/static/js/x.js 等）不参与回退，避免把静态资源 404 变成 HTML。 */
+function looksLikeFile(pathname: string) {
+  const last = pathname.slice(pathname.lastIndexOf("/") + 1);
+  return last.includes(".");
+}
 
 export default defineConfig({
   plugins: [pluginReact({ reactCompiler: true })],
@@ -40,13 +49,14 @@ export default defineConfig({
     strictPort: true,
     htmlFallback: false,
     historyApiFallback: {
+      // 除 /api 与静态文件外，全部回退 index.html：未知路径必须由 SPA 渲染
+      // not-found 页面，而不是让 dev server 直接吐出纯文本 404。
       rewrites: [
         {
           from: /./,
           to: ({ parsedUrl }) => {
             const pathname = parsedUrl.pathname ?? "/";
-            const normalized = pathname.replace(/\/+$/, "") || "/";
-            return routePaths.has(normalized) ? "/index.html" : pathname;
+            return isApiPath(pathname) || looksLikeFile(pathname) ? pathname : "/index.html";
           },
         },
       ],

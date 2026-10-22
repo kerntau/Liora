@@ -38,6 +38,9 @@ test("custom agent triggers preserve strategy saves, condition validation and ed
 }, testInfo) => {
   const headers = await login(page, request);
   const key = `mui_triggers_${testInfo.project.name}`;
+  // 上一次运行可能已经把同 key 的 Agent 写进后端了；先清掉再建，
+  // 否则 POST /api/agents 会以 409 拒绝，测试在真正的断言之前就挂掉。
+  await request.delete(`/api/agents/${key}`, { headers });
   const created = await request.post("/api/agents", {
     headers,
     data: { key, name: "Fixture trigger agent", description: "No external execution" },

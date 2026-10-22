@@ -1,5 +1,15 @@
 import { expect, type Page, test } from "@playwright/test";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 新框架约定（重构后）：
+//   · 顶部居中 Logo 顶栏（h-14），底部浮动 Dock（nav[aria-label=主导航]）承担页面导航，
+//     当前项用 aria-current="page" 标记。
+//   · 旧的左侧固定导航栏（[data-slot=sidebar] / sidebar-menu-button / sidebar-container）
+//     已整体移除，相关断言改写到底部 Dock 与顶栏上的等价元素。
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DOCK = 'nav[aria-label="主导航"]';
+
 async function fixture(page: Page) {
   await page.addInitScript(() => localStorage.setItem("liora_token", "ui-foundation-fixture"));
   await page.route("**/api/**", async (route) => {
@@ -30,8 +40,18 @@ test("tabs, navigation and checkbox styles reflect their actual state", async ({
   const tabBox = await current.boundingBox();
   const panelBox = await panel.boundingBox();
   expect(panelBox!.y).toBeGreaterThanOrEqual(tabBox!.y + tabBox!.height);
-  await expect(page.locator('[data-slot="sidebar-menu-button"][data-active]')).toHaveCount(1);
-  await expect(page.getByRole("link", { name: "测试任务", exact: true })).toHaveAttribute("aria-current", "page");
+  // 旧断言：侧栏菜单按钮恰好 1 个 [data-active] + 「测试任务」链接 aria-current=page。
+  // 左侧固定导航栏已移除，导航改由底部浮动 Dock 承担：
+  //   · Dock 共 13 个条目、当前页面恰好 1 个 aria-current=page；
+  //   · 当前项就是「测试任务」，且带 bg-primary/10 高亮底块 + 蓝点。
+  const dock = page.locator(DOCK);
+  await expect(dock).toHaveCount(1);
+  await expect(dock.locator("a")).toHaveCount(13);
+  const active = dock.locator('a[aria-current="page"]');
+  await expect(active).toHaveCount(1);
+  await expect(active).toHaveAttribute("aria-label", "测试任务");
+  await expect(active.locator('[data-active="true"]')).toHaveCount(1);
+  await expect(page.locator('[data-slot="sidebar-menu-button"]')).toHaveCount(0);
   const selection = page.getByRole("checkbox", { name: "选择任务 ui-audit", exact: true });
   await selection.check();
   await expect(selection).toBeChecked();
@@ -128,6 +148,33 @@ test("theme text pairs stay readable in all presets and reduced motion removes t
   });
   await testInfo.attach("theme-contrast", { body: JSON.stringify(pairs, null, 2), contentType: "application/json" });
   for (const pair of pairs) expect.soft(pair.ratio, JSON.stringify(pair)).toBeGreaterThanOrEqual(4.5);
-  const duration = await page.locator('[data-slot="sidebar-container"]').evaluate((el) => getComputedStyle(el).transitionDuration);
-  expect(duration.split(",").every((part) => parseFloat(part) < 0.001)).toBe(true);
+  // 旧断言：侧栏容器 [data-slot=sidebar-container] 的 transitionDuration 必须为 0（禁止动画）。
+  // 侧栏已移除，等价断言改为：新框架真实存在的导航元素（顶栏 header 与底部 Dock 及其高亮底块）
+  // 在 prefers-reduced-motion: reduce 下同样不产生过渡动画。
+  const durationOf = async (selector: string) =>
+    page.locator(selector).first().evaluate((el) => getComputedStyle(el).transitionDuration);
+  for (const selector of ["header", DOCK, '[data-active="true"]']) {
+    const duration = await durationOf(selector);
+    expect(duration.split(",").every((part) => parseFloat(part) < 0.001), selector).toBe(true);
+  }
+  // 侧栏容器确实已不存在（本次改写的依据）。
+  await expect(page.locator('[data-slot="sidebar-container"]')).toHaveCount(0);
+});
+
+test("the content column starts at the viewport edge and clears the top bar and bottom dock", async ({ page }) => {
+  await fixture(page);
+  await page.goto("/function/tasks");
+  // 新框架没有左侧固定导航栏，内容区占满整幅视口宽度，从视口左缘开始。
+  const content = page.locator("header + div");
+  await expect(content).toHaveCount(1);
+  const contentBox = await content.boundingBox();
+  const headerBox = await page.locator("header").first().boundingBox();
+  const dockBox = await page.locator(DOCK).boundingBox();
+  expect(contentBox!.x).toBeLessThanOrEqual(1);
+  expect(contentBox!.width).toBeGreaterThanOrEqual(1439);
+  // 内容区起点在顶栏之下（不被顶栏遮挡）。
+  expect(contentBox!.y).toBeGreaterThanOrEqual(headerBox!.y + headerBox!.height);
+  // 内容区留出了底部 Dock 的高度（padding-bottom >= Dock 高 + 边距），页面末尾内容不会被压住。
+  const paddingBottom = await content.evaluate((el) => parseFloat(getComputedStyle(el).paddingBottom));
+  expect(paddingBottom).toBeGreaterThanOrEqual(dockBox!.height);
 });

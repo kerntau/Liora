@@ -115,8 +115,9 @@ export function taskIsPinned(task: Task): boolean {
   return task.pinned ?? Boolean(task.pinned_at);
 }
 
-function compareTaskIDs(left: string, right: string): number {
-  return left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" });
+function compareTaskIDs(left: string | number, right: string | number): number {
+  // 任务 ID 在列表接口里可能是 number，详情接口里是 string；统一转字符串再按数值排序。
+  return String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" });
 }
 
 function taskCreatedUnix(task: Task): number {

@@ -68,15 +68,16 @@ export function SessionComposer({
 }) {
   // 发送键位由系统设置决定（localStorage），默认 Enter 发送。
   const sendMode = useChatSendMode();
+  const sendHint = sendMode === "enter" ? "Enter 发送 · Shift+Enter 换行" : "Ctrl/⌘ + Enter 发送 · Enter 换行";
 
   return isMain ? (
-    <div className="border-t p-3">
+    <div className="border-t border-border/70 bg-surface-muted/60 p-2.5 sm:p-3">
       {attachments.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-1.5">
           {attachments.map((a) => (
             <div
               key={a.path}
-              className="flex items-center gap-1.5 rounded-md border bg-muted/50 px-2 py-1 text-xs"
+              className="flex items-center gap-1.5 rounded-lg border border-border/70 bg-card px-2 py-1 text-xs"
               title={a.path}
             >
               <PaperclipIcon className="size-3 shrink-0 text-primary" />
@@ -101,7 +102,7 @@ export function SessionComposer({
         className="hidden"
         onChange={(e) => onFilesSelected(e.target.files)}
       />
-      <InputGroup className="min-h-9 has-disabled:opacity-100">
+      <InputGroup className="min-h-9 border-border/70 bg-card has-disabled:opacity-100">
         <MentionTextarea
           inputGroup
           rows={1}
@@ -115,7 +116,7 @@ export function SessionComposer({
             e.preventDefault();
             onSend();
           }}
-          className="max-h-36 min-h-9 overflow-y-auto"
+          className="max-h-36 min-h-9 overflow-y-auto text-[13px] md:text-[13px]"
         />
         <InputGroupAddon align="block-end">
           <InputGroupButton
@@ -160,10 +161,14 @@ export function SessionComposer({
           )}
         </InputGroupAddon>
       </InputGroup>
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 px-1 text-[12px] text-muted-foreground">
+        <span>{sendHint}</span>
+        <span className="hidden sm:inline">支持 @ 引用漏洞、资产与记录</span>
+      </div>
     </div>
   ) : active.role === "worker" && !active.inherited && (active.status === "running" || active.status === "paused") ? (
-    <div className="border-t p-3">
-      <InputGroup className="min-h-9 has-disabled:opacity-100">
+    <div className="border-t border-border/70 bg-surface-muted/60 p-2.5 sm:p-3">
+      <InputGroup className="min-h-9 border-border/70 bg-card has-disabled:opacity-100">
         <MentionTextarea
           inputGroup
           rows={1}
@@ -178,12 +183,12 @@ export function SessionComposer({
           }}
           disabled={workerMessageSending}
           aria-invalid={workerMessageCharCount(workerMessage) > MAX_WORKER_MESSAGE_CHARS}
-          className="max-h-36 min-h-9 overflow-y-auto"
+          className="max-h-36 min-h-9 overflow-y-auto text-[13px] md:text-[13px]"
         />
         <InputGroupAddon align="block-end">
           <span
             className={cn(
-              "px-1 text-[10px] tabular-nums text-muted-foreground",
+              "px-1 text-[11px] tabular-nums text-muted-foreground",
               workerMessageCharCount(workerMessage) > MAX_WORKER_MESSAGE_CHARS && "text-destructive",
             )}
           >
@@ -237,9 +242,13 @@ export function SessionComposer({
           )}
         </InputGroupAddon>
       </InputGroup>
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 px-1 text-[12px] text-muted-foreground">
+        <span>{sendHint}</span>
+        <span>发送后会立即继续执行该 Worker</span>
+      </div>
     </div>
   ) : (
-    <div className="flex items-center border-t px-4 py-2">
+    <div className="flex items-center border-t border-border/70 bg-surface-muted/50 px-5 py-2">
       <TodoPopover seq={latestTodoSeq} fetchDetail={fetchTodoDetail} />
     </div>
   );

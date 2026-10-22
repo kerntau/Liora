@@ -3,10 +3,15 @@ import { expect, test, type Page, type Route } from "@playwright/test";
 // Round-5 regression: failure states must be explicit, and a refresh must not
 // blank a list that already has data. Every test mocks /api/** so it never
 // depends on a real task, LLM or database.
+//
+// 注意（重构后框架）：所有 /api 请求都走同一个 `**` + `/api/` + `**` 通配路由，
+// 在回调里按 pathname 分发 —— Playwright 后注册的路由先匹配，如果再单独注册一条
+// 精确的 /api/tasks 路由，通配会把精确路由吃掉，失败态就永远测不到。
 
 const TOKEN = "round5-regression-fixture";
 const TASK = {
   id: "alpha-task",
+  name: "",
   description: "Alpha fixture task",
   goal: "round5",
   status: "running",
@@ -47,6 +52,7 @@ function defaultJSON(path: string): unknown {
   if (path === "/api/intercept/task/alpha-task") return { items: [], total: 0 };
   if (path === "/api/task-categories") return { categories: [] };
   if (path === "/api/task-templates") return { templates: [] };
+  if (path === "/api/settings") return { workers: 3 };
   return {};
 }
 
@@ -94,7 +100,7 @@ test("task list failure shows an error and retry instead of an empty list", asyn
   await page.goto("/function/tasks");
   await expect(page.getByText("任务列表加载失败")).toBeVisible();
   await expect(page.getByRole("button", { name: "重试" }).first()).toBeVisible();
-  await expect(page.getByText("暂无任务，点击右上角「新建任务」开始。")).toHaveCount(0);
+  await expect(page.getByText("暂无测试任务")).toHaveCount(0);
 });
 
 test("findings list failure shows an error and retry, not an empty result", async ({ page }) => {
@@ -126,7 +132,8 @@ test("dashboard keeps other panels and names the failed one", async ({ page }) =
   await page.goto("/dashboard");
   await expect(page.getByText(/部分面板加载失败/)).toBeVisible();
   await expect(page.getByText(/确认发现/).first()).toBeVisible();
-  await expect(page.getByRole("link", { name: /Alpha fixture task/ })).toBeVisible();
+  // 重构后指挥台里的任务不再是侧栏式的链接，而是「切换指挥台聚焦」的按钮。
+  await expect(page.getByRole("button", { name: /Alpha fixture task/ }).first()).toBeVisible();
 });
 
 test("dashboard refresh keeps the current task rows on screen", async ({ page }) => {
@@ -145,10 +152,11 @@ test("dashboard refresh keeps the current task rows on screen", async ({ page })
   });
 
   await page.goto("/dashboard");
-  const row = page.getByRole("link", { name: /Alpha fixture task/ });
+  const row = page.getByRole("button", { name: /Alpha fixture task/ }).first();
   await expect(row).toBeVisible();
 
-  await page.getByRole("button", { name: "刷新仪表盘数据" }).click();
+  // 重构后指挥台的刷新按钮在页头操作区（「刷新」），不再是「刷新仪表盘数据」。
+  await page.getByRole("button", { name: "刷新", exact: true }).first().click();
   await expect.poll(() => taskCalls).toBeGreaterThan(1);
   // Give React one frame while the refresh request is still pending.
   await page.waitForTimeout(300);

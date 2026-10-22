@@ -6,16 +6,16 @@ import Link from "@/lib/router-compat";
 
 import { RotateCcwIcon } from "lucide-react";
 
+import { SectionCard } from "@/components/app/section-card";
 import { FindingRetestDialog } from "@/components/finding-retest-dialog";
 import { Markdown } from "@/components/markdown";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { api } from "@/lib/api";
+import { fmtTime } from "@/lib/format";
 import type { FindingRetest } from "@/lib/types";
 
 const statusLabels = {
@@ -81,28 +81,27 @@ export function FindingRetestPanel({
   const running = items?.find(active);
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
-        <div className="flex flex-col gap-1.5">
-          <CardTitle>漏洞复测</CardTitle>
-          <CardDescription>在独立会话中验证当前状态，保留每次复测的结论与证据。</CardDescription>
-        </div>
-        {running?.conversation_id != null ? (
+    <SectionCard
+      icon={RotateCcwIcon}
+      title="漏洞复测"
+      description="在独立会话中验证当前状态，保留每次复测的结论与证据。"
+      actions={
+        running?.conversation_id != null ? (
           <Button asChild variant="outline" size="sm">
             <Link href={`/function/conversations/detail?c=${running.conversation_id}`} title="查看正在进行的复测会话">
               <Spinner data-icon="inline-start" aria-hidden="true" />
               复测中
             </Link>
           </Button>
-        ) : null}
-        {!running && !readOnly ? (
+        ) : !running && !readOnly ? (
           <Button size="sm" onClick={() => setOpen(true)} disabled={items === null || !!error}>
             <RotateCcwIcon data-icon="inline-start" />
             发起复测
           </Button>
-        ) : null}
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
+        ) : null
+      }
+    >
+      <div className="flex flex-col gap-3">
         {error ? (
           <Alert variant="destructive">
             <AlertDescription>
@@ -115,16 +114,16 @@ export function FindingRetestPanel({
         ) : null}
         {!error && items === null ? <Skeleton className="h-16 w-full" /> : null}
         {!error && items?.length === 0 ? (
-          <Empty>
-            <EmptyHeader>
-              <EmptyTitle>暂无复测记录</EmptyTitle>
-              <EmptyDescription>修复部署完成后，可发起复测并比较新旧证据。</EmptyDescription>
-            </EmptyHeader>
-          </Empty>
+          <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border/70 bg-surface-muted/40 px-6 py-8 text-center">
+            <RotateCcwIcon className="size-6 text-muted-foreground/50" aria-hidden="true" />
+            <p className="text-[13px] font-medium text-foreground">暂无复测记录</p>
+            <p className="text-[12px] leading-5 text-muted-foreground">修复部署完成后，可发起复测并比较新旧证据。</p>
+          </div>
         ) : null}
-        {!error && items
-          ? items.map((item) => (
-              <div key={item.id} className="flex min-w-0 flex-col gap-2 rounded-lg border p-3">
+        {!error && items && items.length > 0 ? (
+          <ul className="divide-y divide-border/60">
+            {items.map((item) => (
+              <li key={item.id} className="flex min-w-0 flex-col gap-2 py-3 first:pt-0 last:pb-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge
                     variant={item.status === "completed" && item.verdict === "reproduced" ? "destructive" : "secondary"}
@@ -133,40 +132,43 @@ export function FindingRetestPanel({
                       ? verdictLabels[item.verdict]
                       : statusLabels[item.status]}
                   </Badge>
-                  <span className="text-muted-foreground text-xs">
-                    #{item.id} · {new Date(item.created_at).toLocaleString("zh-CN")}
+                  <span className="text-[12px] tabular-nums text-muted-foreground">
+                    #{item.id} · {fmtTime(item.created_at, "datetime")}
                   </span>
                   {item.conversation_id != null ? (
                     <Button asChild variant="ghost" size="sm" className="ml-auto">
                       <Link href={`/function/conversations/detail?c=${item.conversation_id}`}>查看会话</Link>
                     </Button>
                   ) : (
-                    <span className="text-muted-foreground text-xs">会话已删除</span>
+                    <span className="text-[12px] text-muted-foreground">会话已删除</span>
                   )}
                 </div>
                 {item.status === "completed" && item.summary ? (
-                  <p className="whitespace-pre-wrap break-words text-sm">{item.summary}</p>
+                  <p className="text-[13px] leading-5 break-words whitespace-pre-wrap">{item.summary}</p>
                 ) : null}
                 {item.error ? (
-                  <p className="whitespace-pre-wrap break-words text-destructive text-sm">{item.error}</p>
+                  <p className="text-[13px] leading-5 break-words whitespace-pre-wrap text-destructive">{item.error}</p>
                 ) : null}
                 {item.notes ? (
-                  <p className="whitespace-pre-wrap break-words text-muted-foreground text-xs">
+                  <p className="text-[12px] leading-5 break-words whitespace-pre-wrap text-muted-foreground">
                     补充说明：{item.notes}
                   </p>
                 ) : null}
                 {item.status === "completed" && item.evidence ? (
                   <details className="min-w-0">
-                    <summary className="cursor-pointer text-sm">复测证据</summary>
-                    <div className="mt-3 overflow-x-auto">
+                    <summary className="cursor-pointer text-[12px] text-muted-foreground hover:text-foreground">
+                      复测证据
+                    </summary>
+                    <div className="mt-2 overflow-x-auto">
                       <Markdown text={item.evidence} />
                     </div>
                   </details>
                 ) : null}
-              </div>
-            ))
-          : null}
-      </CardContent>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
       {open ? (
         <FindingRetestDialog
           findingId={findingId}
@@ -182,6 +184,6 @@ export function FindingRetestPanel({
           }}
         />
       ) : null}
-    </Card>
+    </SectionCard>
   );
 }

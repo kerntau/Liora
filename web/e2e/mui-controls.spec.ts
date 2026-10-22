@@ -2,6 +2,17 @@ import { expect, type Page, test } from "@playwright/test";
 
 import type { Activity, InterceptApprovalRow, InterceptAudit } from "../src/lib/types";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 新框架约定（重构后）：
+//   · 顶部居中 Logo 顶栏（h-14），右侧是 ⌘K 搜索/跳转、通知、主题、账户。
+//   · 底部浮动 Dock（桌面横条 / 移动端圆形按钮 + 竖排面板）承担页面导航。
+//   · 旧的左侧固定导航栏与「切换侧边栏」抽屉已移除：
+//     - 移动端导航改由底部 Dock 的「展开导航」面板承担；
+//     - 「内容区在侧栏右侧」改为「内容区从视口左缘开始，且不被顶栏/Dock 遮挡」。
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DOCK = 'nav[aria-label="主导航"]';
+
 // Exercise the actual routes with isolated API responses; these checks never
 // modify the operator's runtime settings or approve a real tool request.
 async function signedIn(page: Page) {
@@ -13,7 +24,7 @@ test("settings keep validation, preferences and network saves on narrow screens"
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   const writes: Record<string, unknown>[] = [];
-  let settings: Record<string, unknown> = { workers: 3, web_search_enabled: true, web_search_backend: "ddgs" };
+  let settings: Record<string, unknown> = { workers: 3, python_interpreter: "/usr/bin/python3", web_search_enabled: true, web_search_backend: "ddgs" };
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === "/api/settings") {
@@ -60,24 +71,61 @@ test("settings keep validation, preferences and network saves on narrow screens"
   await key.locator("xpath=ancestor::div[./button][1]").getByRole("button", { name: "保存", exact: true }).click();
   await expect.poll(() => writes).toContainEqual({ tavily_search_api_key: "fixture-key" });
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+
+  // 旧框架：点「切换侧边栏」打开移动端「页面导航」抽屉，断言 Logo 落在抽屉内。
+  // 新框架：左侧抽屉已移除，移动端导航改由底部 Dock 的圆形按钮展开成竖排面板；
+  // Logo 常驻顶栏且绝对居中。这里断言两者都成立。
   const header = page.locator("header").first();
-  await page.getByRole("button", { name: "切换侧边栏", exact: true }).click();
-  const navigation = page.getByRole("dialog", { name: "页面导航", exact: true });
-  const navigationBox = await navigation.boundingBox();
-  const logoBox = await navigation.getByRole("img", { name: "Liora · 灵探" }).boundingBox();
-  expect(navigationBox).not.toBeNull();
+  // Logo 链接带 aria-label（图片本身是空 alt，避免无障碍树里出现两个同名图片）。
+  const logo = header.locator('a[aria-label="Liora · 灵探"]');
+  await expect(logo).toBeVisible();
+  const headerBox = await header.boundingBox();
+  const logoBox = await logo.boundingBox();
   expect(logoBox).not.toBeNull();
-  expect(logoBox!.x).toBeGreaterThanOrEqual(navigationBox!.x);
-  expect(logoBox!.x + logoBox!.width).toBeLessThanOrEqual(navigationBox!.x + navigationBox!.width);
+  // Logo 水平居中于顶栏（允许 1px 舍入误差）。
+  expect(Math.abs(logoBox!.x + logoBox!.width / 2 - (headerBox!.x + headerBox!.width / 2))).toBeLessThanOrEqual(1);
+  // 顶栏内不放 Logo 的溢出。
+  expect(logoBox!.x).toBeGreaterThanOrEqual(headerBox!.x);
+  expect(logoBox!.x + logoBox!.width).toBeLessThanOrEqual(headerBox!.x + headerBox!.width);
+
+  // 移动端 Dock：横条 Dock 在 <md 隐藏，换成右下角圆形按钮，展开后是竖排导航面板。
+  await expect(page.locator(DOCK)).toBeHidden();
+  const dockToggle = page.getByRole("button", { name: "展开导航", exact: true });
+  await expect(dockToggle).toBeVisible();
+  await dockToggle.click();
+  const dockPanel = page.locator("#floating-dock-mobile-panel");
+  await expect(dockPanel).toBeVisible();
+  await expect(dockPanel.locator("a")).toHaveCount(13);
+  // 面板里当前项同样是 aria-current=page。
+  await expect(dockPanel.locator('a[aria-current="page"]')).toHaveCount(1);
   await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "展开导航", exact: true })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("settings-mobile.png"), fullPage: true, animations: "disabled" });
+
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.getByRole("button", { name: /当前主题：/ }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme-mode", "dark");
   await page.evaluate(() => window.scrollTo(0, 0));
   await expect.poll(async () => (await header.boundingBox())?.y).toBe(0);
-  const sidebarBox = await page.locator('[data-slot="sidebar"]').boundingBox();
-  expect((await page.locator("main").boundingBox())!.x).toBeGreaterThanOrEqual(sidebarBox!.x + sidebarBox!.width);
+
+  // 旧断言：main 的 x >= sidebar.x + sidebar.width（内容区在侧栏右侧，不被侧栏遮挡）。
+  // 新框架没有侧栏，内容区占满整幅视口、等价断言是：
+  //   · 内容区从视口左缘开始（x ≈ 0，没有侧栏让出宽度）；
+  //   · 内容区起点在顶栏之下（不被顶栏遮挡）；
+  //   · 内容区留出了底部 Dock 的高度（末尾内容不被 Dock 压住）。
+  const content = page.locator("header + div");
+  await expect(content).toHaveCount(1);
+  const contentBox = await content.boundingBox();
+  const headerBox2 = await header.boundingBox();
+  const dockBox = await page.locator(DOCK).boundingBox();
+  expect(contentBox!.x).toBeLessThanOrEqual(1);
+  expect(contentBox!.width).toBeGreaterThanOrEqual(1439);
+  expect(contentBox!.y).toBeGreaterThanOrEqual(headerBox2!.y + headerBox2!.height);
+  const paddingBottom = await content.evaluate((el) => parseFloat(getComputedStyle(el).paddingBottom));
+  expect(paddingBottom).toBeGreaterThanOrEqual(dockBox!.height);
+  // 侧栏确实已不存在。
+  await expect(page.locator('[data-slot="sidebar"]')).toHaveCount(0);
+
   await page.screenshot({ path: testInfo.outputPath("settings-desktop-dark.png"), fullPage: true, animations: "disabled" });
   expect(errors).toEqual([]);
 });
@@ -133,9 +181,12 @@ test("approval rows expand once, preserve filters and send one decision", async 
     await route.fulfill({ json: body });
   });
   await page.goto("/system/intercept/approvals");
+  // 待审批记录渲染在「待处理审批」表里，历史表只放已处理的记录（前端不再重复渲染同一条）。
+  const pending = page.getByRole("table", { name: "待处理审批" });
+  await expect(pending).toBeVisible();
   const history = page.getByRole("table", { name: "审批记录列表" });
-  await history.getByRole("button", { name: "展开审批 #42" }).click();
-  const detail = history.getByRole("region", { name: "审批详情 #42" });
+  await pending.getByRole("button", { name: "展开审批 #42" }).click();
+  const detail = pending.getByRole("region", { name: "审批详情 #42" });
   await expect(detail).toBeVisible();
   const context = detail.getByRole("button", { name: /查看上下文与执行结果|收起上下文/ });
   await context.focus();
@@ -144,19 +195,23 @@ test("approval rows expand once, preserve filters and send one decision", async 
   await expect(detail.getByText("模型审查上下文", { exact: true })).toBeVisible();
   await detail.getByRole("button", { name: "拒绝", exact: true }).click();
   await expect.poll(() => decisions).toEqual(["denied"]);
+  // 裁决后待处理表消失，这条记录回到历史表。
   await expect(page.getByRole("table", { name: "待处理审批" })).toHaveCount(0);
+  await expect(page.getByRole("table", { name: "审批记录列表" })).toBeVisible();
   await page.getByRole("combobox", { name: "审批状态" }).click();
   await page.getByRole("option", { name: "已拒绝", exact: true }).click();
   await expect.poll(() => filters.some((query) => query.includes("status=denied"))).toBe(true);
   await page.getByRole("button", { name: "清除筛选" }).click();
   await expect.poll(() => new URLSearchParams(filters.at(-1)).get("status")).toBeNull();
   await page.setViewportSize({ width: 390, height: 844 });
+  // 裁决后这条记录已落到「审批记录列表」表，详情面板也随之移动到历史表里。
+  const historyDetail = history.getByRole("region", { name: "审批详情 #42" });
   await history.getByRole("button", { name: "展开审批 #42" }).click();
-  await expect(detail).toBeVisible();
+  await expect(historyDetail).toBeVisible();
   await history.getByRole("button", { name: "收起审批 #42" }).click();
-  await expect(detail).toHaveCount(0);
+  await expect(historyDetail).toHaveCount(0);
   await history.getByRole("button", { name: "展开审批 #42" }).click();
-  await expect(detail).toBeVisible();
+  await expect(historyDetail).toBeVisible();
   await expect(history.getByRole("columnheader", { name: "来源", exact: true })).toBeHidden();
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath("approvals-mobile.png"), fullPage: true });
