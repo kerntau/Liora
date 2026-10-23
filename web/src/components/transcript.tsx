@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+
 import {
   CheckIcon,
   ChevronDown,
@@ -16,37 +17,38 @@ import {
   Wrench,
   XIcon,
 } from "lucide-react";
-import { toast } from "@/components/ui/sonner";
-import { api } from "@/lib/api";
-import { fmtBytes } from "@/lib/format";
+
+import { ApprovalDetail } from "@/components/approval-records";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Markdown } from "@/components/markdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ApprovalDetail } from "@/components/approval-records";
-import { ConfirmDialog } from "@/components/confirm-dialog";
+import { toast } from "@/components/ui/sonner";
+import { api } from "@/lib/api";
+import { fmtBytes } from "@/lib/format";
 import type { Activity, InterceptPending } from "@/lib/types";
 
 // ---- per-agent lane color (planner + work#1/#2/#3 …) ---------------------------
-// 车道色块是白字小胶囊，必须用 700 档才能保证对比度（600 档只有 3:1 左右）；
-// 深色下也用同一组实色，不跟随主题变浅。
+// 车道色块统一低饱和 tint：/12 底 + 600 档文字 + 500/20 边框，浅深主题各给一档。
+// planner 用 amber（意图生成者）、mainagent 用 indigo（与「激活」一致），其余从色板轮转。
 const workerColors = [
-  "bg-sky-700",
-  "bg-violet-700",
-  "bg-teal-700",
-  "bg-pink-700",
-  "bg-orange-700",
+  "bg-sky-500/12 text-sky-600 border-sky-500/20 dark:text-sky-400",
+  "bg-violet-500/12 text-violet-600 border-violet-500/20 dark:text-violet-400",
+  "bg-teal-500/12 text-teal-600 border-teal-500/20 dark:text-teal-400",
+  "bg-rose-500/12 text-rose-600 border-rose-500/20 dark:text-rose-400",
+  "bg-amber-500/12 text-amber-600 border-amber-500/20 dark:text-amber-400",
 ];
 function workerColor(name: string): string {
-  if (name === "planner") return "bg-amber-700"; // the intent generator, distinct
-  if (name === "mainagent") return "bg-blue-700";
+  if (name === "planner") return workerColors[4]; // the intent generator, distinct
+  if (name === "mainagent") return "bg-indigo-500/12 text-indigo-600 border-indigo-500/20 dark:text-indigo-400";
   const m = /#(\d+)/.exec(name);
   const i = m ? (parseInt(m[1], 10) - 1) % workerColors.length : 0;
   return workerColors[Math.max(0, i)];
 }
 
 const chip = (worker: string) =>
-  "mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] leading-none font-medium text-white " + workerColor(worker);
+  "mt-0.5 shrink-0 rounded border px-1.5 py-0.5 text-[10px] leading-none font-medium " + workerColor(worker);
 
 // useInView latches true when the ref'd element first comes within `rootMargin` of
 // the enclosing scroll viewport. Blocks that always show their full body (user
@@ -178,9 +180,7 @@ function toolInputText(tool: string, raw: string): string {
       return JSON.parse('"' + m[1] + '"');
     } catch {
       // truncated mid-escape — unescape the common sequences best-effort.
-      return m[1].replace(/\\(["\\/nrt])/g, (_s, c) =>
-        c === "n" ? "\n" : c === "r" ? "\r" : c === "t" ? "\t" : c,
-      );
+      return m[1].replace(/\\(["\\/nrt])/g, (_s, c) => (c === "n" ? "\n" : c === "r" ? "\r" : c === "t" ? "\t" : c));
     }
   }
   return raw;
@@ -189,13 +189,7 @@ function toolInputText(tool: string, raw: string): string {
 // InterceptCard renders an inline intercept_request approval card. The pending_id
 // is extracted from the summary (format: "工具 X 请求审批 (#N)") so buttons are
 // available immediately without waiting for the detail load.
-function InterceptCard({
-  step,
-  getDetail,
-}: {
-  step: Activity;
-  getDetail: (seq: number) => Promise<string>;
-}) {
+function InterceptCard({ step, getDetail }: { step: Activity; getDetail: (seq: number) => Promise<string> }) {
   // extract pending_id from summary: "工具 Bash 请求审批 (#42)"
   const pendingId = React.useMemo(() => {
     const m = /\(#(\d+)\)/.exec(step.summary);
@@ -225,25 +219,38 @@ function InterceptCard({
     getDetail(step.seq)
       .then((raw) => {
         if (!live || !raw) return;
-        try { setDetail(JSON.parse(raw)); } catch { /* ignore */ }
+        try {
+          setDetail(JSON.parse(raw));
+        } catch {
+          /* ignore */
+        }
       })
-      .catch(() => {/* ignore */});
-    return () => { live = false; };
+      .catch(() => {
+        /* ignore */
+      });
+    return () => {
+      live = false;
+    };
   }, [step.seq, getDetail]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: Retry explicitly reloads the same approval after a failed request.
   React.useEffect(() => {
     if (!pendingId) return;
     let live = true;
-    api.interceptGetOne(pendingId)
+    api
+      .interceptGetOne(pendingId)
       .then((p) => {
         if (!live) return;
         setPending(p);
         setStatusError("");
         if (p.status !== "pending") setDecided(p.status as "allowed" | "denied" | "timeout");
       })
-      .catch((error) => { if (live) setStatusError((error as Error).message || "审批详情加载失败"); });
-    return () => { live = false; };
+      .catch((error) => {
+        if (live) setStatusError((error as Error).message || "审批详情加载失败");
+      });
+    return () => {
+      live = false;
+    };
   }, [pendingId, retry]);
 
   async function decide(decision: "allowed" | "denied") {
@@ -260,11 +267,11 @@ function InterceptCard({
     }
   }
 
-  const inputStr = detail?.input
-    ? JSON.stringify(detail.input).slice(0, 200)
-    : null;
+  const inputStr = detail?.input ? JSON.stringify(detail.input).slice(0, 200) : null;
 
-  const row = pending ? { ...pending, status: decided || pending.status, conv_title: "", conv_agent_key: "", rule_name: "" } : null;
+  const row = pending
+    ? { ...pending, status: decided || pending.status, conv_title: "", conv_agent_key: "", rule_name: "" }
+    : null;
 
   return (
     <div className="my-2 rounded-lg border border-warning/40 bg-warning/5 p-3 text-[12px] leading-5">
@@ -277,27 +284,25 @@ function InterceptCard({
               <code className="rounded bg-warning/10 px-1 font-mono text-amber-800 dark:text-amber-300">
                 {toolName}
               </code>
-              {pendingId && (
-                <span className="text-muted-foreground">#{pendingId}</span>
-              )}
+              {pendingId && <span className="text-muted-foreground">#{pendingId}</span>}
             </div>
-            {inputStr && (
-              <p className="font-mono text-muted-foreground truncate">{inputStr}</p>
-            )}
+            {inputStr && <p className="font-mono text-muted-foreground truncate">{inputStr}</p>}
           </div>
         </div>
 
         {step.inherited ? (
           <Badge variant="outline">历史记录 · 只读</Badge>
         ) : decided ? (
-          <span className={
-            "inline-flex h-5 shrink-0 items-center rounded px-2 text-[11px] font-medium " +
-            (decided === "allowed"
-              ? "bg-success/10 text-success"
-              : decided === "timeout"
-                ? "bg-muted text-muted-foreground"
-                : "bg-destructive/10 text-destructive")
-          }>
+          <span
+            className={
+              "inline-flex h-5 shrink-0 items-center rounded px-2 text-[11px] font-medium " +
+              (decided === "allowed"
+                ? "bg-success/10 text-success"
+                : decided === "timeout"
+                  ? "bg-muted text-muted-foreground"
+                  : "bg-destructive/10 text-destructive")
+            }
+          >
             {decided === "allowed" ? "已允许" : decided === "timeout" ? "已超时" : "已拒绝"}
           </span>
         ) : (
@@ -356,9 +361,13 @@ function InterceptCard({
             ) : statusError ? (
               <div className="flex flex-wrap items-center gap-2 p-3" role="alert">
                 <span>{statusError}</span>
-                <Button variant="outline" size="sm" onClick={() => setRetry((value) => value + 1)}>重试详情</Button>
+                <Button variant="outline" size="sm" onClick={() => setRetry((value) => value + 1)}>
+                  重试详情
+                </Button>
               </div>
-            ) : <p className="p-3 text-[12px] text-muted-foreground">正在加载审批详情…</p>}
+            ) : (
+              <p className="p-3 text-[12px] text-muted-foreground">正在加载审批详情…</p>
+            )}
           </CollapsibleContent>
         </Collapsible>
       ) : null}
@@ -507,7 +516,10 @@ function ToolBlock({
         <span className={"ml-auto shrink-0 font-medium " + statusTone}>{statusText}</span>
       </button>
       {open && (
-        <pre id={detailId} className="ml-10 mb-1 max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 p-2 font-mono text-[11px] leading-relaxed">
+        <pre
+          id={detailId}
+          className="ml-10 mb-1 max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 p-2 font-mono text-[11px] leading-relaxed"
+        >
           {detail ?? "加载中…"}
         </pre>
       )}
@@ -583,7 +595,10 @@ function MessageBlock({
         </span>
       </button>
       {open && (
-        <pre id={detailId} className="ml-10 mb-1 max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 p-2 font-mono text-[11px] leading-relaxed">
+        <pre
+          id={detailId}
+          className="ml-10 mb-1 max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 p-2 font-mono text-[11px] leading-relaxed"
+        >
           {detail ?? "加载中…"}
         </pre>
       )}
@@ -616,7 +631,15 @@ function parseUserBody(body: string): { text: string; attachments: MsgAttachment
   return { text: body, attachments: [] };
 }
 
-function UserRow({ step, intent, getDetail }: { step: Activity; intent?: boolean; getDetail: (seq: number) => Promise<string> }) {
+function UserRow({
+  step,
+  intent,
+  getDetail,
+}: {
+  step: Activity;
+  intent?: boolean;
+  getDetail: (seq: number) => Promise<string>;
+}) {
   const Icon = intent ? CrosshairIcon : UserIcon;
   const [ref, inView] = useInView();
   // Optimistic echoes carry their detail inline; persisted rows lazy-load it on scroll.
@@ -786,7 +809,10 @@ export function Transcript({
   const transcriptRef = React.useRef<HTMLDivElement>(null);
   const [focusPadding, setFocusPadding] = React.useState(0);
   React.useLayoutEffect(() => {
-    if (focusedSeq == null) { setFocusPadding(0); return; }
+    if (focusedSeq == null) {
+      setFocusPadding(0);
+      return;
+    }
     const viewport = transcriptRef.current?.closest('[data-slot="scroll-area-viewport"]');
     if (!viewport) return;
     const measure = () => setFocusPadding(viewport.clientHeight / 2);
@@ -796,14 +822,18 @@ export function Transcript({
     return () => observer.disconnect();
   }, [focusedSeq]);
   return (
-    <div ref={transcriptRef} className="flex flex-col gap-1" style={focusPadding ? { paddingBlock: focusPadding } : undefined}>
+    <div
+      ref={transcriptRef}
+      className="flex flex-col gap-1"
+      style={focusPadding ? { paddingBlock: focusPadding } : undefined}
+    >
       <ExecView activity={activity} taskId={taskId} chat={chat} fetchDetail={fetchDetail} focusedSeq={focusedSeq} />
       {live && (
         <div className="flex items-center gap-2 pl-2 pt-1 text-xs text-muted-foreground">
           <span className="flex gap-1">
-            <span className="size-1.5 animate-bounce rounded-full bg-blue-500 [animation-delay:-0.3s]" />
-            <span className="size-1.5 animate-bounce rounded-full bg-blue-500 [animation-delay:-0.15s]" />
-            <span className="size-1.5 animate-bounce rounded-full bg-blue-500" />
+            <span className="size-1.5 animate-bounce rounded-full bg-indigo-500 [animation-delay:-0.3s]" />
+            <span className="size-1.5 animate-bounce rounded-full bg-indigo-500 [animation-delay:-0.15s]" />
+            <span className="size-1.5 animate-bounce rounded-full bg-indigo-500" />
           </span>
           实时流式中…
         </div>

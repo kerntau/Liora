@@ -678,7 +678,9 @@ export function AgentEditor({ agentKey, onSaved }: { agentKey: string; onSaved?:
                 </DialogTitle>
                 <DialogDescription>
                   <span className="inline-flex items-center gap-3 text-xs">
-                    <span className="rounded bg-red-500/15 px-1.5 py-0.5 text-red-600 dark:text-red-400">- 删除</span>
+                    <span className="rounded bg-rose-500/12 px-1.5 py-0.5 text-rose-600 dark:text-rose-400">
+                      - 删除
+                    </span>
                     <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-emerald-600 dark:text-emerald-400">
                       + 新增
                     </span>
@@ -936,7 +938,7 @@ function DiffView({ oldText, newText }: { oldText: string; newText: string }) {
           key={idx}
           className={cn(
             "whitespace-pre-wrap px-1",
-            l.type === "del" && "bg-red-500/15 text-red-700 dark:text-red-400",
+            l.type === "del" && "bg-rose-500/12 text-rose-700 dark:text-rose-400",
             l.type === "add" && "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
             l.type === "same" && "text-muted-foreground",
           )}

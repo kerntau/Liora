@@ -120,9 +120,7 @@ function SessionItem({
     <div
       className={cn(
         "group/session flex w-full items-center gap-0.5 rounded-lg border transition-colors",
-        active
-          ? "border-primary/20 bg-brand-soft"
-          : "border-transparent hover:border-border/70 hover:bg-surface-muted",
+        active ? "border-primary/20 bg-brand-soft" : "border-transparent hover:border-border/70 hover:bg-surface-muted",
       )}
     >
       <button
@@ -287,13 +285,21 @@ export function SessionList({
             className="flex min-w-0 flex-1 items-center gap-1.5 text-left lg:pointer-events-none"
           >
             <ChevronDownIcon
-              className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform lg:hidden", !listOpen && "-rotate-90")}
+              className={cn(
+                "size-3.5 shrink-0 text-muted-foreground transition-transform lg:hidden",
+                !listOpen && "-rotate-90",
+              )}
             />
             <span className="shrink-0 text-[13px] font-semibold text-foreground">会话列表</span>
-            <span className="shrink-0 text-[11px] font-medium tabular-nums text-muted-foreground">{visible.length}</span>
+            <span className="shrink-0 text-[11px] font-medium tabular-nums text-muted-foreground">
+              {visible.length}
+            </span>
             {!listOpen && (
               <>
-                <span className="min-w-0 truncate text-[12px] text-muted-foreground lg:hidden" title={activeDisplayTitle}>
+                <span
+                  className="min-w-0 truncate text-[12px] text-muted-foreground lg:hidden"
+                  title={activeDisplayTitle}
+                >
                   · {activeDisplayTitle}
                 </span>
                 {hiddenUnread > 0 && (
@@ -310,7 +316,7 @@ export function SessionList({
               // warning 令牌在浅色下只有约 2.3:1，文字用 700 档；深色保留高亮色。
               sseLive
                 ? "border-success/25 bg-success/10 text-success"
-                : "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-400",
+                : "border-amber-500/20 bg-amber-500/12 text-amber-700 dark:text-amber-400",
             )}
             title={sseLive ? "实时连接正常" : "实时连接中断，正在自动重连（历史仍可见）"}
           >

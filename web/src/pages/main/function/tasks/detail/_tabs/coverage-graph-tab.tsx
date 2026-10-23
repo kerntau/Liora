@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+
 import type { Graph as G6Graph } from "@antv/g6";
 import {
   AppWindow,
@@ -19,12 +20,7 @@ import { SectionCard } from "@/components/app/section-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { api } from "@/lib/api";
 import type { CoverageAssetRef, CoverageAssetRefs, CoverageGraphEdge, CoverageGraphNode } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -37,14 +33,58 @@ type Kind = CoverageGraphNode["kind"];
 
 type KindMeta = { label: string; icon: LucideIcon; iconBg: string; hex: string; size: number };
 
+// 覆盖图例同探索图口径：iconBg 统一 tint（/12 + ring 500/20）；cyan→sky、fuchsia→rose，
+// hex 换色板低饱和 600 档。G6 节点里的白色 data-URI 图标仍读 hex，不在此列。
 const kindMeta: Record<Kind, KindMeta> = {
-  company: { label: "公司", icon: Building2, iconBg: "bg-slate-500", hex: "#64748b", size: 46 },
-  root_domain: { label: "根域名", icon: Globe, iconBg: "bg-indigo-500", hex: "#6366f1", size: 38 },
-  subdomain: { label: "子域名", icon: Waypoints, iconBg: "bg-blue-500", hex: "#3b82f6", size: 30 },
-  ip: { label: "IP", icon: Server, iconBg: "bg-cyan-600", hex: "#0891b2", size: 28 },
-  service: { label: "服务", icon: Radio, iconBg: "bg-amber-500", hex: "#f59e0b", size: 26 },
-  app: { label: "App", icon: AppWindow, iconBg: "bg-fuchsia-500", hex: "#d946ef", size: 26 },
-  endpoint: { label: "端点", icon: Link2, iconBg: "bg-rose-500", hex: "#f43f5e", size: 20 },
+  company: {
+    label: "公司",
+    icon: Building2,
+    iconBg: "bg-slate-500/12 text-slate-600 ring-1 ring-slate-500/20 dark:text-slate-400",
+    hex: "#64748b",
+    size: 46,
+  },
+  root_domain: {
+    label: "根域名",
+    icon: Globe,
+    iconBg: "bg-indigo-500/12 text-indigo-600 ring-1 ring-indigo-500/20 dark:text-indigo-400",
+    hex: "#6366f1",
+    size: 38,
+  },
+  subdomain: {
+    label: "子域名",
+    icon: Waypoints,
+    iconBg: "bg-sky-500/12 text-sky-600 ring-1 ring-sky-500/20 dark:text-sky-400",
+    hex: "#0ea5e9",
+    size: 30,
+  },
+  ip: {
+    label: "IP",
+    icon: Server,
+    iconBg: "bg-sky-500/12 text-sky-600 ring-1 ring-sky-500/20 dark:text-sky-400",
+    hex: "#0ea5e9",
+    size: 28,
+  },
+  service: {
+    label: "服务",
+    icon: Radio,
+    iconBg: "bg-amber-500/12 text-amber-600 ring-1 ring-amber-500/20 dark:text-amber-400",
+    hex: "#d97706",
+    size: 26,
+  },
+  app: {
+    label: "App",
+    icon: AppWindow,
+    iconBg: "bg-rose-500/12 text-rose-600 ring-1 ring-rose-500/20 dark:text-rose-400",
+    hex: "#e11d48",
+    size: 26,
+  },
+  endpoint: {
+    label: "端点",
+    icon: Link2,
+    iconBg: "bg-rose-500/12 text-rose-600 ring-1 ring-rose-500/20 dark:text-rose-400",
+    hex: "#e11d48",
+    size: 20,
+  },
 };
 
 // G6 节点图标用平台一致的 lucide 图标：把 lucide 的 SVG 路径（v1.22）渲染成白色描边的
@@ -332,8 +372,10 @@ function AssetSheet({
           <>
             <SheetHeader className="border-b p-4">
               <div className="flex items-center gap-2.5 pr-8">
-                <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg shadow-sm", meta.iconBg)}>
-                  <Icon className="size-4 text-white" />
+                <span
+                  className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg shadow-sm", meta.iconBg)}
+                >
+                  <Icon className="size-4" />
                 </span>
                 <div className="min-w-0">
                   <SheetTitle className="leading-tight">{meta.label}</SheetTitle>
@@ -431,10 +473,10 @@ function FoldSheet({
                     <span
                       className={cn(
                         "flex size-5 shrink-0 items-center justify-center rounded",
-                        n.tested ? meta.iconBg : "bg-neutral-400 dark:bg-neutral-600",
+                        n.tested ? meta.iconBg : "bg-neutral-400 text-white dark:bg-neutral-600",
                       )}
                     >
-                      <Icon className="size-3 text-white" />
+                      <Icon className="size-3" />
                     </span>
                     <span className="min-w-0 flex-1 truncate font-mono text-xs" title={n.label}>
                       {n.label}
@@ -507,7 +549,10 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
   // 结构签名：只在可见节点/边集合变化时重建图 + 重跑布局，避免无谓抖动。
   const sig = React.useMemo(
     () =>
-      `${renderNodes.map((n) => `${n.key}:${n.fold ? "f" : n.node.tested ? "t" : "u"}`).sort().join(",")}|${renderEdges.length}`,
+      `${renderNodes
+        .map((n) => `${n.key}:${n.fold ? "f" : n.node.tested ? "t" : "u"}`)
+        .sort()
+        .join(",")}|${renderEdges.length}`,
     [renderNodes, renderEdges],
   );
 
@@ -649,8 +694,7 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
               {coverageEnabled && (
                 <>
                   {" "}
-                  · 已测{" "}
-                  <span className="font-semibold tabular-nums text-success">{tested}</span>
+                  · 已测 <span className="font-semibold tabular-nums text-success">{tested}</span>
                 </>
               )}
             </span>
@@ -675,7 +719,7 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
             return (
               <span key={k} className="text-foreground inline-flex items-center gap-1.5">
                 <span className={cn("flex size-4 items-center justify-center rounded", m.iconBg)}>
-                  <Icon className="size-2.5 text-white" />
+                  <Icon className="size-2.5" />
                 </span>
                 {m.label}
               </span>

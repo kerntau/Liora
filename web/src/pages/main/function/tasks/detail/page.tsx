@@ -2,9 +2,6 @@
 
 import * as React from "react";
 
-import Link from "@/lib/router-compat";
-import { usePathname, useRouter, useSearchParams } from "@/lib/router-compat";
-
 import {
   ActivityIcon,
   ArchiveIcon,
@@ -17,7 +14,6 @@ import {
   PlayIcon,
   TargetIcon,
 } from "lucide-react";
-import { toast } from "@/components/ui/sonner";
 
 import { MetaItems } from "@/components/app/page-header";
 import { StatusBadge } from "@/components/status-badge";
@@ -44,13 +40,15 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { toast } from "@/components/ui/sonner";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePolling } from "@/hooks/use-polling";
 import { api } from "@/lib/api";
-import { PAGE_TITLE_CLASS } from "@/lib/typography";
+import Link, { usePathname, useRouter, useSearchParams } from "@/lib/router-compat";
 import type { InterceptApprovalRow, LLMProfile, Task } from "@/lib/types";
+import { PAGE_TITLE_CLASS } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 
 import { AssetsTab } from "./_tabs/assets-tab";
@@ -457,9 +455,7 @@ function TaskDetailInner() {
   const lastActivityDate = task.last_activity ? new Date(task.last_activity) : null;
   // 没有（或非法的）最近活动时间时整条省略：只留「最近活动 —」会是一个悬空的破折号。
   const lastActivityAt =
-    lastActivityDate && !Number.isNaN(lastActivityDate.getTime())
-      ? lastActivityDate.toLocaleTimeString("zh-CN")
-      : "";
+    lastActivityDate && !Number.isNaN(lastActivityDate.getTime()) ? lastActivityDate.toLocaleTimeString("zh-CN") : "";
   const interceptPendingCount = Math.max(pendingInterceptTotal, pendingIntercepts.length);
   const terminal = ["done", "failed", "timeout"].includes(task.status);
   const archiveLifecycleEligible = terminal || paused || task.status === "paused";
@@ -495,7 +491,7 @@ function TaskDetailInner() {
 
   const useEngineStatus = !terminal && knownEngineMode;
   const statusDomain = useEngineStatus ? "engine" : "task";
-  const statusValue = useEngineStatus ? engineMode : (paused ? "paused" : task.status);
+  const statusValue = useEngineStatus ? engineMode : paused ? "paused" : task.status;
 
   return (
     <Tabs value={tab} onValueChange={selectTab} className="flex flex-col gap-5">
@@ -607,7 +603,7 @@ function TaskDetailInner() {
                   {t.value === "intercept" && interceptPendingCount > 0 && (
                     <span
                       title={`${interceptPendingCount} 条待审批`}
-                      className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500/15 px-1 text-[10px] font-semibold leading-none text-amber-700 tabular-nums dark:text-amber-400"
+                      className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500/12 px-1 text-[10px] font-semibold leading-none text-amber-700 tabular-nums dark:text-amber-400"
                     >
                       {interceptPendingCount > 99 ? "99+" : interceptPendingCount}
                     </span>

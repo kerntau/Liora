@@ -24,8 +24,8 @@ import {
   TargetIcon,
 } from "lucide-react";
 
-import { AsyncState } from "@/components/async-state";
 import { SectionCard } from "@/components/app/section-card";
+import { AsyncState } from "@/components/async-state";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { CardFooter } from "@/components/ui/card";
@@ -51,49 +51,49 @@ const KIND_META: Record<string, KindMeta> = {
     label: "起点",
     icon: FlagIcon,
     dot: "bg-slate-500",
-    chip: "bg-slate-500/15 text-slate-600 dark:text-slate-300",
+    chip: "bg-slate-500/12 text-slate-600 dark:text-slate-400",
   },
   task: {
     label: "根任务",
     icon: FlagIcon,
     dot: "bg-slate-500",
-    chip: "bg-slate-500/15 text-slate-600 dark:text-slate-300",
+    chip: "bg-slate-500/12 text-slate-600 dark:text-slate-400",
   },
   goal: {
     label: "目标",
     icon: TargetIcon,
     dot: "bg-emerald-500",
-    chip: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+    chip: "bg-emerald-500/12 text-emerald-600 dark:text-emerald-400",
   },
   intent: {
     label: "意图",
     icon: CompassIcon,
-    dot: "bg-blue-500",
-    chip: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
+    dot: "bg-indigo-500",
+    chip: "bg-indigo-500/12 text-indigo-600 dark:text-indigo-400",
   },
   fact: {
     label: "事实",
     icon: FlaskConicalIcon,
     dot: "bg-amber-500",
-    chip: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
+    chip: "bg-amber-500/12 text-amber-600 dark:text-amber-400",
   },
   finding: {
     label: "漏洞",
     icon: BugIcon,
     dot: "bg-rose-500",
-    chip: "bg-rose-500/15 text-rose-600 dark:text-rose-400",
+    chip: "bg-rose-500/12 text-rose-600 dark:text-rose-400",
   },
   hint: {
     label: "提示",
     icon: LightbulbIcon,
     dot: "bg-violet-500",
-    chip: "bg-violet-500/15 text-violet-600 dark:text-violet-400",
+    chip: "bg-violet-500/12 text-violet-600 dark:text-violet-400",
   },
   digest: {
     label: "压缩",
     icon: LayersIcon,
     dot: "bg-teal-500",
-    chip: "bg-teal-500/15 text-teal-600 dark:text-teal-400",
+    chip: "bg-teal-500/12 text-teal-600 dark:text-teal-400",
   },
 };
 
@@ -617,7 +617,18 @@ export function BroadcastTab({ taskId }: { taskId: string }) {
             className="h-9 pl-8"
             aria-label="搜索播报"
           />
-          {queryInput && <Button type="button" variant="ghost" size="icon-sm" className="absolute top-0 right-0" aria-label="清除播报搜索" onClick={() => setQueryInput("")}>×</Button>}
+          {queryInput && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="absolute top-0 right-0"
+              aria-label="清除播报搜索"
+              onClick={() => setQueryInput("")}
+            >
+              ×
+            </Button>
+          )}
         </div>
         <div role="group" aria-label="播报类型" className="flex flex-wrap items-center gap-1">
           {FILTER_KINDS.map((kind) => {
@@ -698,7 +709,7 @@ export function BroadcastTab({ taskId }: { taskId: string }) {
       {error && items.length > 0 && (
         <div
           role="alert"
-          className="flex flex-wrap items-center gap-2 border-b bg-amber-500/5 px-4 py-1.5 text-xs text-muted-foreground"
+          className="flex flex-wrap items-center gap-2 border-b border-amber-500/20 bg-amber-500/10 px-4 py-1.5 text-xs text-muted-foreground"
         >
           <span className="text-amber-600 dark:text-amber-400">刷新失败，显示上次结果</span>
           <Button
