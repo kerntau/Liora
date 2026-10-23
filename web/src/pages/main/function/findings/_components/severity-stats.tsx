@@ -15,10 +15,11 @@ interface LevelMeta {
   bar: string;
 }
 
-// 颜色口径与 StatusBadge 的严重度保持一致：严重=玫红、高危=红、中危=琥珀、低危=青绿。
+// 颜色口径与 rail-cards 的严重度统计对齐：严重=rose、高危=red（80% 透明度降饱和）、
+// 中危=amber、低危=teal；圆点与占比条共用同一色，条形同高同 rounded-full。
 const LEVELS: LevelMeta[] = [
   { key: "critical", label: "严重", icon: ShieldAlertIcon, dot: "bg-rose-500", bar: "bg-rose-500" },
-  { key: "high", label: "高危", icon: TriangleAlertIcon, dot: "bg-red-500", bar: "bg-red-500" },
+  { key: "high", label: "高危", icon: TriangleAlertIcon, dot: "bg-red-500/80", bar: "bg-red-500/80" },
   { key: "medium", label: "中危", icon: CircleAlertIcon, dot: "bg-amber-500", bar: "bg-amber-500" },
   { key: "low", label: "低危", icon: InfoIcon, dot: "bg-teal-500", bar: "bg-teal-500" },
 ];
@@ -41,8 +42,8 @@ export function SeverityStats({ stats, severity, onSeverityChange }: SeveritySta
       description="点击等级可直接筛选列表，统计覆盖全部发现。"
       actions={
         <span className="app-chip tabular-nums">
-          <span className="bg-warning size-1.5 rounded-full" aria-hidden="true" />
-          待处理 <span className="text-foreground font-medium">{stats.pending}</span>
+          <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
+          待处理 <span className="font-medium text-foreground">{stats.pending}</span>
         </span>
       }
     >
@@ -62,22 +63,22 @@ export function SeverityStats({ stats, severity, onSeverityChange }: SeveritySta
               onClick={() => onSeverityChange(active ? "all" : level.key)}
               className={cn(
                 "flex flex-col gap-2.5 rounded-lg px-3 py-2.5 text-left transition-colors",
-                "focus-visible:ring-ring/45 focus-visible:ring-2 focus-visible:outline-none",
-                active ? "bg-primary/5 ring-primary/30 ring-1" : "bg-surface-muted/60 hover:bg-surface-muted",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45",
+                active ? "bg-primary/5 ring-1 ring-primary/30" : "bg-surface-muted/60 hover:bg-surface-muted",
               )}
             >
               <span className="flex items-center justify-between gap-2">
-                <span className="text-muted-foreground flex min-w-0 items-center gap-1.5 text-[12px] font-medium">
+                <span className="flex min-w-0 items-center gap-1.5 font-medium text-[12px] text-muted-foreground">
                   <span className={cn("size-1.5 shrink-0 rounded-full", level.dot)} aria-hidden="true" />
                   {level.label}
                 </span>
-                <Icon className="text-muted-foreground/50 size-3.5 shrink-0" aria-hidden="true" />
+                <Icon className="size-3.5 shrink-0 text-muted-foreground/50" aria-hidden="true" />
               </span>
               <span className="flex items-baseline justify-between gap-2">
-                <span className="text-foreground text-[22px] leading-none font-semibold tabular-nums">{value}</span>
-                <span className="text-muted-foreground text-[11px] tabular-nums">{share}%</span>
+                <span className="font-semibold text-[22px] text-foreground tabular-nums leading-none">{value}</span>
+                <span className="text-[11px] text-muted-foreground tabular-nums">{share}%</span>
               </span>
-              <span className="bg-border/60 block h-1 w-full overflow-hidden rounded-full" aria-hidden="true">
+              <span className="block h-1 w-full overflow-hidden rounded-full bg-border/60" aria-hidden="true">
                 <span
                   className={cn("block h-full rounded-full transition-[width]", level.bar)}
                   style={{ width: `${share}%` }}

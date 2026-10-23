@@ -15,14 +15,13 @@ import {
   SmartphoneIcon,
   Trash2Icon,
 } from "lucide-react";
-import { toast } from "@/components/ui/sonner";
 
 import { PageHeader } from "@/components/app/page-header";
 import { Chips, MethodBadge, PAGE_SIZES, statusTone } from "@/components/asset-cells";
-import { TablePagination } from "@/components/table-pagination";
 import { AssetDslSearch } from "@/components/asset-dsl-search";
 import { AsyncState } from "@/components/async-state";
 import { ScopeTextEditor } from "@/components/scope-text-editor";
+import { TablePagination } from "@/components/table-pagination";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -59,6 +58,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "@/components/ui/sonner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
@@ -88,7 +88,7 @@ const TABS: AssetTypeMeta[] = [
     key: "root_domain",
     label: "根域名",
     icon: GlobeIcon,
-    tile: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+    tile: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400",
     description: "已收录的主域名与 ICP 备案。",
   },
   {
@@ -102,7 +102,7 @@ const TABS: AssetTypeMeta[] = [
     key: "subdomain",
     label: "子域名",
     icon: GlobeIcon,
-    tile: "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400",
+    tile: "bg-sky-500/10 text-sky-600 dark:text-sky-400",
     description: "DNS 解析记录与所属根域名。",
   },
   {
@@ -242,7 +242,7 @@ export default function AssetsPage() {
       setSelected(new Set());
       refresh();
     } catch (e) {
-      toast.error("删除失败：" + String((e as Error)?.message ?? e));
+      toast.error(`删除失败：${String((e as Error)?.message ?? e)}`);
     } finally {
       setDeleting(false);
       setDeleteOpen(false);
@@ -261,7 +261,7 @@ export default function AssetsPage() {
       toast.success(msg);
       refresh();
     } catch (e) {
-      toast.error("删除失败：" + String((e as Error)?.message ?? e));
+      toast.error(`删除失败：${String((e as Error)?.message ?? e)}`);
     } finally {
       setCompanyDeleting(false);
       setCompanyDeleteTarget(null);
@@ -387,20 +387,20 @@ export default function AssetsPage() {
         orientation="vertical"
         className="flex flex-col gap-5 lg:flex-row lg:items-start"
       >
-        <Card className="gap-0 shrink-0 overflow-hidden py-0 lg:sticky lg:top-20 lg:w-60 xl:w-64">
+        <Card className="shrink-0 gap-0 overflow-hidden py-0 lg:sticky lg:top-20 lg:w-60 xl:w-64">
           <div className="flex items-start justify-between gap-2 px-5 pt-5 pb-3">
             <div className="flex min-w-0 items-start gap-2">
-              <LayersIcon className="text-muted-foreground mt-0.5 size-4 shrink-0" aria-hidden="true" />
+              <LayersIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
               <div className="min-w-0">
-                <h2 className="text-foreground text-[13px] leading-5 font-semibold">资产分类</h2>
-                <p className="text-muted-foreground mt-0.5 truncate text-[12px] leading-5 tabular-nums">
+                <h2 className="font-semibold text-[13px] text-foreground leading-5">资产分类</h2>
+                <p className="mt-0.5 truncate text-[12px] text-muted-foreground tabular-nums leading-5">
                   共 {totalAssets} 项资产
                 </p>
               </div>
             </div>
           </div>
           <div className="px-3 pb-4">
-            <TabsList className="bg-surface-muted/70 w-full! flex-row! items-stretch justify-start gap-0.5 overflow-x-auto rounded-lg border-0 p-1 lg:flex-col! lg:overflow-visible">
+            <TabsList className="w-full! flex-row! items-stretch justify-start gap-0.5 overflow-x-auto rounded-lg border-0 bg-surface-muted/70 p-1 lg:flex-col! lg:overflow-visible">
               {TAB_ORDER.map((key) => {
                 const item = TAB_BY_KEY.get(key);
                 if (!item) return null;
@@ -416,7 +416,7 @@ export default function AssetsPage() {
                     </span>
                     <span className="whitespace-nowrap">{item.label}</span>
                     {/* 计数统一成裸数字：选中项与未选中项同一字号、同一颜色、同一对齐。 */}
-                    <span className="text-muted-foreground ml-auto text-[11px] font-medium tabular-nums">
+                    <span className="ml-auto font-medium text-[11px] text-muted-foreground tabular-nums">
                       {tabCounts[key] ?? 0}
                     </span>
                   </TabsTrigger>
@@ -436,7 +436,7 @@ export default function AssetsPage() {
                 description="组织主体与授权资产范围。"
                 actions={
                   <span className="app-chip shrink-0 tabular-nums">
-                    共 <span className="text-foreground font-medium">{companies.length}</span> 家
+                    共 <span className="font-medium text-foreground">{companies.length}</span> 家
                   </span>
                 }
               />
@@ -450,7 +450,7 @@ export default function AssetsPage() {
                   {metaError && companies.length > 0 && (
                     <div
                       role="alert"
-                      className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+                      className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2 text-destructive text-xs"
                     >
                       <span className="min-w-0 [overflow-wrap:anywhere]">刷新企业列表失败：{metaError.message}</span>
                       <Button size="sm" variant="outline" onClick={loadMeta}>
@@ -458,7 +458,7 @@ export default function AssetsPage() {
                       </Button>
                     </div>
                   )}
-                  <div className="border-border/60 max-h-[60vh] min-h-[10rem] overflow-auto rounded-lg border">
+                  <div className="max-h-[60vh] min-h-[10rem] overflow-auto rounded-lg border border-border/60">
                     <Table>
                       <TableHeader className="sticky top-0 z-10">
                         <TableRow>
@@ -477,7 +477,7 @@ export default function AssetsPage() {
                                 <span className="font-medium">{c.name}</span>
                               </div>
                             </TableCell>
-                            <TableCell className="text-right tabular-nums text-[13px]">{c.asset_count}</TableCell>
+                            <TableCell className="text-right text-[13px] tabular-nums">{c.asset_count}</TableCell>
                             <TableCell>
                               {c.scope?.length ? (
                                 <div className="flex flex-wrap gap-1">
@@ -488,7 +488,7 @@ export default function AssetsPage() {
                                   ))}
                                 </div>
                               ) : (
-                                <span className="text-xs text-muted-foreground">未设置范围</span>
+                                <span className="text-muted-foreground text-xs">未设置范围</span>
                               )}
                             </TableCell>
                             <TableCell className="text-right">
@@ -513,11 +513,11 @@ export default function AssetsPage() {
                         ))}
                         {metaLoaded && !metaError && companies.length === 0 && (
                           <TableRow className="hover:bg-transparent">
-                            <TableCell colSpan={4} className="p-0 text-center whitespace-normal">
+                            <TableCell colSpan={4} className="whitespace-normal p-0 text-center">
                               <div className="flex flex-col items-center justify-center gap-1.5 px-6 py-6 text-center">
-                                <BuildingIcon className="text-muted-foreground/60 size-6" aria-hidden="true" />
-                                <p className="text-foreground text-[13px] font-semibold">还没有企业</p>
-                                <p className="text-muted-foreground max-w-md text-[12px] leading-5">
+                                <BuildingIcon className="size-6 text-muted-foreground/60" aria-hidden="true" />
+                                <p className="font-semibold text-[13px] text-foreground">还没有企业</p>
+                                <p className="max-w-md text-[12px] text-muted-foreground leading-5">
                                   点击右上角「新增企业」并填写资产范围，系统会自动认领命中的资产。
                                 </p>
                               </div>
@@ -559,7 +559,7 @@ export default function AssetsPage() {
                       aria-label={`选择资产 ${a.domain || a.id}`}
                     />
                   </TableCell>
-                  <TableCell className="font-mono text-[13px] font-medium">{a.domain}</TableCell>
+                  <TableCell className="font-medium font-mono text-[13px]">{a.domain}</TableCell>
                   <TableCell className="text-[13px]">{a.icp || "—"}</TableCell>
                   <TableCell className="text-[13px]">
                     {companyName(a.company_id) || <span className="text-muted-foreground">未归属</span>}
@@ -607,7 +607,7 @@ export default function AssetsPage() {
                       aria-label={`选择资产 ${a.ip || a.id}`}
                     />
                   </TableCell>
-                  <TableCell className="font-mono text-[13px] font-medium">{a.ip}</TableCell>
+                  <TableCell className="font-medium font-mono text-[13px]">{a.ip}</TableCell>
                   <TableCell className="font-mono text-[13px]">{a.c_segment || "—"}</TableCell>
                   <TableCell>
                     <Chips items={a.bound_domains ?? []} mono dense />
@@ -662,7 +662,7 @@ export default function AssetsPage() {
                       aria-label={`选择资产 ${a.domain || a.id}`}
                     />
                   </TableCell>
-                  <TableCell className="font-mono text-[13px] font-medium">{a.domain}</TableCell>
+                  <TableCell className="font-medium font-mono text-[13px]">{a.domain}</TableCell>
                   <TableCell className="font-mono text-[13px]">{a.root_domain || "—"}</TableCell>
                   <TableCell className="text-[13px]">{a.record_type || "—"}</TableCell>
                   <TableCell className="max-w-xs truncate font-mono text-[13px]">
@@ -711,7 +711,7 @@ export default function AssetsPage() {
                       aria-label={`选择资产 ${a.app_name || a.id}`}
                     />
                   </TableCell>
-                  <TableCell className="text-[13px] font-medium">{a.app_name || "—"}</TableCell>
+                  <TableCell className="font-medium text-[13px]">{a.app_name || "—"}</TableCell>
                   <TableCell className="font-mono text-[13px]">{a.bundle_id || "—"}</TableCell>
                   <TableCell className="text-[13px]">{a.category || "—"}</TableCell>
                   <TableCell className="text-[13px]">{a.app_icp || "—"}</TableCell>
@@ -781,7 +781,10 @@ export default function AssetsPage() {
                         {svc || "—"}
                       </Badge>
                     </TableCell>
-                    <TableCell className="max-w-[14rem] truncate font-mono text-[13px]" title={asset.domain || asset.url}>
+                    <TableCell
+                      className="max-w-[14rem] truncate font-mono text-[13px]"
+                      title={asset.domain || asset.url}
+                    >
                       {domainCell}
                     </TableCell>
                     <TableCell className="font-mono text-[13px]">{asset.ip || "—"}</TableCell>
@@ -789,7 +792,7 @@ export default function AssetsPage() {
                     <TableCell>
                       {asset.status_code != null ? (
                         <span
-                          className={cn("font-mono text-xs font-semibold tabular-nums", statusTone(asset.status_code))}
+                          className={cn("font-mono font-semibold text-xs tabular-nums", statusTone(asset.status_code))}
                         >
                           {asset.status_code}
                         </span>
@@ -805,7 +808,7 @@ export default function AssetsPage() {
                     </TableCell>
                     <TableCell>
                       {(asset.auth ?? []).length === 0 ? (
-                        <span className="text-xs text-muted-foreground">—</span>
+                        <span className="text-muted-foreground text-xs">—</span>
                       ) : (
                         (asset.auth ?? []).map((authItem, i) => {
                           const item = authItem as Record<string, string>;
@@ -956,7 +959,7 @@ export default function AssetsPage() {
                   />
                   <span className="text-sm leading-snug">
                     同时删除该企业下的所有资产
-                    <span className="block text-xs text-muted-foreground">不勾选则保留资产，仅取消归属关系</span>
+                    <span className="block text-muted-foreground text-xs">不勾选则保留资产，仅取消归属关系</span>
                   </span>
                 </label>
               </div>
@@ -997,10 +1000,10 @@ function AssetCardHead({
   return (
     <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-3">
       <div className="flex min-w-0 items-start gap-2">
-        <Icon className="text-muted-foreground mt-0.5 size-4 shrink-0" aria-hidden="true" />
+        <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         <div className="min-w-0">
-          <h2 className="text-foreground text-[13px] leading-5 font-semibold">{title}</h2>
-          <p className="text-muted-foreground mt-0.5 truncate text-[12px] leading-5">{description}</p>
+          <h2 className="font-semibold text-[13px] text-foreground leading-5">{title}</h2>
+          <p className="mt-0.5 truncate text-[12px] text-muted-foreground leading-5">{description}</p>
         </div>
       </div>
       {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
@@ -1084,11 +1087,11 @@ function AssetCard({
   } else {
     tableRows = (
       <TableRow className="hover:bg-transparent">
-        <TableCell colSpan={cols.length} className="p-0 text-center whitespace-normal">
+        <TableCell colSpan={cols.length} className="whitespace-normal p-0 text-center">
           <div className="flex flex-col items-center justify-center gap-1.5 px-6 py-6 text-center">
-            <TypeIcon className="text-muted-foreground/60 size-6" aria-hidden="true" />
-            <p className="text-foreground text-[13px] font-semibold">暂无{meta?.label ?? "资产"}</p>
-            <p className="text-muted-foreground max-w-md text-[12px] leading-5">
+            <TypeIcon className="size-6 text-muted-foreground/60" aria-hidden="true" />
+            <p className="font-semibold text-[13px] text-foreground">暂无{meta?.label ?? "资产"}</p>
+            <p className="max-w-md text-[12px] text-muted-foreground leading-5">
               换个类型页签或调整 DSL 检索条件；新发现的资产会在任务运行后自动入库。
             </p>
           </div>
@@ -1105,17 +1108,17 @@ function AssetCard({
         description={meta?.description ?? "资产列表。"}
         actions={
           <span className="app-chip shrink-0 tabular-nums">
-            共 <span className="text-foreground font-medium">{total}</span> 项
+            共 <span className="font-medium text-foreground">{total}</span> 项
           </span>
         }
       />
 
-      <div className="border-border/60 flex flex-wrap items-center gap-2 border-y px-5 py-3">
+      <div className="flex flex-wrap items-center gap-2 border-border/60 border-y px-5 py-3">
         <div className="min-w-0 flex-1">{search}</div>
         {selectedCount > 0 && (
           <div className="flex shrink-0 items-center gap-2">
-            <span className="text-muted-foreground text-[12px] whitespace-nowrap tabular-nums">
-              已选 <span className="text-foreground font-medium">{selectedCount}</span> 项
+            <span className="whitespace-nowrap text-[12px] text-muted-foreground tabular-nums">
+              已选 <span className="font-medium text-foreground">{selectedCount}</span> 项
             </span>
             <Button
               variant="destructive"
@@ -1129,7 +1132,7 @@ function AssetCard({
         )}
       </div>
 
-      <div className="max-h-[60vh] min-h-[12rem] overflow-auto scrollbar-thin scrollbar-track-transparent">
+      <div className="scrollbar-thin scrollbar-track-transparent max-h-[60vh] min-h-[12rem] overflow-auto">
         <Table>
           <TableHeader className="sticky top-0 z-10">
             <TableRow>

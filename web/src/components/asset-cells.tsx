@@ -16,16 +16,17 @@ import { cn } from "@/lib/utils";
 
 export const PAGE_SIZES = [25, 50, 100, 200];
 
-// 浅色用 100/700 的柔和底，深色改用 15% 透明底 + 300 的文字，
-// 否则深色下会出现一排刺眼的浅色小方块。
+// 统一低饱和 tint 口径：bg-{hue}-500/12 + text-{hue}-600（深色 400），不再用 100 实底。
+// 色相按分类色板映射：DELETE=rose、GET=emerald、POST=indigo、PUT=amber、PATCH=sky、
+// HEAD=violet、OPTIONS=slate；amber 浅底文字降为 700（#b45309）才够 4.5:1 对比。
 const METHOD_COLOR: Record<string, string> = {
-  DELETE: "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300",
-  GET: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
-  HEAD: "bg-purple-100 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300",
-  OPTIONS: "bg-slate-100 text-slate-600 dark:bg-slate-500/15 dark:text-slate-300",
-  PATCH: "bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300",
-  POST: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300",
-  PUT: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
+  DELETE: "bg-rose-500/12 text-rose-600 dark:text-rose-400",
+  GET: "bg-emerald-500/12 text-emerald-600 dark:text-emerald-400",
+  HEAD: "bg-violet-500/12 text-violet-600 dark:text-violet-400",
+  OPTIONS: "bg-slate-500/12 text-slate-600 dark:text-slate-400",
+  PATCH: "bg-sky-500/12 text-sky-600 dark:text-sky-400",
+  POST: "bg-indigo-500/12 text-indigo-600 dark:text-indigo-400",
+  PUT: "bg-amber-500/12 text-amber-700 dark:text-amber-400",
 };
 
 export function MethodBadge({ method }: { method: string }) {

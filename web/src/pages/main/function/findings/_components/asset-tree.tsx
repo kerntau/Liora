@@ -36,10 +36,11 @@ const KIND_ICON: Record<FindingAssetKind, LucideIcon> = {
 };
 
 // 类型色只用于小图标,让树在同构层级里也能一眼分辨资产种类。
+// 色相统一到分类色板：blue→indigo、cyan→sky，其余沿用 emerald/amber/rose/violet。
 const KIND_TONE: Record<FindingAssetKind, string> = {
   company: "text-primary",
-  root_domain: "text-blue-500 dark:text-blue-400",
-  subdomain: "text-cyan-500 dark:text-cyan-400",
+  root_domain: "text-indigo-500 dark:text-indigo-400",
+  subdomain: "text-sky-500 dark:text-sky-400",
   ip: "text-violet-500 dark:text-violet-400",
   app: "text-emerald-500 dark:text-emerald-400",
   service: "text-amber-500 dark:text-amber-400",
@@ -322,12 +323,12 @@ export function AssetTree({
       <ScrollArea className="min-h-0 flex-1">
         <div className="flex flex-col gap-0.5 pr-2">
           {rows}
-          {rows.length === 0 && <p className="px-2 py-8 text-center text-xs text-muted-foreground">{emptyHint}</p>}
+          {rows.length === 0 && <p className="px-2 py-8 text-center text-muted-foreground text-xs">{emptyHint}</p>}
         </div>
       </ScrollArea>
 
       {truncated && (
-        <p className="rounded-lg border border-border/70 bg-surface-muted px-2 py-1.5 text-[11px] leading-5 text-muted-foreground">
+        <p className="rounded-lg border border-border/70 bg-surface-muted px-2 py-1.5 text-[11px] text-muted-foreground leading-5">
           资产过多，已隐藏{(droppedKinds ?? []).map((k) => KIND_LABEL[k as FindingAssetKind] ?? k).join(" / ")}
           层级（计数仍已计入上层）。用筛选或过滤框收窄可看到完整层级。
         </p>
@@ -386,13 +387,16 @@ function AssetTreeRow({
       </button>
       <span className="flex shrink-0 items-center gap-1 text-[11px] tabular-nums">
         {node.critical > 0 && (
-          <span className="inline-flex items-center gap-0.5 text-rose-600 dark:text-rose-400" title={`严重 ${node.critical}`}>
+          <span
+            className="inline-flex items-center gap-0.5 text-rose-600 dark:text-rose-400"
+            title={`严重 ${node.critical}`}
+          >
             <span className="size-1.5 rounded-full bg-rose-500" aria-hidden="true" />
             {node.critical}
           </span>
         )}
         {node.high > 0 && (
-          <span className="inline-flex items-center gap-0.5 text-red-500 dark:text-red-400" title={`高危 ${node.high}`}>
+          <span className="inline-flex items-center gap-0.5 text-red-600 dark:text-red-400" title={`高危 ${node.high}`}>
             <span className="size-1.5 rounded-full bg-red-500" aria-hidden="true" />
             {node.high}
           </span>
