@@ -270,7 +270,7 @@ function FloatingDockMobile({
         inert={!open}
         aria-hidden={!open}
         className={cn(
-          "absolute right-0 bottom-full mb-3 w-60 origin-bottom-right rounded-2xl border border-border/60 bg-card/95 p-1.5 shadow-[var(--shadow-raised)] backdrop-blur-xl",
+          "absolute right-0 bottom-full mb-3 w-60 origin-bottom-right rounded-xl border border-border/60 bg-card/95 p-1.5 shadow-[var(--shadow-raised)] backdrop-blur-xl",
           "transition-all duration-200 ease-out",
           open
             ? "pointer-events-auto translate-y-0 scale-100 opacity-100"
@@ -418,7 +418,7 @@ export function FloatingDock({ items, className }: { items: FloatingDockItem[]; 
         <div
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
-          className="flex items-center gap-1.5 rounded-2xl border border-border/60 bg-card/95 px-2 py-2 shadow-[var(--shadow-raised)] backdrop-blur-xl"
+          className="flex items-center gap-1.5 rounded-xl border border-border/60 bg-card/95 px-2 py-2 shadow-[var(--shadow-raised)] backdrop-blur-xl"
         >
           {groups.map((group, groupIndex) => (
             <React.Fragment key={group.key || `dock-group-${groupIndex}`}>

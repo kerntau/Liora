@@ -98,7 +98,7 @@ export function AppHeader({ version }: { version: string }) {
                 )}
               >
                 <span className="relative flex size-2">
-                  {active ? <span className="absolute inline-flex size-full animate-ping rounded-full bg-success/60" /> : null}
+                  {active ? <span className="absolute inline-flex size-full animate-breathe rounded-full bg-success/50" /> : null}
                   <span
                     className={cn(
                       "relative inline-flex size-2 rounded-full",
