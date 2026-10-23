@@ -64,55 +64,59 @@
   --font-sans: var(--font-sans);
 }
 
-/* Liora console theme — deep-navy rail + airy light workspace.
-   These are the product defaults; presets below can still override them. */
+/* Liora console theme — 浅蓝主题（sky/blue 主轴 + 低饱和语义色）。
+   浅色：极浅蓝底 / 纯白卡片 / 浅蓝灰边框；深色：深海军蓝底 / 分层蓝卡片。
+   品牌主色浅色 sky 体系（填充 #2f8df5、文字档 #0369a1），深色提到 sky-400/#38bdf8。
+   语义色全部取低饱和档（success emerald-600、warning amber-600、danger rose-600、
+   info sky-700 与 primary 同源），深色统一提到 400 档保证暗底可读。presets 仍可覆盖。 */
 :root {
   --radius: 0.5rem;
-  --background: #eef3f7;
-  --foreground: #101828;
-  --card: #fcfdfe;
-  --card-foreground: #101828;
-  --popover: #fcfdfe;
-  --popover-foreground: #101828;
-  --primary: #3789fc;
-  --primary-foreground: #0a1c3a;
-  --secondary: #e8eef5;
-  --secondary-foreground: #1d2939;
-  --muted: #f1f5f9;
-  --muted-foreground: #5d6a82;
-  --accent: #e9f1ff;
-  --accent-foreground: #1d4ed8;
-  --destructive: #d92d20;
-  --border: #e3eaf2;
-  --input: #dfe5ef;
-  --ring: #3789fc;
-  --chart-1: #3789fc;
-  --chart-2: #12b76a;
-  --chart-3: #f79009;
-  --chart-4: #7a5af8;
-  --chart-5: #06aed4;
-  --sidebar: #1a2946;
-  --sidebar-foreground: #c7d3e8;
-  --sidebar-primary: #3789fc;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #283d70;
-  --sidebar-accent-foreground: #ffffff;
+  --background: #f2f7fc; /* 极浅蓝灰底 */
+  --foreground: #0f1a2a; /* 深蓝黑正文 */
+  --card: #ffffff;
+  --card-foreground: #0f1a2a;
+  --popover: #ffffff;
+  --popover-foreground: #0f1a2a;
+  --primary: #2f8df5; /* 浅蓝主色，info/active 同源 */
+  --primary-foreground: #ffffff;
+  --secondary: #e9f1f8; /* 带蓝的中性层 */
+  --secondary-foreground: #3d5872; /* 蓝灰，浅底 ≥4.5:1 */
+  --muted: #e9f1f8;
+  --muted-foreground: #5b7186; /* 蓝灰次要文字，白底 5.06:1 */
+  --accent: #e3f0fc; /* sky tint，仅作 hover 高亮 */
+  --accent-foreground: #0369a1;
+  --destructive: #e11d48; /* rose-600 */
+  --border: #dde7f0; /* 极浅蓝灰边框 */
+  --input: #d5e2ee;
+  --ring: #2f8df5;
+  /* 图表色板：蓝主轴连续色阶（sky→blue→indigo），teal/amber 做语义对照。 */
+  --chart-1: #0ea5e9; /* sky-500 */
+  --chart-2: #3b82f6; /* blue-500 */
+  --chart-3: #14b8a6; /* teal-500 */
+  --chart-4: #f59e0b; /* amber-500 */
+  --chart-5: #6366f1; /* indigo-500 */
+  --sidebar: #122742; /* 深海军蓝暗轨，浅色模式保持对比 */
+  --sidebar-foreground: #93a9c4; /* 蓝灰 */
+  --sidebar-primary: #38bdf8; /* sky-400，暗底上够亮 */
+  --sidebar-primary-foreground: #082f49; /* sky-950 深字 */
+  --sidebar-accent: #1b3350;
+  --sidebar-accent-foreground: #dbe7f3;
   --sidebar-border: rgba(255, 255, 255, 0.09);
-  --sidebar-ring: #3789fc;
+  --sidebar-ring: #38bdf8;
 
-  /* Semantic accents used across the console. */
-  --success: #067a55;
-  --success-foreground: #05603a;
-  --warning: #ee992e;
-  --warning-foreground: #93370d;
-  --info: #1e6be6;
-  --info-foreground: #1d4ed8;
-  --brand: #3789fc;
-  --primary-text: #1d4ed8;
-  --brand-soft: #e9f1ff;
-  --surface-muted: #f6f9fc;
-  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.03), 0 1px 2px rgba(16, 24, 40, 0.03);
-  --shadow-raised: 0 6px 20px -12px rgba(16, 24, 40, 0.14), 0 1px 4px -2px rgba(16, 24, 40, 0.05);
+  /* Semantic accents used across the console（浅色即文字档，够 4.5:1）。 */
+  --success: #059669; /* emerald-600 */
+  --success-foreground: #047857; /* emerald-700，浅底小字再深一档 */
+  --warning: #d97706; /* amber-600 */
+  --warning-foreground: #b45309; /* amber-700，浅底文字档 */
+  --info: #0369a1; /* sky-700，与 primary 同源、作文字够对比 */
+  --info-foreground: #0369a1;
+  --brand: #2f8df5;
+  --primary-text: #0369a1; /* sky-700，浅底品牌文字档 5.93:1 */
+  --brand-soft: #e3f0fc;
+  --surface-muted: #eaf2f9;
+  --shadow-card: 0 1px 2px rgba(15, 42, 74, 0.04), 0 1px 2px rgba(15, 42, 74, 0.03);
+  --shadow-raised: 0 6px 20px -12px rgba(15, 42, 74, 0.16), 0 1px 4px -2px rgba(15, 42, 74, 0.05);
 
   /* fonts */
   --font-sans: var(--font-geist);
@@ -120,47 +124,47 @@
 }
 
 .dark {
-  --background: #0b1220;
-  --foreground: #e7edf8;
-  --card: #111b2e;
-  --card-foreground: #e7edf8;
-  --popover: #111b2e;
-  --popover-foreground: #e7edf8;
-  --primary: #4d84ff;
-  --primary-foreground: #0b1220;
-  --secondary: #1a2740;
-  --secondary-foreground: #e7edf8;
-  --muted: #172136;
-  --muted-foreground: #94a3bd;
-  --accent: #17284a;
-  --accent-foreground: #dbe7ff;
-  --destructive: #ff6b5e;
-  --border: #22304a;
-  --input: #2a3a58;
-  --ring: #4d84ff;
-  --chart-1: #4d84ff;
-  --chart-2: #2dd4a0;
-  --chart-3: #fdb022;
-  --chart-4: #a48afb;
-  --chart-5: #38bdf8;
-  --sidebar: #14203a;
-  --sidebar-foreground: #b9c7de;
-  --sidebar-primary: #4d84ff;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #243857;
-  --sidebar-accent-foreground: #ffffff;
+  --background: #0b1220; /* 深海军蓝 */
+  --foreground: #e8eef6; /* 带蓝的浅色正文 */
+  --card: #101b2e;
+  --card-foreground: #e8eef6;
+  --popover: #16233a; /* 浮层比卡片亮一档 */
+  --popover-foreground: #e8eef6;
+  --primary: #38bdf8; /* sky-400 */
+  --primary-foreground: #082f49; /* sky-950，亮底上用深字 */
+  --secondary: #16233a;
+  --secondary-foreground: #c3d3e6; /* 蓝灰 300 档 */
+  --muted: #16233a;
+  --muted-foreground: #8fa6c2; /* 蓝灰次要文字 */
+  --accent: #1b2c47; /* hover 层 */
+  --accent-foreground: #bae6fd; /* sky-200 */
+  --destructive: #fb7185; /* rose-400 */
+  --border: #1f2d44;
+  --input: #2a3a55;
+  --ring: #38bdf8;
+  --chart-1: #38bdf8; /* sky-400 */
+  --chart-2: #60a5fa; /* blue-400 */
+  --chart-3: #2dd4bf; /* teal-400 */
+  --chart-4: #fbbf24; /* amber-400 */
+  --chart-5: #818cf8; /* indigo-400 */
+  --sidebar: #0a101c; /* 比 background 更深半档 */
+  --sidebar-foreground: #8fa6c2;
+  --sidebar-primary: #38bdf8;
+  --sidebar-primary-foreground: #082f49;
+  --sidebar-accent: #16233a;
+  --sidebar-accent-foreground: #dbe7f3;
   --sidebar-border: rgba(255, 255, 255, 0.09);
-  --sidebar-ring: #4d84ff;
-  --success: #2ac8a6;
-  --primary-text: #8ab4ff;
-  --success-foreground: #a7f3d0;
-  --warning: #fdb022;
-  --warning-foreground: #fde68a;
-  --info: #4d84ff;
-  --info-foreground: #bfdbfe;
-  --brand: #4d84ff;
-  --brand-soft: rgba(77, 132, 255, 0.14);
-  --surface-muted: #0f1929;
+  --sidebar-ring: #38bdf8;
+  --success: #34d399; /* emerald-400 */
+  --primary-text: #7dd3fc; /* sky-300，深底文字档 */
+  --success-foreground: #a7f3d0; /* emerald-200 */
+  --warning: #fbbf24; /* amber-400 */
+  --warning-foreground: #fde68a; /* amber-200 */
+  --info: #38bdf8;
+  --info-foreground: #bae6fd; /* sky-200 */
+  --brand: #38bdf8;
+  --brand-soft: rgba(56, 189, 248, 0.14);
+  --surface-muted: #0f1929; /* 卡片与背景之间的中间层 */
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.24);
   --shadow-raised: 0 12px 32px -16px rgba(0, 0, 0, 0.6);
 }
@@ -425,12 +429,7 @@ html {
     position: absolute;
     inset: 0;
     transform: translateX(-100%);
-    background: linear-gradient(
-      90deg,
-      transparent,
-      color-mix(in srgb, var(--foreground) 8%, transparent),
-      transparent
-    );
+    background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--foreground) 8%, transparent), transparent);
     animation: liora-shimmer 1.6s cubic-bezier(0.16, 1, 0.3, 1) infinite;
   }
 }
@@ -602,12 +601,11 @@ html {
   }
 }
 
-
 /* ── 深色可读性修正（对比度实测） ───────────────────────────────
    1) 分隔符常用 `text-border`（= 边框色）当文字色，深色下 1.42:1 几乎不可见；
       统一提到「次要文字 55%」这一档，浅色/深色都读得出来，又不会抢正文。
    2) 通知徽标是 `bg-destructive text-white`，深色下 destructive 提亮成 #ff6b5e，
-      白字只有 2.79:1；补一个 destructive-foreground token，深色下用深字。 */
+      白字只有 ~2.9:1；补一个 destructive-foreground token，深色下用深字。 */
 @layer utilities {
   .text-border {
     color: color-mix(in srgb, var(--muted-foreground) 55%, transparent);
@@ -619,19 +617,20 @@ html {
 }
 
 .dark {
-  --destructive-foreground: #2a0b08;
+  /* rose-950：压在 rose-400 档的 destructive 底上，深色下也够对比。 */
+  --destructive-foreground: #4c0519;
 }
 
-
 /* ── 浅色小字对比度修正（实测 3.0~3.4:1 → 4.5:1 以上） ─────────────
-   品牌蓝与警告橙作为**文字**放在浅色底上偏亮；这两个覆盖只在浅色生效，
+   品牌色（现 #0369a1 sky-700 文字档）与警告色（amber-700）作为**文字**放在浅色底上；这两个覆盖只在浅色生效，
    深色保持原亮度（深色底上它们本来就够）。背景填充（bg-primary 等）不受影响。 */
 :root {
-  --warning-text: #b54708;
+  /* amber-700：令牌表规定的浅底警告文字档，与 --warning-foreground 同源。 */
+  --warning-text: #b45309;
 }
 
 .dark {
-  --warning-text: #fdb022;
+  --warning-text: #fbbf24; /* amber-400 */
 }
 
 :root:not(.dark) .text-primary {
@@ -643,12 +642,13 @@ html {
 }
 
 :root:not(.dark) .text-destructive {
-  color: #b42318;
+  /* rose-600 与 --destructive 同值：语义色本身已是低饱和 600 档，浅色小字直接复用。 */
+  color: var(--destructive);
 }
 
 /* ── 底部 Dock 的 hover 底块（默认透明，指到才浮出） ─────────────────
    规范里写的是 bg-surface-muted，但它与 card 只差 3~6 个色阶
-   （浅色 #f6f9fc vs #fcfdfe、深色 #0f1929 vs #111b2e），实测 hover 时整块看不见，
+   （浅色 #eaf2f9 vs #ffffff、深色 #0f1929 vs #101b2e），实测 hover 时整块看不见，
    13 个格子又会退回「一排按钮」的观感。这里改用前景色 5% 的薄膜：
    浅色下是一块极淡的灰、深色下自然向上提亮一档，两种模式都读得出「指到了哪一格」，
    又不会变成实心按钮。放在 @layer 之外，确保优先级压过 tailwind 的 bg-* 工具类。 */
@@ -674,4 +674,3 @@ html {
   background-color: color-mix(in srgb, var(--primary) 10%, transparent);
   transform: var(--dock-tile-follow, none);
 }
-
