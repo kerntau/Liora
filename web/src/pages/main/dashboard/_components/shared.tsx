@@ -1,13 +1,21 @@
 "use client";
 
-import * as React from "react";
+import type * as React from "react";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import { SECTION_TITLE_CLASS } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 
+// 实时呼吸点：info/active 令牌（浅 600 / 深 400），仅用于"录制中"这类实时状态。
 export function LiveDot({ className }: { className?: string }) {
-  return <span className={cn("inline-block size-1.5 shrink-0 animate-pulse rounded-full bg-blue-400", className)} />;
+  return (
+    <span
+      className={cn(
+        "inline-block size-1.5 shrink-0 animate-pulse rounded-full bg-indigo-500 dark:bg-indigo-400",
+        className,
+      )}
+    />
+  );
 }
 
 /** 卡片内小节标题：13px/600 + 12px 右侧说明，两者同基线。 */
@@ -26,7 +34,7 @@ export function SectionTitle({
         <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
         <span className={cn("truncate", SECTION_TITLE_CLASS)}>{children}</span>
       </div>
-      {sub ? <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{sub}</span> : null}
+      {sub ? <span className="shrink-0 text-muted-foreground text-xs tabular-nums">{sub}</span> : null}
     </div>
   );
 }

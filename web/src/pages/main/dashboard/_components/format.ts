@@ -4,17 +4,17 @@ export function fmtRel(ts?: string | number): string {
   if (!ts) return "—";
   const ms = Date.now() - (typeof ts === "number" ? ts * 1000 : Date.parse(ts as string));
   const s = Math.floor(ms / 1000);
-  if (s < 60) return s + "s 前";
+  if (s < 60) return `${s}s 前`;
   const m = Math.floor(s / 60);
-  if (m < 60) return m + "m 前";
+  if (m < 60) return `${m}m 前`;
   const h = Math.floor(m / 60);
-  if (h < 24) return h + "h 前";
-  return Math.floor(h / 24) + "d 前";
+  if (h < 24) return `${h}h 前`;
+  return `${Math.floor(h / 24)}d 前`;
 }
 
 export function fmtTokens(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
-  if (n >= 1000) return (n / 1000).toFixed(1) + "k";
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
   return String(n);
 }
 
@@ -83,8 +83,8 @@ function scalarText(value: unknown): string {
   if (value === null || value === undefined) return "空";
   if (typeof value === "boolean") return value ? "是" : "否";
   if (typeof value === "number") return Number.isFinite(value) ? String(value) : "—";
-  if (typeof value === "string") return value.length > 32 ? value.slice(0, 32) + "…" : value;
-  if (Array.isArray(value)) return value.length + " 项";
+  if (typeof value === "string") return value.length > 32 ? `${value.slice(0, 32)}…` : value;
+  if (Array.isArray(value)) return `${value.length} 项`;
   return "…";
 }
 
@@ -96,7 +96,7 @@ function jsonDigest(text: string): string | null {
     // 被截断的 JSON 无法还原：退化成普通文本截断，至少不再露出半个大括号。
     return null;
   }
-  if (Array.isArray(parsed)) return parsed.length === 0 ? "空结果" : parsed.length + " 条记录";
+  if (Array.isArray(parsed)) return parsed.length === 0 ? "空结果" : `${parsed.length} 条记录`;
   if (!parsed || typeof parsed !== "object") return scalarText(parsed);
   const entries = Object.entries(parsed as Record<string, unknown>);
   if (entries.length === 0) return "空结果";
@@ -110,11 +110,11 @@ function jsonDigest(text: string): string | null {
   if (countEntry && labelEntry) {
     const label = FIELD_LABELS[labelEntry[0]] ?? labelEntry[0];
     const size = Array.isArray(labelEntry[1]) ? labelEntry[1].length : Number(countEntry[1]);
-    return label + " " + size + " 条";
+    return `${label} ${size} 条`;
   }
   return entries
     .slice(0, 3)
-    .map(([key, value]) => (FIELD_LABELS[key] ?? key) + " " + scalarText(value))
+    .map(([key, value]) => `${FIELD_LABELS[key] ?? key} ${scalarText(value)}`)
     .join(" · ");
 }
 
@@ -127,7 +127,7 @@ export function activitySummary(raw?: string): string {
   if (!text) return "无摘要";
   const digest = /^[[{]/.test(text) ? jsonDigest(text) : null;
   const one = (digest ?? text).replace(/\s+/g, " ").trim();
-  return one.length > SUMMARY_MAX ? one.slice(0, SUMMARY_MAX) + "…" : one;
+  return one.length > SUMMARY_MAX ? `${one.slice(0, SUMMARY_MAX)}…` : one;
 }
 
 export const ASSET_TYPE_LABELS: Record<string, string> = {
@@ -144,30 +144,34 @@ export const ASSET_TYPE_LABELS: Record<string, string> = {
   cert: "证书",
 };
 
+// 分类色板统一取自 DESIGN-SPEC 允许的七个色相（indigo/teal/amber/rose/violet/sky/slate）：
+// orange→amber、cyan→sky；相邻类型不撞色即可，不做彩虹排布。
 export const ASSET_COLORS: Record<string, string> = {
-  root_domain: "bg-blue-500",
-  domain: "bg-blue-500",
-  ip: "bg-indigo-400",
-  subdomain: "bg-violet-500",
-  app: "bg-orange-400",
-  service: "bg-cyan-500",
+  root_domain: "bg-indigo-500",
+  domain: "bg-sky-500",
+  ip: "bg-violet-500",
+  subdomain: "bg-violet-400",
+  app: "bg-amber-500",
+  service: "bg-teal-500",
   endpoint: "bg-emerald-500",
   url: "bg-slate-400",
-  company: "bg-sky-500",
-  certificate: "bg-teal-500",
-  cert: "bg-teal-500",
+  company: "bg-indigo-400",
+  certificate: "bg-teal-400",
+  cert: "bg-teal-400",
 };
 
+// 状态码语义色：浅底 600 / 深底 400，蓝统一收敛为 sky（3xx 用 sky，5xx 用 rose 对齐 danger 档）。
 export function statusColor(code: number): string {
-  if (code < 300) return "text-emerald-500";
-  if (code < 400) return "text-blue-400";
-  if (code < 500) return "text-amber-400";
-  return "text-red-400";
+  if (code < 300) return "text-emerald-600 dark:text-emerald-400";
+  if (code < 400) return "text-sky-600 dark:text-sky-400";
+  if (code < 500) return "text-amber-600 dark:text-amber-400";
+  return "text-rose-600 dark:text-rose-400";
 }
 
+// 状态码柱色：仅用于纯色数据条（无文字叠加），保持 500 档即可读。
 export function statusBg(code: number): string {
   if (code < 300) return "bg-emerald-500";
-  if (code < 400) return "bg-blue-400";
-  if (code < 500) return "bg-amber-400";
-  return "bg-red-400";
+  if (code < 400) return "bg-sky-500";
+  if (code < 500) return "bg-amber-500";
+  return "bg-rose-500";
 }

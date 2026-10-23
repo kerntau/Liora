@@ -2,12 +2,10 @@
 
 import * as React from "react";
 
-import Link from "@/lib/router-compat";
-
 import { DownloadIcon, FileSearchIcon, SearchIcon } from "lucide-react";
 
-import { HttpCodeBlock } from "@/components/http-code-block";
 import { SectionCard } from "@/components/app/section-card";
+import { HttpCodeBlock } from "@/components/http-code-block";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -18,6 +16,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
 import { fmtBytes, fmtTime } from "@/lib/format";
+import Link from "@/lib/router-compat";
 import type { Finding, Severity, Task, TrafficDetail, TrafficExchange } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -32,11 +31,12 @@ const FALLBACK_STATUS_LABELS: Record<string, string> = {
   retesting: "复测中",
 };
 
+// 状态码文字色:浅底 600 / 深底 400,蓝统一收敛为 sky(与 traffic-panel 同口径)。
 function statusTone(code: number) {
-  if (code >= 500) return "text-red-500";
-  if (code >= 400) return "text-amber-500";
-  if (code >= 300) return "text-blue-500";
-  if (code >= 200) return "text-emerald-500";
+  if (code >= 500) return "text-rose-600 dark:text-rose-400";
+  if (code >= 400) return "text-amber-600 dark:text-amber-400";
+  if (code >= 300) return "text-sky-600 dark:text-sky-400";
+  if (code >= 200) return "text-emerald-600 dark:text-emerald-400";
   return "text-muted-foreground";
 }
 
@@ -64,8 +64,10 @@ function EmptyEvidence({ tab, onSwitch }: { tab: "traffic" | "findings"; onSwitc
   return (
     <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
       <FileSearchIcon className="size-6 text-muted-foreground/35" aria-hidden="true" />
-      <p className="text-[13px] font-medium text-foreground">{tab === "traffic" ? "还没有请求记录" : "还没有发现证据"}</p>
-      <p className="max-w-md text-xs text-muted-foreground">
+      <p className="font-medium text-[13px] text-foreground">
+        {tab === "traffic" ? "还没有请求记录" : "还没有发现证据"}
+      </p>
+      <p className="max-w-md text-muted-foreground text-xs">
         {tab === "traffic"
           ? "开启流量捕获后，Agent 的每一次请求都会实时写入这里，可回放原始报文。"
           : "测试产生确认发现后，漏洞名称、等级与证据会出现在这里。"}
@@ -188,7 +190,10 @@ export function EvidenceCard({
       actions={
         <div className="flex w-full flex-wrap items-center gap-2 xl:w-auto">
           <div className="relative w-full min-w-0 sm:w-48 sm:flex-none">
-            <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+            <SearchIcon
+              className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+              aria-hidden="true"
+            />
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
@@ -237,9 +242,8 @@ export function EvidenceCard({
       }
     >
       <div className="min-w-0">
-          {tab === "traffic" && (
-          <>
-          {filteredTraffic.length === 0 ? (
+        {tab === "traffic" &&
+          (filteredTraffic.length === 0 ? (
             <EmptyEvidence tab="traffic" onSwitch={() => changeTab("findings")} />
           ) : (
             <div className="overflow-hidden rounded-lg">
@@ -259,28 +263,39 @@ export function EvidenceCard({
                 <TableBody>
                   {filteredTraffic.slice(0, 50).map((row) => (
                     <TableRow key={row.id}>
-                      <TableCell className="font-mono text-xs text-muted-foreground">{fmtTime(row.ts, "seconds")}</TableCell>
+                      <TableCell className="font-mono text-muted-foreground text-xs">
+                        {fmtTime(row.ts, "seconds")}
+                      </TableCell>
                       <TableCell>
-                        <span className="font-mono text-xs font-semibold text-primary">{row.method}</span>
+                        <span className="font-mono font-semibold text-primary text-xs">{row.method}</span>
                       </TableCell>
                       <TableCell className="max-w-[320px]">
                         <span className="block truncate font-mono text-[12px] text-foreground/85" title={row.url}>
                           {pathOf(row.url)}
                         </span>
                       </TableCell>
-                      <TableCell className={cn("text-center font-mono text-[12px] font-semibold", statusTone(row.status))}>
+                      <TableCell
+                        className={cn("text-center font-mono font-semibold text-[12px]", statusTone(row.status))}
+                      >
                         {row.status}
                       </TableCell>
-                      <TableCell className="text-right text-[12px] text-muted-foreground tabular-nums">{fmtBytes(row.resp_len)}</TableCell>
+                      <TableCell className="text-right text-[12px] text-muted-foreground tabular-nums">
+                        {fmtBytes(row.resp_len)}
+                      </TableCell>
                       <TableCell className="truncate text-[12px] text-muted-foreground">{row.host}</TableCell>
                       <TableCell>
-                        <span className="inline-flex items-center gap-1.5 text-xs text-success">
+                        <span className="inline-flex items-center gap-1.5 text-success text-xs">
                           <span className="size-1.5 rounded-full bg-success" aria-hidden="true" />
                           已记录
                         </span>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button size="xs" variant="ghost" className="text-primary" onClick={() => setExchangeId(row.id)}>
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          className="text-primary"
+                          onClick={() => setExchangeId(row.id)}
+                        >
                           查看
                         </Button>
                       </TableCell>
@@ -289,13 +304,10 @@ export function EvidenceCard({
                 </TableBody>
               </Table>
             </div>
-          )}
-          </>
-        )}
+          ))}
 
-        {tab === "findings" && (
-          <>
-          {filteredFindings.length === 0 ? (
+        {tab === "findings" &&
+          (filteredFindings.length === 0 ? (
             <EmptyEvidence tab="findings" onSwitch={() => changeTab("traffic")} />
           ) : (
             <div className="overflow-hidden rounded-lg">
@@ -316,7 +328,9 @@ export function EvidenceCard({
                     const verified = ["confirmed", "fixed", "resolved"].includes(row.status);
                     return (
                       <TableRow key={row.id}>
-                        <TableCell className="font-mono text-xs text-muted-foreground">{fmtTime(row.ts, "seconds")}</TableCell>
+                        <TableCell className="font-mono text-muted-foreground text-xs">
+                          {fmtTime(row.ts, "seconds")}
+                        </TableCell>
                         <TableCell>
                           <StatusBadge domain="severity" value={row.severity} dot />
                         </TableCell>
@@ -324,7 +338,7 @@ export function EvidenceCard({
                           <Link
                             prefetch={false}
                             href={`/function/findings/detail?id=${encodeURIComponent(row.id)}`}
-                            className="block truncate text-[13px] font-medium text-foreground hover:text-primary hover:underline"
+                            className="block truncate font-medium text-[13px] text-foreground hover:text-primary hover:underline"
                             title={row.name || row.vulnclass}
                           >
                             {row.name || row.vulnclass}
@@ -336,7 +350,7 @@ export function EvidenceCard({
                         </TableCell>
                         <TableCell>
                           {FALLBACK_STATUS_LABELS[row.status] ? (
-                            <span className="inline-flex h-5 items-center rounded-full border border-border/60 bg-muted/50 px-2 text-[11px] font-semibold whitespace-nowrap text-muted-foreground">
+                            <span className="inline-flex h-5 items-center whitespace-nowrap rounded-full border border-border/60 bg-muted/50 px-2 font-semibold text-[11px] text-muted-foreground">
                               {FALLBACK_STATUS_LABELS[row.status]}
                             </span>
                           ) : (
@@ -350,7 +364,10 @@ export function EvidenceCard({
                               verified ? "text-success" : "text-warning",
                             )}
                           >
-                            <span className={cn("size-1.5 rounded-full", verified ? "bg-success" : "bg-warning")} aria-hidden="true" />
+                            <span
+                              className={cn("size-1.5 rounded-full", verified ? "bg-success" : "bg-warning")}
+                              aria-hidden="true"
+                            />
                             {verified ? "已验证" : "待验证"}
                           </span>
                         </TableCell>
@@ -367,9 +384,7 @@ export function EvidenceCard({
                 </TableBody>
               </Table>
             </div>
-          )}
-          </>
-        )}
+          ))}
       </div>
 
       <Dialog open={exchangeId !== null} onOpenChange={(open) => !open && setExchangeId(null)}>
@@ -379,7 +394,7 @@ export function EvidenceCard({
             <DialogDescription>原始请求与响应报文，用于复核测试行为。</DialogDescription>
           </DialogHeader>
           {detailError ? (
-            <p className="text-sm text-destructive">{detailError}</p>
+            <p className="text-destructive text-sm">{detailError}</p>
           ) : !detail ? (
             <div className="flex items-center justify-center py-16">
               <Spinner />

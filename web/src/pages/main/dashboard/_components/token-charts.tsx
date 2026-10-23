@@ -69,7 +69,7 @@ export function TokenCharts({
           <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
             <ZapIcon className="size-4" aria-hidden="true" />
           </span>
-          <span className="text-[13px] leading-5 font-semibold">LLM Token 消耗</span>
+          <span className="font-semibold text-[13px] leading-5">LLM Token 消耗</span>
           {/* 数据源开关：旧版=activity 统计（含历史任务），新版=llm_usage 计量账本（更准，仅覆盖启用后） */}
           <div className={cn(SEGMENT_GROUP, "ml-0.5")}>
             {(
@@ -111,8 +111,8 @@ export function TokenCharts({
             onClick={() => onTokenTabChange("all")}
             aria-pressed={tokenTab === "all"}
             className={cn(
-              "flex h-7 items-center rounded-md px-2.5 text-xs font-medium transition-colors",
-              "focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none",
+              "flex h-7 items-center rounded-md px-2.5 font-medium text-xs transition-colors",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
               tokenTab === "all"
                 ? "bg-card text-foreground shadow-sm ring-1 ring-border"
                 : "bg-muted/30 text-muted-foreground hover:text-foreground",
@@ -131,8 +131,8 @@ export function TokenCharts({
                 onClick={() => onTokenTabChange(resolvedKey)}
                 aria-pressed={tokenTab === resolvedKey}
                 className={cn(
-                  "flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors",
-                  "focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none",
+                  "flex h-7 items-center gap-1.5 rounded-md px-2.5 font-medium text-xs transition-colors",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
                   tokenTab === resolvedKey
                     ? "bg-card text-foreground shadow-sm ring-1 ring-border"
                     : "bg-muted/30 text-muted-foreground hover:text-foreground",
@@ -144,9 +144,10 @@ export function TokenCharts({
                   <span
                     className={cn(
                       "rounded px-1 text-[11px] leading-4",
+                      // 默认徽标:低透明度底 + 600/400 文字(DESIGN-SPEC 低饱和口径)
                       tokenTab === resolvedKey
                         ? "bg-foreground/10 text-foreground"
-                        : "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+                        : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
                     )}
                   >
                     默认
@@ -164,13 +165,9 @@ export function TokenCharts({
         <div className="flex flex-col gap-4">
           {/* Total */}
           <div>
-            <div className="text-xs text-muted-foreground">合计（输入 + 输出）</div>
-            <div className="mt-0.5 text-2xl font-semibold tabular-nums tracking-tight">
-              {fmtTokens(total) || "—"}
-            </div>
-            <div className="mt-0.5 text-xs text-muted-foreground tabular-nums">
-              {displayedTokens.taskCount} 个任务
-            </div>
+            <div className="text-muted-foreground text-xs">合计（输入 + 输出）</div>
+            <div className="mt-0.5 font-semibold text-2xl tabular-nums tracking-tight">{fmtTokens(total) || "—"}</div>
+            <div className="mt-0.5 text-muted-foreground text-xs tabular-nums">{displayedTokens.taskCount} 个任务</div>
           </div>
 
           {/* Per-type bars */}
@@ -207,7 +204,7 @@ export function TokenCharts({
                   <div className="h-1.5 overflow-hidden rounded-full bg-muted">
                     <div
                       className="h-full rounded-full transition-all duration-500"
-                      style={{ width: pct + "%", background: barColor }}
+                      style={{ width: `${pct}%`, background: barColor }}
                     />
                   </div>
                 </div>
@@ -235,7 +232,7 @@ export function TokenCharts({
         {/* Right: daily bar chart */}
         <div className="flex min-h-0 flex-col">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex gap-3 text-xs text-muted-foreground">
+            <div className="flex gap-3 text-muted-foreground text-xs">
               {(["input", "output", "cacheRead"] as const).map((k) => (
                 <span key={k} className="flex items-center gap-1">
                   <span className="inline-block size-2 rounded-sm" style={{ background: dailyTrendConfig[k].color }} />
@@ -271,11 +268,11 @@ export function TokenCharts({
             </div>
           </div>
 
-          <div role="img" aria-label={"近 " + tokenDays + " 天 Token 使用趋势"}>
+          <div role="img" aria-label={`近 ${tokenDays} 天 Token 使用趋势`}>
             <span className="sr-only">{dailyTokenData.length} 个日期，输入、输出与缓存读的每日用量。</span>
             {dailyTokenData.length === 0 ? (
               <div
-                className="flex flex-1 items-center justify-center rounded-lg border border-border/60 bg-muted/10 text-xs text-muted-foreground"
+                className="flex flex-1 items-center justify-center rounded-lg border border-border/60 bg-muted/10 text-muted-foreground text-xs"
                 style={{ minHeight: 180 }}
               >
                 暂无数据

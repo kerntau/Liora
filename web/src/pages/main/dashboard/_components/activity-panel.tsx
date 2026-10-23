@@ -6,10 +6,10 @@ import { ActivityIcon, ArrowUpRightIcon } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { SECTION_TITLE_CLASS } from "@/lib/typography";
-import Link from "@/lib/router-compat";
 import { breathe } from "@/lib/motion";
+import Link from "@/lib/router-compat";
 import type { Activity } from "@/lib/types";
+import { SECTION_TITLE_CLASS } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 
 import { activitySummary, fmtRel } from "./format";
@@ -64,19 +64,19 @@ export function ActivityPanel({ activity, fastReady }: ActivityPanelProps) {
         <div className="flex min-w-0 items-center gap-1.5">
           <ActivityIcon className="size-3.5 shrink-0 text-primary" aria-hidden="true" />
           <span className={cn("truncate", SECTION_TITLE_CLASS)}>实时执行流</span>
-          <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{stream.length} 条</span>
+          <span className="shrink-0 text-muted-foreground text-xs tabular-nums">{stream.length} 条</span>
         </div>
         <Link
           prefetch={false}
           href="/function/tasks"
-          className="flex shrink-0 items-center gap-0.5 rounded text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+          className="flex shrink-0 items-center gap-0.5 rounded text-muted-foreground text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         >
           查看任务 <ArrowUpRightIcon className="size-3" aria-hidden="true" />
         </Link>
       </div>
 
       {stream.length === 0 ? (
-        <div className="py-6 text-center text-xs text-muted-foreground">
+        <div className="py-6 text-center text-muted-foreground text-xs">
           {fastReady ? "暂无活动记录" : <Skeleton className="mx-auto h-4 w-32" />}
         </div>
       ) : (
@@ -88,17 +88,18 @@ export function ActivityPanel({ activity, fastReady }: ActivityPanelProps) {
               const summary = activitySummary(a.summary);
               return (
                 <li key={a.seq} className="relative flex gap-2.5 pb-3 last:pb-0">
-                  {/* 时间轴竖线 */}
+                  {/* 时间轴竖线,对齐 6px 色点圆心(3px) */}
                   {index < stream.length - 1 ? (
-                    <span aria-hidden="true" className="absolute top-4 bottom-0 left-[3.75px] w-px bg-border/70" />
+                    <span aria-hidden="true" className="absolute top-4 bottom-0 left-[2.5px] w-px bg-border/70" />
                   ) : null}
+                  {/* 色点统一 6px(size-1.5);呼吸动效仅给最新一条(实时流) */}
                   <span
                     aria-hidden="true"
-                    className={cn("mt-1.5 size-2 shrink-0 rounded-full", meta.dot, latest && breathe.className)}
+                    className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", meta.dot, latest && breathe.className)}
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline justify-between gap-2">
-                      <span className="min-w-0 truncate text-xs font-medium text-foreground">{meta.label}</span>
+                      <span className="min-w-0 truncate font-medium text-foreground text-xs">{meta.label}</span>
                       <span className="flex shrink-0 items-baseline gap-1.5 text-[11px] text-muted-foreground tabular-nums">
                         {a.worker ? (
                           <span className="max-w-20 truncate font-mono text-muted-foreground/80">{a.worker}</span>
@@ -107,7 +108,7 @@ export function ActivityPanel({ activity, fastReady }: ActivityPanelProps) {
                       </span>
                     </div>
                     <p
-                      className="mt-0.5 truncate text-xs leading-5 text-muted-foreground"
+                      className="mt-0.5 truncate text-muted-foreground text-xs leading-5"
                       title={a.summary || undefined}
                     >
                       {summary}

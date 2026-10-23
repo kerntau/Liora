@@ -2,8 +2,6 @@
 
 import * as React from "react";
 
-import Link from "@/lib/router-compat";
-
 import {
   ArrowUpRightIcon,
   BugIcon,
@@ -21,10 +19,11 @@ import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { breathe } from "@/lib/motion";
+import Link from "@/lib/router-compat";
 import type { Task } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-import { executionIntent, formatClock, projectCode, runSeconds, stageIndex, STAGES, taskProgress } from "./helpers";
+import { executionIntent, formatClock, projectCode, runSeconds, STAGES, stageIndex, taskProgress } from "./helpers";
 
 function useNowSec(active: boolean) {
   const [now, setNow] = React.useState(() => Math.floor(Date.now() / 1000));
@@ -76,14 +75,14 @@ function DeckMetric({
         href && "group-hover:bg-card",
       )}
     >
-      <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+      <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
         <Icon className="size-3.5 shrink-0 text-primary/70" aria-hidden="true" />
         <span className="truncate">{label}</span>
       </span>
-      <span className={cn("truncate text-[18px] leading-6 font-semibold tracking-tight tabular-nums", valueClassName)}>
+      <span className={cn("truncate font-semibold text-[18px] tabular-nums leading-6 tracking-tight", valueClassName)}>
         {value}
       </span>
-      {sub ? <span className="truncate text-xs leading-5 text-muted-foreground">{sub}</span> : null}
+      {sub ? <span className="truncate text-muted-foreground text-xs leading-5">{sub}</span> : null}
     </div>
   );
   if (!href) return <div className={cn("min-w-0", className)}>{body}</div>;
@@ -92,7 +91,7 @@ function DeckMetric({
       prefetch={false}
       href={href}
       className={cn(
-        "group min-w-0 rounded-lg focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none",
+        "group min-w-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
         className,
       )}
     >
@@ -137,17 +136,20 @@ export function CommandDeck({
   const seconds = task ? runSeconds(task, nowSec) : 0;
   const canPause = task ? ["created", "queued", "running"].includes(task.status) : false;
   const canResume = task?.status === "paused";
-  const title = task ? task.name || task.description || "任务 #" + task.id : "";
+  const title = task ? task.name || task.description || `任务 #${task.id}` : "";
   const intent = executionIntent(task);
 
   if (!task) {
     return (
-      <section aria-label="实时指挥台" className={cn(DECK_PANEL, "flex flex-col items-center gap-2 px-6 py-9 text-center")}>
+      <section
+        aria-label="实时指挥台"
+        className={cn(DECK_PANEL, "flex flex-col items-center gap-2 px-6 py-9 text-center")}
+      >
         <span className="grid size-11 place-items-center rounded-xl bg-primary/10 text-primary">
           <RadarIcon className="size-5" aria-hidden="true" />
         </span>
-        <h2 className="text-[16px] font-semibold text-foreground">指挥台待命中</h2>
-        <p className="max-w-sm text-xs leading-5 text-muted-foreground">
+        <h2 className="font-semibold text-[16px] text-foreground">指挥台待命中</h2>
+        <p className="max-w-sm text-muted-foreground text-xs leading-5">
           创建第一个授权测试任务后，覆盖率、确认漏洞、执行意图与 Token 消耗会实时出现在这里。
         </p>
         <Button asChild size="sm">
@@ -167,7 +169,8 @@ export function CommandDeck({
           <span
             aria-hidden="true"
             className={cn(
-              "size-2.5 shrink-0 rounded-full",
+              // 状态点统一 6px(size-1.5);呼吸仅限运行中任务
+              "size-1.5 shrink-0 rounded-full",
               running
                 ? cn("bg-success", breathe.className)
                 : task.status === "paused"
@@ -178,14 +181,14 @@ export function CommandDeck({
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h2
-                className="max-w-full truncate text-[16px] leading-6 font-semibold tracking-tight text-foreground"
+                className="max-w-full truncate font-semibold text-[16px] text-foreground leading-6 tracking-tight"
                 title={title}
               >
                 {title}
               </h2>
               <StatusBadge domain="task" value={task.status} dot />
               {task.pinned ? (
-                <span className="rounded-md bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">
+                <span className="rounded-md bg-primary/10 px-1.5 py-0.5 font-medium text-[11px] text-primary">
                   已置顶
                 </span>
               ) : null}
@@ -231,7 +234,7 @@ export function CommandDeck({
             </Button>
           ) : null}
           <Button asChild size="icon-sm" variant="ghost" aria-label="打开任务详情" title="打开任务详情">
-            <Link prefetch={false} href={"/function/tasks/detail?id=" + task.id + "&tab=overview"}>
+            <Link prefetch={false} href={`/function/tasks/detail?id=${task.id}&tab=overview`}>
               <ArrowUpRightIcon />
             </Link>
           </Button>
@@ -246,7 +249,7 @@ export function CommandDeck({
           value={
             <span className="inline-flex items-baseline gap-0.5 text-primary">
               <span>{coveragePct ?? progress}</span>
-              <span className="text-xs font-medium">%</span>
+              <span className="font-medium text-xs">%</span>
             </span>
           }
           sub={coveragePct !== null ? "范围内资产验证比例" : "按目标完成情况估算"}
@@ -263,17 +266,17 @@ export function CommandDeck({
           icon={WaypointsIcon}
           label="执行意图"
           value={
-            <span className="block truncate text-[13px] leading-6 font-medium" title={intent}>
+            <span className="block truncate font-medium text-[13px] leading-6" title={intent}>
               {intent}
             </span>
           }
-          sub={"当前阶段：" + STAGES[activeStage].label + " · " + STAGES[activeStage].caption}
+          sub={`当前阶段：${STAGES[activeStage].label} · ${STAGES[activeStage].caption}`}
         />
         <DeckMetric
           icon={CoinsIcon}
           label="Token 消耗"
           value={fmtCompact(tokensUsed.input + tokensUsed.output)}
-          sub={"入 " + fmtCompact(tokensUsed.input) + " · 出 " + fmtCompact(tokensUsed.output)}
+          sub={`入 ${fmtCompact(tokensUsed.input)} · 出 ${fmtCompact(tokensUsed.output)}`}
         />
         <DeckMetric
           icon={TimerIcon}
@@ -286,7 +289,7 @@ export function CommandDeck({
 
       {/* 阶段进度条 */}
       <div className="flex flex-col gap-1.5">
-        <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+        <div className="flex items-center justify-between gap-2 text-muted-foreground text-xs">
           <span>
             阶段 <span className="font-semibold text-foreground tabular-nums">{activeStage + 1}/4</span>
             <MetaSeparator className="mx-2" />
@@ -326,13 +329,13 @@ export function CommandDeck({
                       : "bg-transparent",
                 )}
                 style={{
-                  width: index < activeStage ? "100%" : index === activeStage ? Math.max(progress, 6) + "%" : "0%",
+                  width: index < activeStage ? "100%" : index === activeStage ? `${Math.max(progress, 6)}%` : "0%",
                 }}
               />
             </div>
           ))}
         </div>
-        <div className="flex items-center justify-between text-xs text-muted-foreground/85">
+        <div className="flex items-center justify-between text-muted-foreground/85 text-xs">
           {STAGES.map((stage, index) => (
             <span key={stage.key} className={cn(index === activeStage && "font-semibold text-primary")}>
               {stage.label}
@@ -346,7 +349,7 @@ export function CommandDeck({
 
 /** 大屏内的紧凑 Token 数字（k/M），与 format.ts 的 fmtTokens 口径一致。 */
 function fmtCompact(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
-  if (n >= 1000) return (n / 1000).toFixed(1) + "k";
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
   return String(n);
 }

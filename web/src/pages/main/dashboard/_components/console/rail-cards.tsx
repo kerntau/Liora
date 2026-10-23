@@ -2,19 +2,17 @@
 
 import type { ReactNode } from "react";
 
-import Link from "@/lib/router-compat";
-
 import { ArrowUpRightIcon, CoinsIcon, RadarIcon, ShieldAlertIcon } from "lucide-react";
 
 import { Donut } from "@/components/app/donut";
 import { SectionCard } from "@/components/app/section-card";
+import Link from "@/lib/router-compat";
 import type { Severity } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-import { MetricBlock } from "./metric-block";
-
 import { cacheHitRate, fmtCount, fmtTokens } from "../format";
 import { coveragePercent } from "./helpers";
+import { MetricBlock } from "./metric-block";
 import type { TaskCoverage } from "./use-task-console";
 
 /** 两卡共用的环 + 指标布局：左环（72px）+ 右侧两列指标，环下 12px 说明。 */
@@ -36,11 +34,11 @@ function DonutMetricLayout({
       <div className="flex items-center gap-4">
         <div className="flex shrink-0 flex-col items-center gap-1.5">
           <Donut value={donutValue} size={72} stroke={7} color={donutColor} />
-          <span className="text-xs text-muted-foreground">{caption}</span>
+          <span className="text-muted-foreground text-xs">{caption}</span>
         </div>
         <div className="flex min-w-0 flex-1 flex-col divide-y divide-border/60">{children}</div>
       </div>
-      <p className="mt-3 text-xs leading-5 text-muted-foreground">{footnote}</p>
+      <p className="mt-3 text-muted-foreground text-xs leading-5">{footnote}</p>
     </>
   );
 }
@@ -66,19 +64,13 @@ export function BudgetCard({
       >
         <MetricBlock label="总消耗" value={fmtTokens(used)} />
         <MetricBlock label="缓存读" value={fmtTokens(tokens.cacheRead)} tone="success" />
-        <MetricBlock label="覆盖任务" value={taskCount != null ? taskCount + " 个" : "—"} tone="muted" />
+        <MetricBlock label="覆盖任务" value={taskCount != null ? `${taskCount} 个` : "—"} tone="muted" />
       </DonutMetricLayout>
     </SectionCard>
   );
 }
 
-export function CoverageCard({
-  coverage,
-  fallbackPct,
-}: {
-  coverage: TaskCoverage | null;
-  fallbackPct: number | null;
-}) {
+export function CoverageCard({ coverage, fallbackPct }: { coverage: TaskCoverage | null; fallbackPct: number | null }) {
   const enabled = Boolean(coverage?.enabled);
   const pct = enabled ? (coveragePercent(coverage?.pct) ?? 0) : (fallbackPct ?? 0);
   const total = coverage?.denominator ?? 0;
@@ -88,7 +80,7 @@ export function CoverageCard({
   if (!enabled && fallbackPct === null) {
     return (
       <SectionCard icon={RadarIcon} title="覆盖进度" description="范围内资产被验证的比例" className="min-w-0">
-        <p className="py-2 text-xs text-muted-foreground">当前任务未启用资产覆盖度。</p>
+        <p className="py-2 text-muted-foreground text-xs">当前任务未启用资产覆盖度。</p>
       </SectionCard>
     );
   }
@@ -112,18 +104,30 @@ export function CoverageCard({
             <MetricBlock label="总范围" value={fmtCount(total)} />
           </>
         ) : (
-          <MetricBlock label="整体进度" value={pct + "%"} />
+          <MetricBlock label="整体进度" value={`${pct}%`} />
         )}
       </DonutMetricLayout>
     </SectionCard>
   );
 }
 
+// 严重度口径(与统计卡一致):critical=rose、high=red(仅数据条用降饱和 500 档)、
+// medium=amber、low=teal;文字统一 600/400 档,条形同高(h-1.5)同圆角(rounded-full)。
 const SEVERITY_META: { key: Severity; label: string; className: string; bar: string }[] = [
-  { key: "critical", label: "严重", className: "text-rose-600 dark:text-rose-400", bar: "bg-rose-500" },
-  { key: "high", label: "高危", className: "text-red-500 dark:text-red-400", bar: "bg-red-500" },
-  { key: "medium", label: "中危", className: "text-amber-500 dark:text-amber-400", bar: "bg-amber-500" },
-  { key: "low", label: "低危", className: "text-slate-400 dark:text-slate-400", bar: "bg-slate-400" },
+  {
+    key: "critical",
+    label: "严重",
+    className: "text-rose-600 dark:text-rose-400",
+    bar: "bg-rose-500 dark:bg-rose-400",
+  },
+  { key: "high", label: "高危", className: "text-red-600 dark:text-red-400", bar: "bg-red-500/70 dark:bg-red-400/70" },
+  {
+    key: "medium",
+    label: "中危",
+    className: "text-amber-600 dark:text-amber-400",
+    bar: "bg-amber-500 dark:bg-amber-400",
+  },
+  { key: "low", label: "低危", className: "text-teal-600 dark:text-teal-400", bar: "bg-teal-500 dark:bg-teal-400" },
 ];
 
 export function FindingsCard({ counts, total }: { counts: Record<Severity, number>; total: number }) {
@@ -139,7 +143,7 @@ export function FindingsCard({ counts, total }: { counts: Record<Severity, numbe
         <Link
           prefetch={false}
           href="/function/findings"
-          className="inline-flex items-center gap-1 rounded text-xs font-medium text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+          className="inline-flex items-center gap-1 rounded font-medium text-primary text-xs hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         >
           查看详情 <ArrowUpRightIcon className="size-3" aria-hidden="true" />
         </Link>
@@ -147,14 +151,11 @@ export function FindingsCard({ counts, total }: { counts: Record<Severity, numbe
     >
       <div className="grid grid-cols-4 gap-1.5">
         {SEVERITY_META.map((item) => (
-          <div
-            key={item.key}
-            className="flex items-baseline justify-center gap-1 rounded-md bg-muted/40 px-1 py-1.5"
-          >
-            <span className={cn("text-[16px] leading-5 font-semibold tabular-nums", item.className)}>
+          <div key={item.key} className="flex items-baseline justify-center gap-1 rounded-md bg-muted/40 px-1 py-1.5">
+            <span className={cn("font-semibold text-[16px] tabular-nums leading-5", item.className)}>
               {counts[item.key]}
             </span>
-            <span className="text-xs text-muted-foreground">{item.label}</span>
+            <span className="text-muted-foreground text-xs">{item.label}</span>
           </div>
         ))}
       </div>
@@ -164,11 +165,11 @@ export function FindingsCard({ counts, total }: { counts: Record<Severity, numbe
             <div
               key={item.key}
               className={cn("h-full transition-[width] duration-500", item.bar)}
-              style={{ width: total > 0 ? (counts[item.key] / total) * 100 + "%" : "0%" }}
+              style={{ width: total > 0 ? `${(counts[item.key] / total) * 100}%` : "0%" }}
             />
           ))}
         </div>
-        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">共 {fmtCount(total)} 条</span>
+        <span className="shrink-0 text-muted-foreground text-xs tabular-nums">共 {fmtCount(total)} 条</span>
       </div>
     </SectionCard>
   );

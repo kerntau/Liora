@@ -2,14 +2,13 @@
 
 import * as React from "react";
 
-import Link from "@/lib/router-compat";
-
 import { ArrowRightIcon, ListChecksIcon, PlayCircleIcon } from "lucide-react";
 
-import { StatusBadge } from "@/components/status-badge";
 import { SectionCard } from "@/components/app/section-card";
+import { StatusBadge } from "@/components/status-badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { breathe } from "@/lib/motion";
+import Link from "@/lib/router-compat";
 import type { Task } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -42,7 +41,7 @@ export function ActiveTasksCard({
         <Link
           prefetch={false}
           href="/function/tasks"
-          className="inline-flex items-center gap-1 rounded text-xs font-medium text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+          className="inline-flex items-center gap-1 rounded font-medium text-primary text-xs hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         >
           全部任务 <ArrowRightIcon className="size-3" aria-hidden="true" />
         </Link>
@@ -52,8 +51,8 @@ export function ActiveTasksCard({
         <div className="flex flex-col items-center gap-1.5 py-8 text-center">
           {tasksReady ? (
             <>
-              <p className="text-[13px] font-medium text-foreground">暂无任务</p>
-              <p className="text-xs text-muted-foreground">新建任务后会出现在这里。</p>
+              <p className="font-medium text-[13px] text-foreground">暂无任务</p>
+              <p className="text-muted-foreground text-xs">新建任务后会出现在这里。</p>
             </>
           ) : (
             <Skeleton className="h-5 w-40" />
@@ -73,16 +72,15 @@ export function ActiveTasksCard({
                   aria-pressed={selected}
                   className={cn(
                     "flex w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors",
-                    "focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none",
-                    selected
-                      ? "bg-accent/60 ring-1 ring-primary/20 ring-inset"
-                      : "hover:bg-muted/50",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                    selected ? "bg-accent/60 ring-1 ring-primary/20 ring-inset" : "hover:bg-muted/50",
                   )}
                 >
                   <span
                     aria-hidden="true"
                     className={cn(
-                      "size-2 shrink-0 rounded-full",
+                      // 状态点统一 6px(size-1.5);呼吸仅限运行中任务
+                      "size-1.5 shrink-0 rounded-full",
                       running
                         ? cn("bg-success", breathe.className)
                         : task.status === "paused"
@@ -92,27 +90,19 @@ export function ActiveTasksCard({
                   />
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-2">
-                      <span className="truncate text-[13px] font-medium text-foreground">
-                        {task.name || task.description || "任务 #" + task.id}
+                      <span className="truncate font-medium text-[13px] text-foreground">
+                        {task.name || task.description || `任务 #${task.id}`}
                       </span>
-                      <StatusBadge
-                        domain="task"
-                        value={task.status}
-                        className="shrink-0 px-1.5 py-0 text-[11px]"
-                      />
+                      <StatusBadge domain="task" value={task.status} className="shrink-0 px-1.5 py-0 text-[11px]" />
                     </span>
                     <span className="mt-2 flex items-center gap-2">
                       <span className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
                         <span
                           className={cn(
                             "block h-full rounded-full transition-[width] duration-700",
-                            running
-                              ? "bg-primary"
-                              : task.status === "done"
-                                ? "bg-success"
-                                : "bg-warning",
+                            running ? "bg-primary" : task.status === "done" ? "bg-success" : "bg-warning",
                           )}
-                          style={{ width: (progress > 0 ? Math.max(progress, 2) : 0) + "%" }}
+                          style={{ width: `${progress > 0 ? Math.max(progress, 2) : 0}%` }}
                         />
                       </span>
                       <span className="w-9 shrink-0 text-right text-[11px] text-muted-foreground tabular-nums">
