@@ -646,31 +646,119 @@ html {
   color: var(--destructive);
 }
 
-/* ── 底部 Dock 的 hover 底块（默认透明，指到才浮出） ─────────────────
-   规范里写的是 bg-surface-muted，但它与 card 只差 3~6 个色阶
-   （浅色 #eaf2f9 vs #ffffff、深色 #0f1929 vs #101b2e），实测 hover 时整块看不见，
-   13 个格子又会退回「一排按钮」的观感。这里改用前景色 5% 的薄膜：
-   浅色下是一块极淡的灰、深色下自然向上提亮一档，两种模式都读得出「指到了哪一格」，
-   又不会变成实心按钮。放在 @layer 之外，确保优先级压过 tailwind 的 bg-* 工具类。 */
+/* ── 玻璃拟态 Dock ───────────────────────────────────────────────
+   只让容器与交互底块呈现玻璃层次，保留图标的细线轮廓。
+   颜色由主题令牌混合，切换预设或深色模式时不会留下硬编码色板。 */
+.dock-glass {
+  position: relative;
+  isolation: isolate;
+  border: 1px solid color-mix(in srgb, var(--card) 82%, var(--primary) 6%);
+  background: linear-gradient(
+    115deg,
+    color-mix(in srgb, var(--card) 82%, transparent),
+    color-mix(in srgb, var(--card) 66%, transparent) 55%,
+    color-mix(in srgb, var(--primary) 4%, var(--card) 65%)
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--card) 95%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--primary) 4%, var(--border) 22%),
+    0 14px 34px -18px color-mix(in srgb, var(--foreground) 24%, transparent),
+    0 2px 8px -4px color-mix(in srgb, var(--primary) 10%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  backdrop-filter: blur(20px) saturate(150%);
+}
+
+/* 一道克制的斜向反光；不遮挡图标，也不接收鼠标事件。 */
+.dock-glass::before {
+  position: absolute;
+  z-index: 0;
+  inset: 1px;
+  border-radius: inherit;
+  background: linear-gradient(
+    105deg,
+    color-mix(in srgb, var(--card) 22%, transparent),
+    transparent 38%,
+    transparent 75%,
+    color-mix(in srgb, var(--primary) 3%, transparent)
+  );
+  content: "";
+  pointer-events: none;
+}
+
+.dark .dock-glass {
+  border-color: color-mix(in srgb, var(--card) 50%, var(--foreground) 12%);
+  background: linear-gradient(
+    115deg,
+    color-mix(in srgb, var(--card) 84%, transparent),
+    color-mix(in srgb, var(--card) 68%, transparent)
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--foreground) 10%, transparent),
+    0 16px 40px -16px rgb(0 0 0 / 65%);
+}
+
 .dock-tile {
+  border: 1px solid transparent;
   background-color: transparent;
-  /* 由 floating-dock.tsx 按每帧 scale 写入：底块跟随放大后的字形（= 字形外扩 3px 的方块）。 */
-  transform: var(--dock-tile-follow, none);
 }
 
 .group:hover > .dock-tile,
 .group:focus-visible > .dock-tile {
-  background-color: color-mix(in srgb, var(--foreground) 5%, transparent);
+  border-color: color-mix(in srgb, var(--card) 62%, transparent);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--card) 46%, transparent),
+    color-mix(in srgb, var(--primary) 4%, transparent)
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--card) 70%, transparent),
+    0 5px 14px -7px color-mix(in srgb, var(--foreground) 22%, transparent);
 }
 
-/* 激活态：蓝底常显；静止时固定 40px 不跟随，只有 hover 时才跟字形一起放大。 */
-.dock-tile[data-active="true"] {
-  background-color: color-mix(in srgb, var(--primary) 10%, transparent);
-  transform: none;
-}
-
+/* 激活态使用淡蓝磨砂玻璃，轮廓始终固定。 */
+.dock-tile[data-active="true"],
 .group:hover > .dock-tile[data-active="true"],
 .group:focus-visible > .dock-tile[data-active="true"] {
-  background-color: color-mix(in srgb, var(--primary) 10%, transparent);
-  transform: var(--dock-tile-follow, none);
+  border-color: color-mix(in srgb, var(--primary) 13%, var(--card) 72%);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--primary) 11%, var(--card) 46%),
+    color-mix(in srgb, var(--primary) 7%, transparent)
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--card) 78%, transparent),
+    0 4px 14px -7px color-mix(in srgb, var(--primary) 30%, transparent);
+}
+
+.dock-divider {
+  background: linear-gradient(
+    transparent,
+    color-mix(in srgb, var(--foreground) 17%, transparent) 30%,
+    color-mix(in srgb, var(--foreground) 17%, transparent) 70%,
+    transparent
+  );
+}
+
+.dock-tooltip {
+  border: 1px solid color-mix(in srgb, var(--card) 78%, var(--border) 22%);
+  color: var(--popover-foreground);
+  background: color-mix(in srgb, var(--popover) 84%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--card) 70%, transparent),
+    0 6px 18px -10px color-mix(in srgb, var(--foreground) 30%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  backdrop-filter: blur(16px) saturate(150%);
+}
+
+.dock-glass button,
+.dock-glass a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .dock-glass {
+    background: var(--card);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }

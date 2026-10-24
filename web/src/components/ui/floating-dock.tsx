@@ -23,18 +23,6 @@ export interface FloatingDockItem {
   groupLabel?: string;
 }
 
-/**
- * 放大动效参数。
- *
- * 关键取舍：只改 `transform: scale()`，**不改宽高**。
- * 参考实现（motion/react）动的是 width/height，dock 会随光标从 725px 长到 787px；
- * dock 又是 `left-1/2` 居中的，于是整条 dock 会左右滑动、光标底下的图标跟着跑。
- * 改成纯 transform 之后 dock 总宽恒定，图标以 origin-bottom 向上长，
- * 既不撑高容器，也不会把邻居推走。
- */
-const MAX_SCALE = 1.7; // 20px 字形 → 最大 34px
-const SCALE_REACH = 150; // 水平 ±150px 之外回到 1.0
-
 interface DockGroup {
   key: string;
   label?: string;
@@ -87,18 +75,8 @@ function resolveActiveHref(pathname: string, items: FloatingDockItem[]): string 
   return best;
 }
 
-/**
- * 单个图标：格子固定 40px、字形 20px。
- *
- * 视觉分三层（DOM 顺序 = 绘制顺序）：
- * 1. 底块层：绝对定位铺满 40px，**不参与 scale**。默认完全透明（.dock-tile），
- *    hover 才浮出一块极淡的圆角底（见 globals.css 末尾），激活态是 bg-primary/10
- *    —— 这样 13 个格子不再各自顶着浅灰方块，静止时整条 Dock 是连续的一整块。
- * 2. 字形层：只缩放 20px 的 SVG（origin-bottom）。放大到 34px 时向上长、底边不动，
- *    所以既不会长到 68px 顶出 Dock，也不会盖住下面 3px 处的激活点。
- * 3. 激活点：绝对定位、不参与布局，距字形底 3px。
- */
-function DockIcon({ item, scale, active }: { item: FloatingDockItem; scale: number; active: boolean }) {
+/** 固定尺寸的图标与底块，悬停只做 2px 上浮，避免线条与玻璃边缘因缩放发虚。 */
+function DockIcon({ item, active }: { item: FloatingDockItem; active: boolean }) {
   const Icon = item.icon;
 
   return (
@@ -108,32 +86,22 @@ function DockIcon({ item, scale, active }: { item: FloatingDockItem; scale: numb
       aria-label={item.title}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "group relative z-0 flex size-10 shrink-0 items-center justify-center rounded-[10px] outline-none",
-        "focus-visible:ring-2 focus-visible:ring-ring/45",
-        // 放大后的字形会横向溢出格子：hover / 键盘聚焦时把整格提到最上层，
-        // 邻居的图标和分隔线都不会压住它的 tooltip。
-        "hover:z-30 focus-visible:z-30",
+        "group relative z-0 flex size-10 shrink-0 items-center justify-center rounded-[12px] outline-none",
+        "transition-transform duration-200 ease-out hover:-translate-y-0.5 focus-visible:-translate-y-0.5",
+        "focus-visible:ring-2 focus-visible:ring-ring/45 hover:z-30 focus-visible:z-30",
       )}
     >
       <span
         aria-hidden="true"
         data-active={active ? "true" : undefined}
-        style={
-          {
-            // 底块相对 40px 基准的跟随变换：字形 20s 高、底边固定在格子 y=30，
-            // 底块取「字形外扩 3px」→ 边长 20s+6，中心对齐字形中心。
-            // scale = (20s+6)/40 = 0.5s+0.15；位移 = 字形中心 - 格子中心 = 10-10s。
-            "--dock-tile-follow": `translateY(${(10 - 10 * scale).toFixed(2)}px) scale(${(0.5 * scale + 0.15).toFixed(3)})`,
-          } as React.CSSProperties
-        }
-        className="dock-tile absolute inset-0 rounded-[10px] transition-[transform,background-color] duration-150 ease-out"
+        className="dock-tile absolute inset-0 rounded-[12px] transition-[background,border-color,box-shadow] duration-200 ease-out"
       />
 
       <Icon
         aria-hidden="true"
-        style={{ transform: `scale(${scale})` }}
+        strokeWidth={1.75}
         className={cn(
-          "relative size-5 origin-bottom transition-[transform,color] duration-150 ease-out will-change-transform",
+          "relative size-5 transition-colors duration-200 ease-out",
           active ? "text-primary" : "text-muted-foreground group-hover:text-foreground",
         )}
       />
@@ -141,17 +109,16 @@ function DockIcon({ item, scale, active }: { item: FloatingDockItem; scale: numb
       {active ? (
         <span
           aria-hidden="true"
-          className="absolute bottom-[3px] left-1/2 z-10 size-1 -translate-x-1/2 rounded-full bg-primary"
+          className="absolute bottom-1 left-1/2 z-10 size-[3px] -translate-x-1/2 rounded-full bg-primary"
         />
       ) : null}
 
       {/*
-        tooltip 挂在 40px 格子上、离格子顶 12px：字形放大到 1.7 倍时最高只到格子顶上方 4px，
-        所以气泡底边仍在它上方 8px，既贴得近又不会被放大后的图标压住。
+        提示气泡与 Dock 使用同一套玻璃材质；轻微上浮，不抢夺图标焦点。
       */}
       <span
         className={cn(
-          "pointer-events-none absolute bottom-full left-1/2 z-20 mb-3 -translate-x-1/2 translate-y-1 rounded-md border border-border bg-popover px-2 py-1 text-[11px] font-medium whitespace-nowrap text-popover-foreground opacity-0 shadow-[var(--shadow-raised)]",
+          "dock-tooltip pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 -translate-x-1/2 translate-y-1 rounded-lg px-2.5 py-1 text-[11px] font-medium whitespace-nowrap opacity-0",
           "transition-all duration-150 ease-out",
           "group-hover:translate-y-0 group-hover:opacity-100 group-focus-visible:translate-y-0 group-focus-visible:opacity-100",
         )}
@@ -162,23 +129,14 @@ function DockIcon({ item, scale, active }: { item: FloatingDockItem; scale: numb
   );
 }
 
-/**
- * 组间分隔线。
- *
- * 左右各 10px（px-2.5）内边距、竖线本体 20px 高：加上 flex 的 6px gap，
- * 两侧留白天然对称，不会一边贴死一边空荡。
- *
- * 组名做成 hover 才淡入、而不是常显：再塞一行常显组名会把条子顶高、
- * 并和放大后的图标打架。分隔线整格 h-10（与图标格同高）且 z-10，
- * 命中区 21px × 40px，光标停在竖线上时两侧图标还不会抢走 hover。
- */
+/** 轻量分隔线；组名只在悬停时淡入，保持 Dock 的紧凑轮廓。 */
 function GroupDivider({ label }: { label?: string }) {
   return (
     <span
       aria-hidden="true"
-      className="group/divider relative z-10 flex h-10 shrink-0 items-center justify-center px-2.5 hover:z-30"
+      className="group/divider relative z-10 flex h-10 shrink-0 items-center justify-center px-1 hover:z-30"
     >
-      <span className="h-5 w-px rounded-full bg-border" />
+      <span className="dock-divider h-4 w-px rounded-full" />
       {label ? (
         <span
           className={cn(
@@ -270,7 +228,7 @@ function FloatingDockMobile({
         inert={!open}
         aria-hidden={!open}
         className={cn(
-          "absolute right-0 bottom-full mb-3 w-60 origin-bottom-right rounded-xl border border-border/60 bg-card/95 p-1.5 shadow-[var(--shadow-raised)] backdrop-blur-xl",
+          "dock-glass absolute right-0 bottom-full mb-3 w-60 origin-bottom-right rounded-xl p-1.5",
           "transition-all duration-200 ease-out",
           open
             ? "pointer-events-auto translate-y-0 scale-100 opacity-100"
@@ -310,7 +268,7 @@ function FloatingDockMobile({
         aria-expanded={open}
         aria-controls="floating-dock-mobile-panel"
         aria-label={open ? "收起导航" : "展开导航"}
-        className="relative grid size-12 place-items-center rounded-full border border-border/60 bg-card/95 text-foreground shadow-[var(--shadow-raised)] backdrop-blur-xl transition-colors active:bg-surface-muted"
+        className="dock-glass grid size-12 place-items-center rounded-full text-foreground transition-transform active:scale-95"
       >
         <MenuIcon
           aria-hidden="true"
@@ -331,106 +289,26 @@ function FloatingDockMobile({
   );
 }
 
-/**
- * macOS 风格底部浮动 Dock。
- *
- * 动效全部走「React 状态 + CSS transition」，没有 motion/framer-motion：
- * - `onMouseMove` 只记录光标 X，真正的计算放在 requestAnimationFrame 里（每帧最多一次）；
- * - 每帧读一次各图标的「未 transform 的外层格子」矩形，按 `|光标X - 格子中心|` 线性映射成 scale；
- * - scale 通过内联 transform 下发，配合 `transition-transform duration-150 ease-out` 补间，
- *   所以即便每帧的离散值有跳变，视觉上也是连续的。
- */
+/** 底部浮动玻璃 Dock：固定图标比例、轻量悬停反馈，不引入逐帧鼠标计算。 */
 export function FloatingDock({ items, className }: { items: FloatingDockItem[]; className?: string }) {
   const pathname = usePathname();
   const activeHref = React.useMemo(() => resolveActiveHref(pathname, items), [pathname, items]);
   const groups = React.useMemo(() => splitByGroup(items), [items]);
 
-  const [scales, setScales] = React.useState<number[]>(() => items.map(() => 1));
-  const itemRefs = React.useRef<Array<HTMLSpanElement | null>>([]);
-  const frameRef = React.useRef<number | null>(null);
-  const pointerRef = React.useRef<number | null>(null);
-
-  // ref 回调必须稳定：否则每帧重渲染都会先 detach 再 attach 一遍，白白多一轮 DOM 写入。
-  const refSetters = React.useMemo(
-    () =>
-      items.map((_, index) => (element: HTMLSpanElement | null) => {
-        itemRefs.current[index] = element;
-      }),
-    [items],
-  );
-
-  const commitScales = React.useCallback(
-    (clientX: number | null) => {
-      const next = items.map((_, index) => {
-        const element = itemRefs.current[index];
-        if (clientX === null || !element) return 1;
-        // 量外层格子而不是内层图标：内层带 scale，用它算距离会自我反馈（越靠越近时抖动）。
-        const rect = element.getBoundingClientRect();
-        const distance = Math.abs(clientX - (rect.left + rect.width / 2));
-        if (distance >= SCALE_REACH) return 1;
-        const scale = MAX_SCALE - ((MAX_SCALE - 1) * distance) / SCALE_REACH;
-        return Math.round(scale * 1000) / 1000;
-      });
-      setScales((prev) =>
-        prev.length === next.length && prev.every((value, index) => value === next[index]) ? prev : next,
-      );
-    },
-    [items],
-  );
-
-  const handleMouseMove = React.useCallback(
-    (event: React.MouseEvent<HTMLDivElement>) => {
-      pointerRef.current = event.clientX;
-      // 一帧只算一次：mousemove 在高刷屏上可以比渲染还密，不节流就是纯浪费。
-      if (frameRef.current !== null) return;
-      frameRef.current = window.requestAnimationFrame(() => {
-        frameRef.current = null;
-        commitScales(pointerRef.current);
-      });
-    },
-    [commitScales],
-  );
-
-  const handleMouseLeave = React.useCallback(() => {
-    pointerRef.current = null;
-    if (frameRef.current !== null) {
-      window.cancelAnimationFrame(frameRef.current);
-      frameRef.current = null;
-    }
-    commitScales(null);
-  }, [commitScales]);
-
-  React.useEffect(
-    () => () => {
-      if (frameRef.current !== null) window.cancelAnimationFrame(frameRef.current);
-    },
-    [],
-  );
-
   return (
     <>
       {/* 桌面端：底部居中的胶囊横条。hidden/md:block 而不是 JS 断点，首帧就不会闪。
-          40px 格子 + py-2 → 总高 56px；内层不再有默认底块，整条是一条连续的 Dock。 */}
+          40px 点击格子 + 6px 内边距，保持紧凑且清晰的连续轮廓。 */}
       <nav
         aria-label="主导航"
         className={cn("fixed bottom-4 left-1/2 z-50 hidden -translate-x-1/2 md:block", className)}
       >
-        <div
-          onMouseMove={handleMouseMove}
-          onMouseLeave={handleMouseLeave}
-          className="flex items-center gap-1.5 rounded-xl border border-border/60 bg-card/95 px-2 py-2 shadow-[var(--shadow-raised)] backdrop-blur-xl"
-        >
+        <div className="dock-glass flex items-center gap-0.5 rounded-[14px] px-1.5 py-1.5">
           {groups.map((group, groupIndex) => (
             <React.Fragment key={group.key || `dock-group-${groupIndex}`}>
               {groupIndex > 0 ? <GroupDivider label={group.label} /> : null}
-              {group.entries.map(({ item, index }) => (
-                <span key={item.href} ref={refSetters[index]} className="flex h-10 items-center">
-                  <DockIcon
-                    item={item}
-                    scale={scales[index] ?? 1}
-                    active={normalizePath(item.href) === activeHref}
-                  />
-                </span>
+              {group.entries.map(({ item }) => (
+                <DockIcon key={item.href} item={item} active={normalizePath(item.href) === activeHref} />
               ))}
             </React.Fragment>
           ))}
